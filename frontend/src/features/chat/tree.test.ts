@@ -1,6 +1,12 @@
 import type { MessageOut } from '@/api/types';
 
-import { ROOT, branchKeyOf, selectActivePath } from './tree';
+import {
+  ROOT,
+  activeLeafId,
+  branchKeyOf,
+  selectActivePath,
+  treeContainsMessage,
+} from './tree';
 
 function message(overrides: Partial<MessageOut> & { id: string }): MessageOut {
   return {
@@ -101,4 +107,13 @@ test('empty, orphaned, and cyclic data are safe', () => {
 test('branchKeyOf uses the root sentinel for top-level messages', () => {
   expect(branchKeyOf(message({ id: 'u1' }))).toBe(ROOT);
   expect(branchKeyOf(message({ id: 'a1', parent_message_id: 'u1' }))).toBe('u1');
+});
+
+test('recursive helpers find persisted stream results and the selected continuation leaf', () => {
+  const tree = linearTree();
+  const path = selectActivePath(tree, {});
+  expect(treeContainsMessage(tree, 'a2')).toBe(true);
+  expect(treeContainsMessage(tree, 'missing')).toBe(false);
+  expect(activeLeafId(path)).toBe('a2');
+  expect(activeLeafId([])).toBeNull();
 });

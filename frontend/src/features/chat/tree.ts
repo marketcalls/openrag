@@ -37,6 +37,14 @@ function collectMessages(nodes: readonly MessageOut[]): MessageOut[] {
   return collected;
 }
 
+export function treeContainsMessage(messages: readonly MessageOut[], messageId: string): boolean {
+  return collectMessages(messages).some((message) => message.id === messageId);
+}
+
+export function activeLeafId(path: readonly PathEntry[]): string | null {
+  return path.at(-1)?.message.id ?? null;
+}
+
 /**
  * Select one renderable path through a recursive backend message tree. The
  * collector also accepts legacy flat input, while orphan and cycle guards keep
