@@ -36,3 +36,8 @@ class ConflictError(OpenRAGError):
 class RateLimitExceeded(OpenRAGError):
     status_code = 429
     title = "Too many requests"
+
+
+class PayloadTooLarge(OpenRAGError):
+    status_code = 413
+    title = "Payload too large"
