@@ -1,4 +1,4 @@
-import { UserPlus } from 'lucide-react';
+import { FolderKey, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 
 import type { UserOut } from '@/api/types';
@@ -13,12 +13,14 @@ import { toast } from '@/components/ui/toaster';
 
 import { InviteDialog } from './invite-dialog';
 import { usePatchUser, useUsers, type ManagedRole } from './queries';
+import { WorkspaceAccessDialog } from './workspace-access-dialog';
 
 export function UsersPage() {
   const users = useUsers();
   const patchUser = usePatchUser();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [confirmUser, setConfirmUser] = useState<UserOut | null>(null);
+  const [accessUser, setAccessUser] = useState<UserOut | null>(null);
 
   const updateUser = (userId: string, body: { active?: boolean; role?: ManagedRole }) => {
     patchUser.mutate(
@@ -87,9 +89,15 @@ export function UsersPage() {
                     </TD>
                     <TD className="text-right">
                       {user.role !== 'superadmin' ? (
-                        <Button size="sm" onClick={() => setConfirmUser(user)}>
-                          {user.active ? 'Deactivate' : 'Reactivate'}
-                        </Button>
+                        <div className="flex justify-end gap-1.5">
+                          <Button size="sm" onClick={() => setAccessUser(user)}>
+                            <FolderKey className="h-3.5 w-3.5" aria-hidden />
+                            Workspace access
+                          </Button>
+                          <Button size="sm" onClick={() => setConfirmUser(user)}>
+                            {user.active ? 'Deactivate' : 'Reactivate'}
+                          </Button>
+                        </div>
                       ) : null}
                     </TD>
                   </TR>
@@ -103,6 +111,13 @@ export function UsersPage() {
         </div>
       </div>
       <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
+      {accessUser ? (
+        <WorkspaceAccessDialog
+          user={accessUser}
+          open
+          onOpenChange={(open) => !open && setAccessUser(null)}
+        />
+      ) : null}
       <Dialog open={confirmUser !== null} onOpenChange={(open) => !open && setConfirmUser(null)}>
         <DialogContent
           title={confirmUser?.active ? 'Deactivate user' : 'Reactivate user'}
