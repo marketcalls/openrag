@@ -32,11 +32,37 @@ test('base URL appears only for ollama and openai compatible providers', async (
   const user = userEvent.setup();
   renderDialog();
 
+  expect(screen.getByRole('option', { name: 'OpenAI via LiteLLM' })).toBeInTheDocument();
   expect(screen.queryByLabelText('Base URL')).not.toBeInTheDocument();
   await user.selectOptions(screen.getByLabelText('Provider'), 'ollama');
   expect(screen.getByLabelText('Base URL')).toBeInTheDocument();
   await user.selectOptions(screen.getByLabelText('Provider'), 'openai_compatible');
   expect(screen.getByLabelText('Base URL')).toBeInTheDocument();
+});
+
+test('shows the backend problem detail when model registration fails', async () => {
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    new Response(
+      JSON.stringify({
+        detail: 'KEK file missing; run the OpenRAG bootstrap first',
+      }),
+      {
+        status: 500,
+        headers: { 'content-type': 'application/problem+json' },
+      },
+    ),
+  );
+  const user = userEvent.setup();
+  renderDialog(fetchMock);
+
+  await user.type(screen.getByLabelText('Display name'), 'GPT-5.6 Luna');
+  await user.type(screen.getByLabelText('Model id'), 'gpt-5.6-luna');
+  await user.type(screen.getByLabelText('API key'), 'sk-write-only');
+  await user.click(screen.getByRole('button', { name: 'Add model' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'KEK file missing; run the OpenRAG bootstrap first',
+  );
 });
 
 test('api key is write-only and absent for ollama', async () => {

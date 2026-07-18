@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import Settings
-from openrag.core.errors import ConflictError, NotFoundError
+from openrag.core.errors import ConflictError, NotFoundError, SecretsError
 from openrag.modules.audit.models import AuditEvent
 from openrag.modules.auth.models import User
 from openrag.modules.models.service import (
@@ -73,6 +73,31 @@ async def test_create_stores_key_as_secret(
     [output] = await to_model_out(session, [model])
     assert output.key_fingerprint == secret.fingerprint
     assert not hasattr(output, "api_key")
+
+
+async def test_missing_kek_does_not_leave_a_partial_model(
+    session: AsyncSession,
+    seeded_user: User,
+    tmp_path: Path,
+) -> None:
+    missing_kek = Settings(
+        _env_file=None,
+        kek_file=str(tmp_path / "missing" / "openrag_kek"),
+    )
+
+    with pytest.raises(SecretsError, match="KEK file missing"):
+        await create_model(
+            session,
+            super_ctx(seeded_user),
+            litellm_model_name="gpt-5.6-luna",
+            display_name="GPT-5.6 Luna",
+            provider_kind="openai",
+            base_url=None,
+            api_key="sk-write-only",
+            settings=missing_kek,
+        )
+
+    assert await list_models(session) == []
 
 
 async def test_update_and_disable(

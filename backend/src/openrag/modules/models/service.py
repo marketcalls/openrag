@@ -107,31 +107,36 @@ async def create_model(
     api_key: str | None,
     settings: Settings,
 ) -> Model:
-    model = Model(
-        litellm_model_name=litellm_model_name,
-        display_name=display_name,
-        provider_kind=provider_kind,
-        base_url=base_url,
-    )
-    session.add(model)
-    await session.flush()
-    await record_audit(
-        session,
-        org_id=None,
-        actor_id=ctx.user_id,
-        action="model.created",
-        target_type="model",
-        target_id=str(model.id),
-    )
-    await session.commit()
-    if api_key is not None:
-        await secrets_service.set_secret(
-            session,
-            actor_id=ctx.user_id,
-            name=f"model:{model.id}",
-            value=api_key,
-            settings=settings,
+    try:
+        model = Model(
+            litellm_model_name=litellm_model_name,
+            display_name=display_name,
+            provider_kind=provider_kind,
+            base_url=base_url,
         )
+        session.add(model)
+        await session.flush()
+        await record_audit(
+            session,
+            org_id=None,
+            actor_id=ctx.user_id,
+            action="model.created",
+            target_type="model",
+            target_id=str(model.id),
+        )
+        if api_key is not None:
+            await secrets_service.set_secret(
+                session,
+                actor_id=ctx.user_id,
+                name=f"model:{model.id}",
+                value=api_key,
+                settings=settings,
+                commit=False,
+            )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
     return model
 
 
@@ -146,30 +151,35 @@ async def update_model(
     api_key: str | None,
     settings: Settings,
 ) -> Model:
-    model = await get_model(session, model_id)
-    if display_name is not None:
-        model.display_name = display_name
-    if base_url is not None:
-        model.base_url = base_url
-    if enabled is not None:
-        model.enabled = enabled
-    await record_audit(
-        session,
-        org_id=None,
-        actor_id=ctx.user_id,
-        action="model.updated",
-        target_type="model",
-        target_id=str(model.id),
-    )
-    await session.commit()
-    if api_key is not None:
-        await secrets_service.set_secret(
+    try:
+        model = await get_model(session, model_id)
+        if display_name is not None:
+            model.display_name = display_name
+        if base_url is not None:
+            model.base_url = base_url
+        if enabled is not None:
+            model.enabled = enabled
+        await record_audit(
             session,
+            org_id=None,
             actor_id=ctx.user_id,
-            name=f"model:{model.id}",
-            value=api_key,
-            settings=settings,
+            action="model.updated",
+            target_type="model",
+            target_id=str(model.id),
         )
+        if api_key is not None:
+            await secrets_service.set_secret(
+                session,
+                actor_id=ctx.user_id,
+                name=f"model:{model.id}",
+                value=api_key,
+                settings=settings,
+                commit=False,
+            )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
     return model
 
 

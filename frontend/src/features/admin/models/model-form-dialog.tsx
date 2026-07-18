@@ -122,9 +122,9 @@ export function ModelFormDialog({
               disabled={editing}
               onChange={(event) => setProvider(event.target.value as ProviderKind)}
             >
-              <option value="openai">OpenAI</option>
-              <option value="ollama">Ollama</option>
-              <option value="openai_compatible">OpenAI-compatible</option>
+              <option value="openai">OpenAI via LiteLLM</option>
+              <option value="ollama">Ollama via LiteLLM</option>
+              <option value="openai_compatible">OpenAI-compatible via LiteLLM</option>
             </NativeSelect>
           </div>
           <div>

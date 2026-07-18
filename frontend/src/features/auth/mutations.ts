@@ -2,14 +2,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 
 import { api } from '@/api/client';
+import { problemDetail } from '@/api/problem';
 import { setAccessToken } from '@/lib/auth-store';
-
-export function problemDetail(body: unknown): string {
-  if (body && typeof body === 'object' && 'detail' in body && typeof body.detail === 'string') {
-    return body.detail || 'Request failed';
-  }
-  return 'Request failed';
-}
 
 export function useLogin() {
   const navigate = useNavigate();

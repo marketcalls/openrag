@@ -21,6 +21,7 @@ async def set_secret(
     name: str,
     value: str,
     settings: Settings,
+    commit: bool = True,
 ) -> Secret:
     key = crypto.load_kek(settings.kek_file)
     nonce, ciphertext = crypto.encrypt(key, value)
@@ -49,7 +50,8 @@ async def set_secret(
         target_type="secret",
         target_id=name,
     )
-    await session.commit()
+    if commit:
+        await session.commit()
     return row
 
 
