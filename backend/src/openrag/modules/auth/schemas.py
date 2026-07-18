@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from pydantic import BaseModel, EmailStr
 
 
@@ -23,3 +25,17 @@ class InvitationOut(BaseModel):
 class InvitationAccept(BaseModel):
     token: str
     password: str
+
+
+class UserOut(BaseModel):
+    id: UUID
+    email: EmailStr
+    role: str
+    active: bool
+
+    model_config = {"from_attributes": True}
+
+
+class UserPatch(BaseModel):
+    active: bool | None = None
+    role: str | None = None

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.core.app_settings import get_or_create_signing_key
 from openrag.core.config import Settings
 from openrag.core.db import naive_utc
-from openrag.core.errors import AuthenticationError, ConflictError
+from openrag.core.errors import AuthenticationError, ConflictError, NotFoundError
 from openrag.modules.auth.models import Invitation, RefreshToken, User
 from openrag.modules.auth.passwords import hash_password, verify_password
 from openrag.modules.auth.tokens import issue_access_token
@@ -169,5 +169,59 @@ async def accept_invitation(
         role=invitation.role,
     )
     session.add(user)
+    await session.commit()
+    return user
+
+
+async def list_users(
+    session: AsyncSession,
+    context: TenantContext,
+) -> list[User]:
+    statement = (
+        select(User)
+        .where(User.org_id == context.org_id)
+        .order_by(User.email)
+    )
+    return list((await session.execute(statement)).scalars())
+
+
+async def get_user(
+    session: AsyncSession,
+    context: TenantContext,
+    user_id: UUID,
+) -> User:
+    user = (
+        await session.execute(
+            select(User).where(
+                User.id == user_id,
+                User.org_id == context.org_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if user is None or user.role == "superadmin":
+        raise NotFoundError("user not found")
+    return user
+
+
+async def set_user_active(
+    session: AsyncSession,
+    context: TenantContext,
+    user_id: UUID,
+    active: bool,
+) -> User:
+    user = await get_user(session, context, user_id)
+    user.active = active
+    await session.commit()
+    return user
+
+
+async def set_user_role(
+    session: AsyncSession,
+    context: TenantContext,
+    user_id: UUID,
+    role: str,
+) -> User:
+    user = await get_user(session, context, user_id)
+    user.role = role
     await session.commit()
     return user
