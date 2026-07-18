@@ -2,7 +2,7 @@
 
 OpenRAG is an open, self-hosted platform for building secure AI assistants over private business knowledge. It brings document ingestion, hybrid retrieval, model choice, citations, access control, and administration into one system that can run in the cloud, on private infrastructure, or fully on-premises.
 
-The project is currently in the planning and design stage. The repository contains the product requirements, architecture decisions, approved design specifications, and phased implementation plans.
+OpenRAG is under active development. The repository currently includes a working FastAPI backend, React frontend, authentication and invitations, multi-tenant workspaces, asynchronous document ingestion, hybrid retrieval, streamed cited chat, and model/user administration.
 
 ## Why OpenRAG
 
@@ -45,7 +45,7 @@ OpenRAG is planned to provide:
 
 ## Architecture
 
-The planned platform uses a modular monolith with independently scalable workers and infrastructure services:
+The platform uses a modular monolith with independently scalable API and worker processes plus dedicated infrastructure services:
 
 | Area | Technology |
 |---|---|
@@ -61,6 +61,93 @@ The planned platform uses a modular monolith with independently scalable workers
 | Observability | OpenTelemetry, Prometheus, and Grafana |
 
 The design follows five foundational rules: tenant filtering has one enforced path per data store, document permissions are applied inside retrieval, secrets have one controlled decryption path, authorization is declared at API boundaries, and all document content and model output are treated as untrusted data.
+
+See the [high-level architecture](docs/architecture.md) for service boundaries and ingestion/query flows.
+
+## Development setup
+
+Prerequisites: Docker, Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 20+, and Corepack.
+
+Start the infrastructure from the repository root:
+
+```bash
+docker compose -f deploy/compose.yaml --profile ml up -d
+```
+
+The `ml` profile starts Text Embeddings Inference with BGE-M3 and may take several minutes on its first run. For a lightweight functional smoke without downloading the embedding model, omit `--profile ml` and start the API and worker with `OPENRAG_EMBEDDING_BACKEND=hash`.
+
+Prepare and start the backend:
+
+```bash
+cd backend
+uv sync
+uv run alembic upgrade head
+OPENRAG_BOOTSTRAP_EMAIL=root@openrag.internal \
+OPENRAG_BOOTSTRAP_PASSWORD=changeme123 \
+  uv run python -m openrag.bootstrap
+uv run uvicorn --factory openrag.api.app:create_app --port 8000
+```
+
+Start the ingestion worker in a second terminal from `backend/`:
+
+```bash
+uv run celery -A openrag.worker.celery_app:celery_app \
+  worker -Q interactive,default -l info
+```
+
+Start the frontend in a third terminal:
+
+```bash
+cd frontend
+corepack pnpm install
+corepack pnpm generate:api
+corepack pnpm dev
+```
+
+Open [http://localhost:5173](http://localhost:5173). During local development, sign in with:
+
+- Email: `root@openrag.internal`
+- Password: `changeme123`
+
+These are development-only bootstrap credentials. Change them for any shared or internet-accessible deployment. After signing in, register a completion model under **Superadmin → Models**, create a workspace, upload a document, wait for **Indexed**, and start a chat.
+
+Useful service URLs:
+
+| Service | URL |
+|---|---|
+| OpenRAG web app | <http://localhost:5173> |
+| API documentation | <http://localhost:8000/api/docs> |
+| MinIO console | <http://localhost:59001> |
+| LiteLLM proxy | <http://localhost:54000> |
+
+## Verification
+
+```bash
+# Backend
+cd backend
+uv run pytest
+uv run ruff check .
+uv run mypy src tests
+uv run lint-imports
+
+# Frontend
+cd frontend
+corepack pnpm lint
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+corepack pnpm e2e  # skips unless E2E=1
+```
+
+For the real-stack browser journey, configure a completion model or provide `E2E_OPENAI_API_KEY`, keep the API, worker, and frontend running, then run:
+
+```bash
+E2E=1 \
+E2E_EMAIL=root@openrag.internal \
+E2E_PASSWORD=changeme123 \
+E2E_OPENAI_API_KEY=sk-... \
+  corepack pnpm e2e
+```
 
 ## Roadmap
 
