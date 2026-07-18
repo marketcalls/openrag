@@ -34,7 +34,9 @@ step name and status code.
 6. Verify logout returns 204 and refresh after logout returns 401 using the
    `httpx` cookie jar.
 7. In `finally`, remove only fixture-owned refresh tokens, memberships,
-   bindings, workspaces, and the fixture user. Cleanup is organization scoped,
+   bindings, workspaces, and the fixture user. Workspace cleanup uses both
+   returned IDs and precomputed collision-resistant names so a lost or malformed
+   create response cannot strand a fixture. Cleanup is organization scoped,
    transactional, and works after partial setup.
 
 ## Failure and security behavior

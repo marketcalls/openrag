@@ -343,28 +343,39 @@ corepack pnpm e2e  # RBAC cases always run; the live RAG journey needs E2E=1
 ```
 
 The RBAC browser suite starts an isolated Vite server when `E2E_BASE_URL` is not
-set. It verifies organization Administrator navigation, the non-assignable
-platform boundary, Engineer denial, workspace-scoped HSE access, and retained
-platform administration. Server-side isolation is separately enforced by the
-backend PostgreSQL tests; frontend route guards are convenience, not security.
+set. `frontend/e2e/rbac.spec.ts` deliberately intercepts `/api` with deterministic
+fixtures. It verifies frontend navigation, route guards, and presentation for an
+organization Administrator, Engineer, workspace-scoped HSE Manager, and platform
+superadmin. It does **not** prove live login, catalog enforcement, API denial,
+workspace isolation, or logout. Frontend guards are a convenience, not a
+security boundary.
 
-For a Compose smoke, first ensure `OPENRAG_API_PORT` and `OPENRAG_WEB_PORT` match
-the running stack, then verify liveness, readiness, login, the permission
-catalog, an authenticated denial, workspace isolation, and logout without
-printing the bearer token. Prompt for the password or load it from a protected
-secret store; do not place it directly in shell history.
+The authoritative live RBAC smoke is the credential-safe backend script. Start
+the standard Compose stack first, then run it from `backend/`:
 
 ```bash
-curl --fail --silent --show-error http://localhost:${OPENRAG_API_PORT:-8000}/healthz
-curl --fail --silent --show-error http://localhost:${OPENRAG_API_PORT:-8000}/readyz
-
-cd frontend
-E2E=1 \
-E2E_BASE_URL=http://localhost:${OPENRAG_WEB_PORT:-5173} \
-E2E_EMAIL="$OPENRAG_BOOTSTRAP_EMAIL" \
-E2E_PASSWORD="$OPENRAG_BOOTSTRAP_PASSWORD" \
-  corepack pnpm e2e
+docker compose -f deploy/compose.yaml up -d
+cd backend
+uv run python scripts/rbac_compose_smoke.py
 ```
+
+The script defaults to `http://127.0.0.1:8000`. For a custom loopback API port,
+set `OPENRAG_SMOKE_API_URL`; an explicitly remote target must use HTTPS:
+
+```bash
+OPENRAG_SMOKE_API_URL="http://127.0.0.1:${OPENRAG_API_PORT}" \
+  uv run python scripts/rbac_compose_smoke.py
+```
+
+It obtains the existing bootstrap credentials from the standard
+`openrag-bootstrap-1` container without printing them, sends bearer tokens only
+in authorization headers, and reports fixed PASS/status labels. It creates a
+random temporary Engineer and two random workspaces, proves health, readiness,
+the non-assignable platform boundary, exact 403 administration denials,
+workspace isolation, and logout/refresh behavior against the real API. A
+transactional `finally` cleanup removes only those organization-scoped fixtures,
+including after a partial failure. The script never requires a model provider or
+spends model tokens.
 
 The automated API and isolation selections used for the RBAC handoff are:
 
