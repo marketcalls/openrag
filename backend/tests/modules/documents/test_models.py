@@ -19,7 +19,6 @@ async def seed_scope(
         org_id=organization.id,
         email="documents@acme.com",
         password_hash="x",  # noqa: S106 - inert persisted test value
-        role="admin",
     )
     session.add_all([workspace, user])
     await session.flush()

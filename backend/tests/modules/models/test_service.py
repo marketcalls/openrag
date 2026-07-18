@@ -20,6 +20,7 @@ from openrag.modules.models.service import (
 )
 from openrag.modules.secrets.crypto import ensure_kek
 from openrag.modules.secrets.models import Secret
+from openrag.modules.tenancy.authorization import AuthorizationSnapshot
 from openrag.modules.tenancy.context import TenantContext
 
 
@@ -34,8 +35,14 @@ def super_ctx(user: User) -> TenantContext:
     return TenantContext(
         user_id=user.id,
         org_id=user.org_id,
-        role="superadmin",
-        workspace_ids=frozenset(),
+        authorization=AuthorizationSnapshot(
+            user_id=user.id,
+            org_id=user.org_id,
+            is_platform_superadmin=True,
+            org_permissions=frozenset(),
+            workspace_permissions={},
+            workspace_ids=frozenset(),
+        ),
     )
 
 

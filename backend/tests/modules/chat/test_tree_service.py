@@ -15,6 +15,7 @@ from openrag.modules.chat.service import (
     rename_chat,
     resolve_parent,
 )
+from openrag.modules.tenancy.authorization import AuthorizationSnapshot
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Workspace, WorkspaceMember
 
@@ -27,14 +28,24 @@ async def make_ctx(
     session.add(workspace)
     await session.flush()
     session.add(
-        WorkspaceMember(workspace_id=workspace.id, user_id=user.id)
+        WorkspaceMember(
+            org_id=user.org_id,
+            workspace_id=workspace.id,
+            user_id=user.id,
+        )
     )
     await session.commit()
     context = TenantContext(
         user_id=user.id,
         org_id=user.org_id,
-        role=user.role,
-        workspace_ids=frozenset({workspace.id}),
+        authorization=AuthorizationSnapshot(
+            user_id=user.id,
+            org_id=user.org_id,
+            is_platform_superadmin=False,
+            org_permissions=frozenset({"chat.use"}),
+            workspace_permissions={},
+            workspace_ids=frozenset({workspace.id}),
+        ),
     )
     return context, workspace
 
@@ -91,8 +102,14 @@ async def test_crud_and_scoping(
     other = TenantContext(
         user_id=workspace.id,
         org_id=context.org_id,
-        role="user",
-        workspace_ids=frozenset(),
+        authorization=AuthorizationSnapshot(
+            user_id=workspace.id,
+            org_id=context.org_id,
+            is_platform_superadmin=False,
+            org_permissions=frozenset({"chat.use"}),
+            workspace_permissions={},
+            workspace_ids=frozenset(),
+        ),
     )
     with pytest.raises(NotFoundError):
         await get_chat(session, other, chat.id)
@@ -240,8 +257,14 @@ async def test_membership_required_for_create(
     stranger = TenantContext(
         user_id=seeded_user.id,
         org_id=seeded_user.org_id,
-        role="user",
-        workspace_ids=frozenset(),
+        authorization=AuthorizationSnapshot(
+            user_id=seeded_user.id,
+            org_id=seeded_user.org_id,
+            is_platform_superadmin=False,
+            org_permissions=frozenset({"chat.use"}),
+            workspace_permissions={},
+            workspace_ids=frozenset(),
+        ),
     )
 
     with pytest.raises(NotFoundError):

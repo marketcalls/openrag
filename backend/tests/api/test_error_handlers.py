@@ -49,7 +49,6 @@ async def test_integrity_error_maps_to_409(
         org_id=seeded_user.org_id,
         email="member@acme.com",
         password_hash=seeded_user.password_hash,
-        role="user",
     )
     session.add(member)
     await session.commit()

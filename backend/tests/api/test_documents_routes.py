@@ -104,7 +104,6 @@ async def test_non_member_user_gets_403(
         org_id=seeded_user.org_id,
         email="plain@acme.com",
         password_hash=seeded_user.password_hash,
-        role="user",
     )
     session.add(plain_user)
     await session.commit()

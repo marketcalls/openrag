@@ -12,6 +12,7 @@ from openrag.modules.auth.models import User
 from openrag.modules.models.service import create_model, list_models, update_model
 from openrag.modules.models.sync import sync_models_to_litellm
 from openrag.modules.secrets.crypto import ensure_kek
+from openrag.modules.tenancy.authorization import AuthorizationSnapshot
 from openrag.modules.tenancy.context import TenantContext
 
 
@@ -26,8 +27,14 @@ def super_ctx(user: User) -> TenantContext:
     return TenantContext(
         user_id=user.id,
         org_id=user.org_id,
-        role="superadmin",
-        workspace_ids=frozenset(),
+        authorization=AuthorizationSnapshot(
+            user_id=user.id,
+            org_id=user.org_id,
+            is_platform_superadmin=True,
+            org_permissions=frozenset(),
+            workspace_permissions={},
+            workspace_ids=frozenset(),
+        ),
     )
 
 

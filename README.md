@@ -43,6 +43,60 @@ OpenRAG is planned to provide:
 6. The selected language model generates a streamed, grounded answer with citations.
 7. Usage, retrieval activity, administrative changes, and feedback feed operational and quality reporting.
 
+## Capability-based access control
+
+OpenRAG authorizes every protected request from current PostgreSQL state. A signed
+access token identifies the user and carries UI hints, but the API reloads active
+role bindings, workspace membership, and platform status on every request. Role
+names are labels only; they never grant authority by string comparison.
+
+### Built-in organization roles
+
+| Template | Intended use | Capabilities |
+|---|---|---|
+| Administrator | Organization administration and knowledge governance | All organization capabilities listed below |
+| HSE Manager | Manage and approve HSE knowledge in assigned workspaces | `chat.use`, `document.read`, `document.upload`, `document.approve` |
+| Engineer | Use chat and contribute knowledge in assigned workspaces | `chat.use`, `document.read`, `document.upload` |
+| User | Use grounded chat and read assigned knowledge | `chat.use`, `document.read` |
+
+The built-in templates are protected system roles. An organization role manager
+may create custom roles from the same closed capability catalog, update a custom
+role, and delete an unbound custom role. Custom roles cannot add unknown
+capabilities, cannot become platform superadmin, cannot cross organization
+boundaries, and cannot bypass workspace membership. The last active
+Administrator binding cannot be removed.
+
+Workspace membership and role assignment are independent:
+
+- A role answers **what actions** a user may perform.
+- Membership answers **which workspaces** the user may reach.
+- An organization capability does not grant workspace access without membership,
+  except the explicit `workspace.read_all` governance capability.
+- A workspace-scoped role binding applies only to that workspace, even if the user
+  is a member of other workspaces.
+
+### Permission meanings
+
+| Permission | Meaning |
+|---|---|
+| `chat.use` | Ask grounded questions in authorized workspaces |
+| `document.read` | View authorized documents and cited evidence |
+| `document.upload` | Add documents for background extraction and indexing |
+| `document.approve` | Approve governed document versions for retrieval |
+| `workspace.manage` | Create workspaces and manage membership |
+| `workspace.read_all` | Read every workspace in the current organization |
+| `user.manage` | Invite, activate, and deactivate organization users |
+| `role.manage` | Create roles and replace organization role bindings |
+| `model.configure` | Configure organization model and retrieval profiles |
+| `rag.evaluate` | Run and review grounded-answer quality evaluations |
+| `audit.read` | Review immutable security and administration events |
+
+Platform superadmin is not a permission and is not an organization role. It is a
+non-assignable platform flag created only by the serialized bootstrap command.
+Organization administrators cannot view, create, invite, bind, or promote a
+platform superadmin. Platform model and secret administration remains behind the
+separate platform boundary.
+
 ## Architecture
 
 The platform uses a modular monolith with independently scalable API and worker processes plus dedicated infrastructure services:
@@ -86,7 +140,10 @@ OPENRAG_BOOTSTRAP_PASSWORD=replace-with-a-long-random-password
 LITELLM_MASTER_KEY=replace-with-a-long-random-key
 ```
 
-The bootstrap credentials create the first superadmin only when one does not already exist. Changing them later does not change an existing account password.
+The bootstrap credentials create the first platform superadmin only when one does
+not already exist. Bootstrap is the only application path that can set platform
+superadmin, concurrent bootstrap attempts are serialized, and changing the
+variables later does not change an existing account password.
 
 ### 2. Start OpenRAG
 
@@ -134,6 +191,44 @@ The first start downloads model images and weights. Documents indexed with a dif
 The same `ml` profile starts Ollama. Its host port defaults to `11434` and can be changed with `OPENRAG_OLLAMA_PORT`.
 
 ### 5. Operate and upgrade the deployment
+
+Before upgrading an installation created before capability RBAC, take a tested
+PostgreSQL backup. Revision `6c4a2f8b9d10` locks the affected legacy tables,
+fails closed if it finds an unknown legacy role, seeds the four protected role
+templates for every organization, and performs this backfill:
+
+- legacy `superadmin` becomes the bootstrap-only platform flag;
+- legacy `admin` receives an organization-wide Administrator binding;
+- legacy `user` receives an organization-wide User binding;
+- pending invitations receive the corresponding role ID; and
+- workspace membership receives an explicit organization scope and no longer
+  stores a role string.
+
+Run and inspect the migration separately when operating a controlled upgrade:
+
+```bash
+docker compose -f deploy/compose.yaml run --rm migrate
+docker compose -f deploy/compose.yaml run --rm bootstrap
+docker compose -f deploy/compose.yaml up -d api worker web
+```
+
+Rollback warning: downgrading to `4f2e1c9a7b30` is intentionally lossy. Custom
+roles, multiple role bindings, workspace-scoped bindings, and capability detail
+cannot be represented by the legacy three-role schema. The downgrade maps a
+platform superadmin to `superadmin`, an organization-wide Administrator to
+`admin`, and every other user to least-privileged `user`. Never downgrade a
+production database without a restore point and an explicit data-loss decision.
+
+```bash
+docker compose -f deploy/compose.yaml run --rm migrate \
+  /app/.venv/bin/alembic downgrade 4f2e1c9a7b30
+```
+
+After migration, use **Users** to manage accounts and **Roles** to manage
+capabilities. Invitation requests deliberately return only a generic accepted
+response. The raw one-time token is never returned to an administrator; an
+out-of-band email/worker delivery adapter is still required before invitations
+can be completed in a production deployment.
 
 Follow application logs:
 
@@ -232,18 +327,55 @@ Useful service URLs:
 ```bash
 # Backend
 cd backend
-uv run pytest
-uv run ruff check .
+uv run pytest -q
+uv run ruff check src tests
 uv run mypy src
 uv run lint-imports
+uv run alembic check
 
 # Frontend
 cd frontend
 corepack pnpm lint
 corepack pnpm typecheck
-corepack pnpm test
+corepack pnpm test -- --run
 corepack pnpm build
-corepack pnpm e2e  # skips unless E2E=1
+corepack pnpm e2e  # RBAC cases always run; the live RAG journey needs E2E=1
+```
+
+The RBAC browser suite starts an isolated Vite server when `E2E_BASE_URL` is not
+set. It verifies organization Administrator navigation, the non-assignable
+platform boundary, Engineer denial, workspace-scoped HSE access, and retained
+platform administration. Server-side isolation is separately enforced by the
+backend PostgreSQL tests; frontend route guards are convenience, not security.
+
+For a Compose smoke, first ensure `OPENRAG_API_PORT` and `OPENRAG_WEB_PORT` match
+the running stack, then verify liveness, readiness, login, the permission
+catalog, an authenticated denial, workspace isolation, and logout without
+printing the bearer token. Prompt for the password or load it from a protected
+secret store; do not place it directly in shell history.
+
+```bash
+curl --fail --silent --show-error http://localhost:${OPENRAG_API_PORT:-8000}/healthz
+curl --fail --silent --show-error http://localhost:${OPENRAG_API_PORT:-8000}/readyz
+
+cd frontend
+E2E=1 \
+E2E_BASE_URL=http://localhost:${OPENRAG_WEB_PORT:-5173} \
+E2E_EMAIL="$OPENRAG_BOOTSTRAP_EMAIL" \
+E2E_PASSWORD="$OPENRAG_BOOTSTRAP_PASSWORD" \
+  corepack pnpm e2e
+```
+
+The automated API and isolation selections used for the RBAC handoff are:
+
+```bash
+cd backend
+uv run pytest -q \
+  tests/api/test_roles.py \
+  tests/api/test_users.py \
+  tests/api/test_auth_routes.py \
+  tests/api/test_workspaces.py \
+  tests/isolation/test_rbac_isolation.py
 ```
 
 For the real-stack browser journey, configure a completion model or provide `E2E_OPENAI_API_KEY`, keep the API, worker, and frontend running, then run:

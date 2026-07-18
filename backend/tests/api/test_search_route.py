@@ -3,8 +3,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.modules.auth.models import User
+from openrag.modules.tenancy.authorization import AuthorizationSnapshot
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Workspace
+from openrag.modules.tenancy.permissions import ALL_PERMISSIONS
 from tests.api.test_documents_routes import auth, make_workspace
 from tests.modules.retrieval.test_retrieve import upsert_texts
 
@@ -41,8 +43,14 @@ async def test_search_returns_seeded_chunk(
     context = TenantContext(
         user_id=seeded_user.id,
         org_id=seeded_user.org_id,
-        role="admin",
-        workspace_ids=frozenset(),
+        authorization=AuthorizationSnapshot(
+            user_id=seeded_user.id,
+            org_id=seeded_user.org_id,
+            is_platform_superadmin=False,
+            org_permissions=ALL_PERMISSIONS,
+            workspace_permissions={},
+            workspace_ids=frozenset({workspace.id}),
+        ),
     )
     await upsert_texts(
         context,
