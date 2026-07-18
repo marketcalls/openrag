@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
     max_upload_mb: int = 100
     interactive_upload_mb: int = 10
+    litellm_url: str = "http://localhost:54000"
+    litellm_master_key: str = "sk-openrag-dev-master"  # noqa: S105
+    chat_context_token_budget: int = 8000
 
 
 @lru_cache

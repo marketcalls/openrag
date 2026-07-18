@@ -28,3 +28,11 @@ def test_ingestion_settings_defaults() -> None:
     assert settings.embedding_backend == "tei"
     assert settings.embedding_dim == 1024
     assert settings.interactive_upload_mb == 10
+
+
+def test_gateway_settings_defaults() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.litellm_url == "http://localhost:54000"
+    assert settings.litellm_master_key == "sk-openrag-dev-master"  # noqa: S105
+    assert settings.chat_context_token_budget == 8000
