@@ -10,7 +10,7 @@ from testcontainers.qdrant import QdrantContainer
 from testcontainers.redis import RedisContainer
 
 from openrag.api.app import create_app
-from openrag.core.config import get_settings
+from openrag.core.config import Settings, get_settings
 from openrag.core.db import Base, build_engine, build_session_factory
 from openrag.core.storage import ObjectStorage
 from openrag.modules.auth.models import User
@@ -18,6 +18,7 @@ from openrag.modules.auth.passwords import hash_password
 from openrag.modules.retrieval.client import COLLECTION, get_qdrant
 from openrag.modules.retrieval.embeddings import get_dense_embedder
 from openrag.modules.retrieval.service import ensure_collection
+from openrag.modules.secrets.crypto import ensure_kek
 from openrag.modules.tenancy.models import Organization
 
 
@@ -110,6 +111,18 @@ async def storage(minio_config: dict[str, str]) -> ObjectStorage:
 
 
 @pytest.fixture
+def kek_file(tmp_path_factory: pytest.TempPathFactory) -> str:
+    path = tmp_path_factory.mktemp("kek") / "openrag_kek"
+    ensure_kek(str(path))
+    return str(path)
+
+
+@pytest.fixture
+def test_settings(kek_file: str) -> Settings:
+    return Settings(_env_file=None, kek_file=kek_file)
+
+
+@pytest.fixture
 async def engine(pg_url: str) -> AsyncIterator[AsyncEngine]:
     database_engine = build_engine(pg_url)
     async with database_engine.begin() as connection:
@@ -131,11 +144,13 @@ async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
 async def client(
     engine: AsyncEngine,
     redis_client: Redis,
+    test_settings: Settings,
 ) -> AsyncIterator[httpx.AsyncClient]:
     app = create_app(
         session_factory=build_session_factory(engine),
         redis_client=redis_client,
     )
+    app.dependency_overrides[get_settings] = lambda: test_settings
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
         transport=transport,
@@ -154,6 +169,22 @@ async def seeded_user(session: AsyncSession) -> User:
         email="a@acme.com",
         password_hash=hash_password("pw123456"),
         role="admin",
+    )
+    session.add(user)
+    await session.commit()
+    return user
+
+
+@pytest.fixture
+async def seeded_superadmin(session: AsyncSession) -> User:
+    organization = Organization(name="Platform")
+    session.add(organization)
+    await session.flush()
+    user = User(
+        org_id=organization.id,
+        email="root@platform.example.com",
+        password_hash=hash_password("pw123456"),
+        role="superadmin",
     )
     session.add(user)
     await session.commit()

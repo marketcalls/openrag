@@ -5,6 +5,7 @@ from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from openrag.api.routes.admin_secrets import router as admin_secrets_router
 from openrag.api.routes.auth import router as auth_router
 from openrag.api.routes.documents import router as documents_router
 from openrag.api.routes.health import router as health_router
@@ -78,6 +79,7 @@ def create_app(
         )
         return problem(500, "Internal error", "an unexpected error occurred")
 
+    app.include_router(admin_secrets_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(documents_router, prefix="/api/v1")
     app.include_router(health_router)
