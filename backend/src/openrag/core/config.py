@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     )
     redis_url: str = "redis://127.0.0.1:56379/0"
     environment: str = "dev"
+    kek_file: str = "./data/openrag_kek"
     access_token_ttl_seconds: int = 900
     refresh_token_ttl_seconds: int = 1_209_600
     qdrant_url: str = "http://localhost:56333"

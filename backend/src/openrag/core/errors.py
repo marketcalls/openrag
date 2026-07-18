@@ -41,3 +41,13 @@ class RateLimitExceeded(OpenRAGError):
 class PayloadTooLarge(OpenRAGError):
     status_code = 413
     title = "Payload too large"
+
+
+class SecretsError(OpenRAGError):
+    status_code = 500
+    title = "Secrets subsystem error"
+
+
+class UpstreamError(OpenRAGError):
+    status_code = 502
+    title = "Upstream service error"

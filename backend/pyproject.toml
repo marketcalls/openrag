@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
     "aioboto3>=13.0",
     "celery[redis]>=5.4",
+    "cryptography>=42.0",
     "docling>=2.15",
     "fastapi>=0.111",
     "fastembed>=0.6",
