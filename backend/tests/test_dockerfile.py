@@ -9,6 +9,12 @@ def test_backend_dockerfile_supports_runtime_processes() -> None:
     assert "USER openrag" in text
 
 
+def test_backend_container_runs_the_prebuilt_virtualenv_without_syncing() -> None:
+    text = (Path(__file__).parents[2] / "backend" / "Dockerfile").read_text()
+    assert 'CMD ["/app/.venv/bin/uvicorn"' in text
+    assert 'CMD ["uv", "run"' not in text
+
+
 def test_backend_runtime_uses_cpu_only_pytorch() -> None:
     backend = Path(__file__).parents[2] / "backend"
     text = (backend / "pyproject.toml").read_text()

@@ -64,31 +64,109 @@ The design follows five foundational rules: tenant filtering has one enforced pa
 
 See the [high-level architecture](docs/architecture.md) for service boundaries and ingestion/query flows.
 
-## Quick start
+## Deploy with Docker Compose
 
-Prerequisite: Docker with Compose. From the repository root, build and start the complete application:
+Docker Compose is the supported single-node evaluation and development deployment. It starts PostgreSQL, Redis, Qdrant, MinIO, the model gateway, database migrations, bootstrap, the FastAPI service, an ingestion worker, and the React web application.
+
+### 1. Prepare the host
+
+Install Git and Docker with the Compose v2 plugin, then clone the public repository:
+
+```bash
+git clone https://github.com/marketcalls/openrag.git
+cd openrag
+cp .env.example .env
+```
+
+Before the first startup, edit `.env` and replace at least:
+
+```dotenv
+OPENRAG_BOOTSTRAP_EMAIL=admin@example.com
+OPENRAG_BOOTSTRAP_PASSWORD=replace-with-a-long-random-password
+LITELLM_MASTER_KEY=replace-with-a-long-random-key
+```
+
+The bootstrap credentials create the first superadmin only when one does not already exist. Changing them later does not change an existing account password.
+
+### 2. Start OpenRAG
 
 ```bash
 docker compose -f deploy/compose.yaml up -d --build
 ```
 
-Compose waits for PostgreSQL, runs migrations, bootstraps the development superadmin, and then starts the API, ingestion worker, and web application. Open [http://localhost:5173](http://localhost:5173) and sign in with:
+The first build downloads base images and document-processing dependencies, so it can take several minutes. Compose waits for the infrastructure, runs Alembic migrations, prepares the encryption key, creates the first superadmin, and then starts the application services.
+
+Check the deployment:
+
+```bash
+docker compose -f deploy/compose.yaml ps
+curl --fail http://localhost:8000/readyz
+```
+
+Every listed service should be running or successfully completed, and readiness should return `{"status":"ready"}`. If startup fails, inspect the application services:
+
+```bash
+docker compose -f deploy/compose.yaml logs --tail=200 api worker migrate bootstrap web
+```
+
+### 3. Sign in and configure a model
+
+Open [http://localhost:5173](http://localhost:5173) and use the bootstrap email and password from `.env`. With the unchanged development defaults, they are:
 
 - Email: `root@openrag.internal`
 - Password: `changeme123`
 
-These are development-only defaults. Override `OPENRAG_BOOTSTRAP_EMAIL` and `OPENRAG_BOOTSTRAP_PASSWORD` before the first startup of any shared or internet-accessible deployment.
+Go to **Superadmin → Models**, register a hosted or local completion model and its write-only credential, then create a workspace and select its default model. Upload a document, wait until its status is **Indexed**, and start a chat.
 
-The default stack uses the deterministic hash embedder and does not download an embedding model. To add local Text Embeddings Inference with BGE-M3 and Ollama:
+### 4. Choose an embedding mode
+
+The default `hash` embedder avoids a model download and is intended only for installation smoke tests. It is lexical rather than semantic, so generic questions such as “tell me about the invoice” may not match invoice text reliably.
+
+For real document question answering, start the optional local ML profile with Text Embeddings Inference and BGE-M3:
 
 ```bash
 OPENRAG_EMBEDDING_BACKEND=tei \
 docker compose -f deploy/compose.yaml --profile ml up -d --build
 ```
 
-The `ml` profile can take several minutes on first launch while model images and weights download. Completion models are never silently selected: after signing in, register a hosted or local completion model under **Superadmin → Models**, create a workspace, upload a document, wait for **Indexed**, and start a chat.
+The first start downloads model images and weights. Documents indexed with a different embedding implementation must be re-indexed before querying them with the new model. Configurable embedding registration and managed re-indexing are active roadmap work; do not switch an already populated production workspace by changing only the environment variable.
 
-Copy `.env.example` to `.env` to override ports or bootstrap settings. Application ports bind to loopback by default; `OPENRAG_WEB_PORT` and `OPENRAG_API_PORT` change the host ports.
+The same `ml` profile starts Ollama. Its host port defaults to `11434` and can be changed with `OPENRAG_OLLAMA_PORT`.
+
+### 5. Operate and upgrade the deployment
+
+Follow application logs:
+
+```bash
+docker compose -f deploy/compose.yaml logs -f api worker web
+```
+
+Restart only the application processes without deleting stored data:
+
+```bash
+docker compose -f deploy/compose.yaml restart api worker web
+```
+
+Upgrade from the public `main` branch:
+
+```bash
+git pull --ff-only
+docker compose -f deploy/compose.yaml up -d --build
+```
+
+Stop the stack while retaining PostgreSQL, Qdrant, MinIO, and key volumes:
+
+```bash
+docker compose -f deploy/compose.yaml down
+```
+
+Back up the `openrag_kekdata` volume together with PostgreSQL. Provider credentials are encrypted with that key-encryption key; losing it, or restoring a database with a different KEK volume, makes the stored credentials intentionally undecryptable. Never use `docker compose down -v` on an installation whose data must be retained.
+
+Application ports bind to loopback by default. Set `OPENRAG_WEB_PORT` and `OPENRAG_API_PORT` in `.env` to change host ports. Put a TLS reverse proxy or ingress in front of OpenRAG before exposing it outside the host.
+
+### Production and 500 GB deployments
+
+The Compose topology is not a production proof for a 500 GB corpus. A large enterprise deployment requires external or highly available PostgreSQL and object storage, a distributed Qdrant cluster with planned sharding and replication, multiple ingestion workers, monitored Redis, backups and restore drills, TLS, metrics, traces, capacity tests, and an explicit embedding migration strategy. Those production artifacts will be documented separately under `docs/superpowers/gaps` after the enterprise architecture is approved.
 
 ## Local source development
 
@@ -109,15 +187,19 @@ uv run alembic upgrade head
 OPENRAG_BOOTSTRAP_EMAIL=root@openrag.internal \
 OPENRAG_BOOTSTRAP_PASSWORD=changeme123 \
   uv run python -m openrag.bootstrap
-uv run uvicorn --factory openrag.api.app:create_app --port 8000
+OPENRAG_EMBEDDING_BACKEND=hash \
+  uv run uvicorn --factory openrag.api.app:create_app --port 8000
 ```
 
 Start the ingestion worker in a second terminal from `backend/`:
 
 ```bash
-uv run celery -A openrag.worker.celery_app:celery_app \
+OPENRAG_EMBEDDING_BACKEND=hash \
+  uv run celery -A openrag.worker.celery_app:celery_app \
   worker -Q interactive,default -l info
 ```
+
+On macOS, add `--pool=solo --concurrency=1` to the worker command. Celery's prefork pool can abort when document-parsing libraries initialize macOS frameworks inside a forked child.
 
 Start the frontend in a third terminal:
 

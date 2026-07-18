@@ -111,7 +111,7 @@ services:
 
   migrate:
     <<: *openrag-backend
-    command: ["uv", "run", "alembic", "upgrade", "head"]
+    command: ["/app/.venv/bin/alembic", "upgrade", "head"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -119,7 +119,7 @@ services:
 
   bootstrap:
     <<: *openrag-backend
-    command: ["uv", "run", "python", "-m", "openrag.bootstrap"]
+    command: ["/app/.venv/bin/python", "-m", "openrag.bootstrap"]
     environment:
       <<: *openrag-environment
       OPENRAG_BOOTSTRAP_EMAIL: ${OPENRAG_BOOTSTRAP_EMAIL:-root@openrag.internal}
@@ -132,9 +132,7 @@ services:
   api:
     <<: *openrag-backend
     command:
-      - uv
-      - run
-      - uvicorn
+      - /app/.venv/bin/uvicorn
       - --factory
       - openrag.api.app:create_app
       - --host
@@ -156,9 +154,7 @@ services:
     healthcheck:
       test:
         - CMD
-        - uv
-        - run
-        - python
+        - /app/.venv/bin/python
         - -c
         - >-
           import urllib.request;
@@ -172,9 +168,7 @@ services:
   worker:
     <<: *openrag-backend
     command:
-      - uv
-      - run
-      - celery
+      - /app/.venv/bin/celery
       - -A
       - openrag.worker.celery_app:celery_app
       - worker
