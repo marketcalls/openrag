@@ -11,7 +11,9 @@ import openrag.modules.audit.models  # noqa: F401
 import openrag.modules.auth.models  # noqa: F401
 import openrag.modules.chat.models  # noqa: F401
 import openrag.modules.documents.models  # noqa: F401
+import openrag.modules.events.models  # noqa: F401
 import openrag.modules.models.models  # noqa: F401
+import openrag.modules.runs.models  # noqa: F401
 import openrag.modules.secrets.models  # noqa: F401
 import openrag.modules.tenancy.models  # noqa: F401
 from openrag.core.config import get_settings
