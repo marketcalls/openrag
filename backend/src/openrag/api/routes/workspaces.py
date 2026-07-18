@@ -11,7 +11,12 @@ from openrag.modules.tenancy.context import (
     get_tenant_context,
     require_role,
 )
-from openrag.modules.tenancy.schemas import MemberAdd, WorkspaceCreate, WorkspaceOut
+from openrag.modules.tenancy.schemas import (
+    MemberAdd,
+    WorkspaceCreate,
+    WorkspaceOut,
+    WorkspacePatch,
+)
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -36,6 +41,29 @@ async def list_(
 ) -> list[WorkspaceOut]:
     workspaces = await service.list_workspaces(session, context)
     return [WorkspaceOut.model_validate(workspace) for workspace in workspaces]
+
+
+@router.patch("/{workspace_id}", response_model=WorkspaceOut)
+async def patch_workspace(
+    workspace_id: UUID,
+    body: WorkspacePatch,
+    session: SessionDep,
+    context: AdminDep,
+) -> WorkspaceOut:
+    if "default_model_id" in body.model_fields_set:
+        workspace = await service.set_default_model(
+            session,
+            context,
+            workspace_id,
+            body.default_model_id,
+        )
+    else:
+        workspace = await service.get_workspace(
+            session,
+            context,
+            workspace_id,
+        )
+    return WorkspaceOut.model_validate(workspace)
 
 
 @router.post("/{workspace_id}/members", status_code=204)

@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -12,6 +13,7 @@ from openrag.api.routes.admin_secrets import router as admin_secrets_router
 from openrag.api.routes.auth import router as auth_router
 from openrag.api.routes.documents import router as documents_router
 from openrag.api.routes.health import router as health_router
+from openrag.api.routes.models import router as models_router
 from openrag.api.routes.search import router as search_router
 from openrag.api.routes.users import router as users_router
 from openrag.api.routes.workspaces import router as workspaces_router
@@ -25,6 +27,7 @@ from openrag.modules.models.sync import sync_models_to_litellm
 def create_app(
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     redis_client: Redis | None = None,
+    litellm_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     configure_logging()
     settings = get_settings()
@@ -41,7 +44,11 @@ def create_app(
     async def lifespan(runtime_app: FastAPI) -> AsyncIterator[None]:
         try:
             async with runtime_app.state.session_factory() as session:
-                deployed = await sync_models_to_litellm(session, settings)
+                deployed = await sync_models_to_litellm(
+                    session,
+                    settings,
+                    transport=runtime_app.state.litellm_transport,
+                )
             logger.info("litellm_startup_sync", deployed=deployed)
         except Exception as exc:  # noqa: BLE001
             logger.warning("litellm_startup_sync_failed", error=str(exc))
@@ -62,6 +69,7 @@ def create_app(
     )
     app.state.session_factory = session_factory
     app.state.redis = redis_client
+    app.state.litellm_transport = litellm_transport
 
     def problem(status: int, title: str, detail: str) -> JSONResponse:
         return JSONResponse(
@@ -109,6 +117,7 @@ def create_app(
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(documents_router, prefix="/api/v1")
     app.include_router(health_router)
+    app.include_router(models_router, prefix="/api/v1")
     app.include_router(search_router, prefix="/api/v1")
     app.include_router(users_router, prefix="/api/v1")
     app.include_router(workspaces_router, prefix="/api/v1")

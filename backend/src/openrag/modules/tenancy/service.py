@@ -6,8 +6,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.core.errors import NotFoundError, WorkspaceAccessDenied
 from openrag.modules.audit.service import record_audit
 from openrag.modules.auth.models import User
+from openrag.modules.models import service as models_service
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Workspace, WorkspaceMember
+
+
+async def get_workspace(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+) -> Workspace:
+    workspace = (
+        await session.execute(
+            select(Workspace).where(
+                Workspace.id == workspace_id,
+                Workspace.org_id == context.org_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if workspace is None or (
+        context.role == "user" and workspace_id not in context.workspace_ids
+    ):
+        raise NotFoundError("workspace not found")
+    return workspace
 
 
 async def get_workspace_checked(
@@ -60,6 +81,20 @@ async def list_workspaces(
     return list(
         (await session.execute(statement.order_by(Workspace.name))).scalars()
     )
+
+
+async def set_default_model(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+    model_id: UUID | None,
+) -> Workspace:
+    workspace = await get_workspace(session, context, workspace_id)
+    if model_id is not None:
+        await models_service.get_model(session, model_id)
+    workspace.default_model_id = model_id
+    await session.commit()
+    return workspace
 
 
 async def add_member(

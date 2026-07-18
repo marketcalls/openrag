@@ -12,6 +12,7 @@ class WorkspaceOut(BaseModel):
     name: str
     embedding_model: str
     min_score: float
+    default_model_id: UUID | None
 
     model_config = {"from_attributes": True}
 
@@ -19,3 +20,7 @@ class WorkspaceOut(BaseModel):
 class MemberAdd(BaseModel):
     user_id: UUID
     role: str = "member"
+
+
+class WorkspacePatch(BaseModel):
+    default_model_id: UUID | None = None
