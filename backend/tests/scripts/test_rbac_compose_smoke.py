@@ -1,6 +1,6 @@
 import json
 from collections.abc import Sequence
-from datetime import timedelta
+from dataclasses import replace
 from uuid import UUID, uuid4
 
 import httpx
@@ -8,10 +8,10 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from openrag.core.db import build_session_factory, naive_utc
-from openrag.modules.auth.models import RefreshToken, User
+from openrag.core.db import build_session_factory
+from openrag.modules.auth.models import User
 from openrag.modules.auth.passwords import verify_password
-from openrag.modules.tenancy.models import Organization, Workspace, WorkspaceMember
+from openrag.modules.tenancy.models import UserRoleBinding, Workspace, WorkspaceMember
 from scripts import rbac_compose_smoke as smoke
 
 ADMIN_TOKEN = "admin-token-sentinel"  # noqa: S105 - inert redaction sentinel
@@ -27,9 +27,7 @@ PEER_WORKSPACE = UUID("44444444-4444-4444-8444-444444444444")
 class FakeFixtureStore:
     def __init__(self) -> None:
         self.provisioned: list[tuple[str, str, str]] = []
-        self.cleaned: list[
-            tuple[smoke.SmokeFixture, tuple[UUID, ...], tuple[str, ...]]
-        ] = []
+        self.cleaned: list[smoke.SmokeFixture] = []
 
     async def provision(
         self,
@@ -45,17 +43,14 @@ class FakeFixtureStore:
             org_id=ORG_ID,
             user_id=USER_ID,
             email=engineer_email,
+            allowed_workspace_id=ALLOWED_WORKSPACE,
+            allowed_workspace_name="RBAC smoke allowed fixture",
+            peer_workspace_id=PEER_WORKSPACE,
+            peer_workspace_name="RBAC smoke peer fixture",
         )
 
-    async def cleanup(
-        self,
-        fixture: smoke.SmokeFixture,
-        workspace_ids: Sequence[UUID],
-        workspace_names: Sequence[str],
-    ) -> None:
-        self.cleaned.append(
-            (fixture, tuple(workspace_ids), tuple(workspace_names))
-        )
+    async def cleanup(self, fixture: smoke.SmokeFixture) -> None:
+        self.cleaned.append(fixture)
 
 
 async def promote_seeded_bootstrap(
@@ -117,13 +112,11 @@ def test_bootstrap_credentials_hide_password_from_repr() -> None:
 
 
 def api_handler(
-    *, fail_second_workspace: bool = False
+    *, fail_workspace_listing: bool = False
 ) -> tuple[httpx.MockTransport, list[tuple[str, str]]]:
     calls: list[tuple[str, str]] = []
-    workspace_creates = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal workspace_creates
         calls.append((request.method, request.url.path))
         authorization = request.headers.get("authorization", "")
 
@@ -156,21 +149,14 @@ def api_handler(
         if request.url.path == "/api/v1/users":
             return httpx.Response(403, json={"detail": ENGINEER_PASSWORD})
         if request.url.path == "/api/v1/workspaces" and request.method == "POST":
-            if authorization == f"Bearer {ENGINEER_TOKEN}":
-                return httpx.Response(403, json={"detail": ENGINEER_PASSWORD})
-            workspace_creates += 1
-            if fail_second_workspace and workspace_creates == 2:
+            assert authorization == f"Bearer {ENGINEER_TOKEN}"
+            return httpx.Response(403, json={"detail": ENGINEER_PASSWORD})
+        if request.url.path == "/api/v1/workspaces" and request.method == "GET":
+            if fail_workspace_listing:
                 return httpx.Response(
                     500,
                     json={"detail": f"{ADMIN_PASSWORD} {ADMIN_TOKEN}"},
                 )
-            workspace_id = (
-                ALLOWED_WORKSPACE if workspace_creates == 1 else PEER_WORKSPACE
-            )
-            return httpx.Response(201, json={"id": str(workspace_id)})
-        if request.url.path.endswith("/members"):
-            return httpx.Response(204)
-        if request.url.path == "/api/v1/workspaces" and request.method == "GET":
             return httpx.Response(
                 200,
                 json=[{"id": str(ALLOWED_WORKSPACE), "name": "Allowed"}],
@@ -210,18 +196,19 @@ async def test_smoke_calls_real_contract_and_always_cleans_owned_fixtures(
 
     assert store.provisioned[0][0] == "root@example.com"
     assert len(store.cleaned) == 1
-    cleaned_fixture, cleaned_ids, cleaned_names = store.cleaned[0]
-    assert cleaned_fixture == smoke.SmokeFixture(
+    assert store.cleaned[0] == smoke.SmokeFixture(
         org_id=ORG_ID,
         user_id=USER_ID,
         email=store.provisioned[0][1],
+        allowed_workspace_id=ALLOWED_WORKSPACE,
+        allowed_workspace_name="RBAC smoke allowed fixture",
+        peer_workspace_id=PEER_WORKSPACE,
+        peer_workspace_name="RBAC smoke peer fixture",
     )
-    assert cleaned_ids == (ALLOWED_WORKSPACE, PEER_WORKSPACE)
-    assert len(cleaned_names) == 2
-    assert cleaned_names[0].startswith("RBAC smoke allowed ")
-    assert cleaned_names[1].startswith("RBAC smoke peer ")
     assert ("GET", "/healthz") in calls
     assert ("GET", "/readyz") in calls
+    assert calls.count(("POST", "/api/v1/workspaces")) == 1
+    assert not any(path.endswith("/members") for _, path in calls)
     assert calls.count(("POST", "/api/v1/auth/logout")) == 2
     output = capsys.readouterr().out
     for secret in (
@@ -237,7 +224,7 @@ async def test_smoke_calls_real_contract_and_always_cleans_owned_fixtures(
 async def test_partial_api_failure_is_redacted_and_cleans_partial_fixture(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    transport, _ = api_handler(fail_second_workspace=True)
+    transport, _ = api_handler(fail_workspace_listing=True)
     store = FakeFixtureStore()
 
     with pytest.raises(smoke.SmokeFailure) as captured:
@@ -253,9 +240,18 @@ async def test_partial_api_failure_is_redacted_and_cleans_partial_fixture(
             fixture_password=ENGINEER_PASSWORD,
         )
 
-    assert str(captured.value) == "peer workspace creation failed with HTTP 500"
-    assert store.cleaned[0][1] == (ALLOWED_WORKSPACE,)
-    assert len(store.cleaned[0][2]) == 2
+    assert str(captured.value) == "workspace listing failed with HTTP 500"
+    assert store.cleaned == [
+        smoke.SmokeFixture(
+            org_id=ORG_ID,
+            user_id=USER_ID,
+            email=store.provisioned[0][1],
+            allowed_workspace_id=ALLOWED_WORKSPACE,
+            allowed_workspace_name="RBAC smoke allowed fixture",
+            peer_workspace_id=PEER_WORKSPACE,
+            peer_workspace_name="RBAC smoke peer fixture",
+        )
+    ]
     combined = str(captured.value) + capsys.readouterr().out
     for secret in (
         ADMIN_PASSWORD,
@@ -266,7 +262,7 @@ async def test_partial_api_failure_is_redacted_and_cleans_partial_fixture(
         assert secret not in combined
 
 
-async def test_sqlalchemy_store_cleanup_is_organization_scoped(
+async def test_sqlalchemy_store_cleanup_preserves_same_org_same_name_workspace(
     engine: AsyncEngine,
     seeded_user: User,
 ) -> None:
@@ -280,47 +276,34 @@ async def test_sqlalchemy_store_cleanup_is_organization_scoped(
         engineer_password=ENGINEER_PASSWORD,
     )
 
-    async with factory() as session:
-        cleanup_name = f"Owned smoke workspace {uuid4().hex}"
-        own_workspace = Workspace(org_id=fixture.org_id, name=cleanup_name)
-        foreign_org = Organization(name=f"Foreign {uuid4().hex}")
-        session.add_all([own_workspace, foreign_org])
+    async with factory() as session, session.begin():
+        same_name_workspace = Workspace(
+            org_id=fixture.org_id,
+            name=fixture.allowed_workspace_name,
+        )
+        session.add(same_name_workspace)
         await session.flush()
-        foreign_workspace = Workspace(
-            org_id=foreign_org.id,
-            name=cleanup_name,
-        )
-        session.add(foreign_workspace)
-        await session.flush()
-        session.add(
-            WorkspaceMember(
-                org_id=fixture.org_id,
-                workspace_id=own_workspace.id,
-                user_id=fixture.user_id,
-            )
-        )
-        session.add(
-            RefreshToken(
-                user_id=fixture.user_id,
-                family_id=uuid4(),
-                token_hash=uuid4().hex,
-                expires_at=naive_utc() + timedelta(hours=1),
-            )
-        )
-        await session.commit()
-        own_workspace_id = own_workspace.id
-        foreign_workspace_id = foreign_workspace.id
+        same_name_workspace_id = same_name_workspace.id
 
-    await store.cleanup(
-        fixture,
-        [foreign_workspace_id],
-        [cleanup_name],
-    )
+    async with factory() as session:
+        memberships = (
+            await session.execute(
+                select(WorkspaceMember).where(
+                    WorkspaceMember.user_id == fixture.user_id
+                )
+            )
+        ).scalars().all()
+        assert [membership.workspace_id for membership in memberships] == [
+            fixture.allowed_workspace_id
+        ]
+
+    await store.cleanup(fixture)
 
     async with factory() as session:
         assert await session.get(User, fixture.user_id) is None
-        assert await session.get(Workspace, own_workspace_id) is None
-        assert await session.get(Workspace, foreign_workspace_id) is not None
+        assert await session.get(Workspace, fixture.allowed_workspace_id) is None
+        assert await session.get(Workspace, fixture.peer_workspace_id) is None
+        assert await session.get(Workspace, same_name_workspace_id) is not None
         existing_admin = await session.get(User, seeded_user.id)
         assert existing_admin is not None
         assert existing_admin.email == seeded_user.email
@@ -328,6 +311,54 @@ async def test_sqlalchemy_store_cleanup_is_organization_scoped(
             await session.execute(select(User).where(User.email == fixture_email))
         ).scalar_one_or_none()
         assert fixture_user is None
+
+
+async def test_sqlalchemy_store_cleanup_rejects_arbitrary_workspace_id(
+    engine: AsyncEngine,
+    seeded_user: User,
+) -> None:
+    factory = build_session_factory(engine)
+    await promote_seeded_bootstrap(engine, seeded_user.id)
+    store = smoke.SqlAlchemyFixtureStore(factory)
+    fixture = await store.provision(
+        bootstrap_email=seeded_user.email,
+        engineer_email=f"rbac-tamper-{uuid4().hex}@example.com",
+        engineer_password=ENGINEER_PASSWORD,
+    )
+    async with factory() as session, session.begin():
+        arbitrary_workspace = Workspace(
+            org_id=fixture.org_id,
+            name=f"Arbitrary workspace {uuid4().hex}",
+        )
+        session.add(arbitrary_workspace)
+        await session.flush()
+        arbitrary_workspace_id = arbitrary_workspace.id
+
+    tampered_fixture = replace(
+        fixture,
+        allowed_workspace_id=arbitrary_workspace_id,
+    )
+    with pytest.raises(
+        smoke.SmokeFailure,
+        match="^fixture ownership validation failed$",
+    ):
+        await store.cleanup(tampered_fixture)
+
+    async with factory() as session:
+        assert await session.get(User, fixture.user_id) is not None
+        assert await session.get(Workspace, arbitrary_workspace_id) is not None
+        assert await session.get(Workspace, fixture.allowed_workspace_id) is not None
+        assert await session.get(Workspace, fixture.peer_workspace_id) is not None
+        bindings = (
+            await session.execute(
+                select(UserRoleBinding).where(
+                    UserRoleBinding.user_id == fixture.user_id
+                )
+            )
+        ).scalars().all()
+        assert bindings
+
+    await store.cleanup(fixture)
 
 
 async def test_sqlalchemy_store_hashes_generated_fixture_password(
@@ -349,4 +380,4 @@ async def test_sqlalchemy_store_hashes_generated_fixture_password(
             assert fixture_user.password_hash != ENGINEER_PASSWORD
             assert verify_password(fixture_user.password_hash, ENGINEER_PASSWORD)
     finally:
-        await store.cleanup(fixture, [], [])
+        await store.cleanup(fixture)

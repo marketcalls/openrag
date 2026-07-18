@@ -369,13 +369,16 @@ OPENRAG_SMOKE_API_URL="http://127.0.0.1:${OPENRAG_API_PORT}" \
 
 It obtains the existing bootstrap credentials from the standard
 `openrag-bootstrap-1` container without printing them, sends bearer tokens only
-in authorization headers, and reports fixed PASS/status labels. It creates a
-random temporary Engineer and two random workspaces, proves health, readiness,
-the non-assignable platform boundary, exact 403 administration denials,
-workspace isolation, and logout/refresh behavior against the real API. A
-transactional `finally` cleanup removes only those organization-scoped fixtures,
-including after a partial failure. The script never requires a model provider or
-spends model tokens.
+in authorization headers, and reports fixed PASS/status labels. In one
+PostgreSQL transaction it creates a random temporary Engineer, two random
+workspaces, and membership in exactly one of them. It then proves health,
+readiness, the non-assignable platform boundary, exact 403 administration
+denials, workspace isolation, and logout/refresh behavior against the real API.
+The `finally` cleanup locks and validates the immutable fixture user plus both
+exact organization/workspace ID/name records before deleting anything. A
+mismatch fails closed and rolls the transaction back; cleanup never infers
+ownership from a name. The script never requires a model provider or spends
+model tokens.
 
 The automated API and isolation selections used for the RBAC handoff are:
 

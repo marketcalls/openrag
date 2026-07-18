@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -59,6 +59,10 @@ class SmokeFixture:
     org_id: UUID
     user_id: UUID
     email: str
+    allowed_workspace_id: UUID
+    allowed_workspace_name: str
+    peer_workspace_id: UUID
+    peer_workspace_name: str
 
 
 class FixtureStore(Protocol):
@@ -70,12 +74,7 @@ class FixtureStore(Protocol):
         engineer_password: str,
     ) -> SmokeFixture: ...
 
-    async def cleanup(
-        self,
-        fixture: SmokeFixture,
-        workspace_ids: Sequence[UUID],
-        workspace_names: Sequence[str],
-    ) -> None: ...
+    async def cleanup(self, fixture: SmokeFixture) -> None: ...
 
 
 def resolve_api_base_url(environ: Mapping[str, str]) -> str:
@@ -184,10 +183,32 @@ class SqlAlchemyFixtureStore:
                         created_by=bootstrap_user.id,
                     )
                 )
+                suffix = secrets.token_hex(16)
+                allowed_workspace = Workspace(
+                    org_id=bootstrap_user.org_id,
+                    name=f"RBAC smoke allowed {suffix}",
+                )
+                peer_workspace = Workspace(
+                    org_id=bootstrap_user.org_id,
+                    name=f"RBAC smoke peer {suffix}",
+                )
+                session.add_all([allowed_workspace, peer_workspace])
+                await session.flush()
+                session.add(
+                    WorkspaceMember(
+                        org_id=bootstrap_user.org_id,
+                        workspace_id=allowed_workspace.id,
+                        user_id=fixture_user.id,
+                    )
+                )
                 fixture = SmokeFixture(
                     org_id=bootstrap_user.org_id,
                     user_id=fixture_user.id,
                     email=fixture_user.email,
+                    allowed_workspace_id=allowed_workspace.id,
+                    allowed_workspace_name=allowed_workspace.name,
+                    peer_workspace_id=peer_workspace.id,
+                    peer_workspace_name=peer_workspace.name,
                 )
             return fixture
         except SmokeFailure:
@@ -195,28 +216,59 @@ class SqlAlchemyFixtureStore:
         except SQLAlchemyError:
             raise SmokeFailure("fixture provisioning failed") from None
 
-    async def cleanup(
-        self,
-        fixture: SmokeFixture,
-        workspace_ids: Sequence[UUID],
-        workspace_names: Sequence[str],
-    ) -> None:
+    async def cleanup(self, fixture: SmokeFixture) -> None:
         try:
             async with self._session_factory() as session, session.begin():
-                fixture_user_ids = select(User.id).where(
-                    User.id == fixture.user_id,
-                    User.org_id == fixture.org_id,
-                    User.email == fixture.email,
+                fixture_user = (
+                    await session.execute(
+                        select(User)
+                        .where(
+                            User.id == fixture.user_id,
+                            User.org_id == fixture.org_id,
+                            User.email == fixture.email,
+                        )
+                        .with_for_update()
+                    )
+                ).scalar_one_or_none()
+                workspace_ids = (
+                    fixture.allowed_workspace_id,
+                    fixture.peer_workspace_id,
                 )
+                workspace_names = {
+                    fixture.allowed_workspace_id: fixture.allowed_workspace_name,
+                    fixture.peer_workspace_id: fixture.peer_workspace_name,
+                }
+                workspaces = (
+                    await session.execute(
+                        select(Workspace)
+                        .where(
+                            Workspace.org_id == fixture.org_id,
+                            Workspace.id.in_(workspace_ids),
+                        )
+                        .with_for_update()
+                    )
+                ).scalars().all()
+                if (
+                    fixture_user is None
+                    or len(workspace_names) != 2
+                    or len(workspaces) != 2
+                    or any(
+                        workspace_names.get(workspace.id) != workspace.name
+                        for workspace in workspaces
+                    )
+                ):
+                    raise SmokeFailure("fixture ownership validation failed")
+
                 await session.execute(
                     delete(RefreshToken).where(
-                        RefreshToken.user_id.in_(fixture_user_ids)
+                        RefreshToken.user_id == fixture.user_id
                     )
                 )
                 await session.execute(
                     delete(WorkspaceMember).where(
                         WorkspaceMember.org_id == fixture.org_id,
                         WorkspaceMember.user_id == fixture.user_id,
+                        WorkspaceMember.workspace_id.in_(workspace_ids),
                     )
                 )
                 await session.execute(
@@ -225,22 +277,12 @@ class SqlAlchemyFixtureStore:
                         UserRoleBinding.user_id == fixture.user_id,
                     )
                 )
-                workspace_ownership = []
-                if workspace_ids:
-                    workspace_ownership.append(
-                        Workspace.id.in_(tuple(workspace_ids))
+                await session.execute(
+                    delete(Workspace).where(
+                        Workspace.org_id == fixture.org_id,
+                        Workspace.id.in_(workspace_ids),
                     )
-                if workspace_names:
-                    workspace_ownership.append(
-                        Workspace.name.in_(tuple(workspace_names))
-                    )
-                if workspace_ownership:
-                    await session.execute(
-                        delete(Workspace).where(
-                            Workspace.org_id == fixture.org_id,
-                            or_(*workspace_ownership),
-                        )
-                    )
+                )
                 await session.execute(
                     delete(User).where(
                         User.id == fixture.user_id,
@@ -248,6 +290,8 @@ class SqlAlchemyFixtureStore:
                         User.email == fixture.email,
                     )
                 )
+        except SmokeFailure:
+            raise
         except SQLAlchemyError:
             raise SmokeFailure("fixture cleanup failed") from None
 
@@ -295,14 +339,6 @@ def _access_token(step: str, response: httpx.Response) -> str:
     return token
 
 
-def _workspace_id(step: str, response: httpx.Response) -> UUID:
-    try:
-        body = response.json()
-        return UUID(body["id"])
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-        raise SmokeFailure(f"{step} response is invalid") from None
-
-
 def _verify_catalog(response: httpx.Response) -> None:
     try:
         body = response.json()
@@ -343,12 +379,7 @@ async def run_smoke(
     fixture_password: str | None = None,
 ) -> None:
     fixture: SmokeFixture | None = None
-    workspace_ids: list[UUID] = []
     suffix = secrets.token_hex(16)
-    workspace_names = [
-        f"RBAC smoke allowed {suffix}",
-        f"RBAC smoke peer {suffix}",
-    ]
     engineer_email = f"rbac-smoke-{suffix}@example.com"
     engineer_password = fixture_password or secrets.token_urlsafe(32)
 
@@ -416,31 +447,6 @@ async def run_smoke(
                 engineer_email=engineer_email,
                 engineer_password=engineer_password,
             )
-            for label, workspace_name in zip(
-                ("allowed", "peer"),
-                workspace_names,
-                strict=True,
-            ):
-                response = await _request(
-                    platform_client,
-                    step=f"{label} workspace creation",
-                    method="POST",
-                    path="/api/v1/workspaces",
-                    expected=201,
-                    headers=platform_headers,
-                    json_body={"name": workspace_name},
-                )
-                workspace_ids.append(_workspace_id(f"{label} workspace", response))
-            await _request(
-                platform_client,
-                step="workspace membership",
-                method="POST",
-                path=f"/api/v1/workspaces/{workspace_ids[0]}/members",
-                expected=204,
-                headers=platform_headers,
-                json_body={"user_id": str(fixture.user_id)},
-            )
-
             engineer_login = await _request(
                 engineer_client,
                 step="engineer login",
@@ -463,7 +469,7 @@ async def run_smoke(
                 expected=200,
                 headers=engineer_headers,
             )
-            _verify_visible_workspace(visible, workspace_ids[0])
+            _verify_visible_workspace(visible, fixture.allowed_workspace_id)
             output(SUCCESS_MESSAGES[2])
 
             for step, method, path, body in (
@@ -517,11 +523,7 @@ async def run_smoke(
                 except httpx.HTTPError:
                     pass
             if fixture is not None:
-                await fixture_store.cleanup(
-                    fixture,
-                    workspace_ids,
-                    workspace_names,
-                )
+                await fixture_store.cleanup(fixture)
 
 
 async def _async_main() -> None:
