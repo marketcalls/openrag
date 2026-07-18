@@ -64,17 +64,41 @@ The design follows five foundational rules: tenant filtering has one enforced pa
 
 See the [high-level architecture](docs/architecture.md) for service boundaries and ingestion/query flows.
 
-## Development setup
+## Quick start
+
+Prerequisite: Docker with Compose. From the repository root, build and start the complete application:
+
+```bash
+docker compose -f deploy/compose.yaml up -d --build
+```
+
+Compose waits for PostgreSQL, runs migrations, bootstraps the development superadmin, and then starts the API, ingestion worker, and web application. Open [http://localhost:5173](http://localhost:5173) and sign in with:
+
+- Email: `root@openrag.internal`
+- Password: `changeme123`
+
+These are development-only defaults. Override `OPENRAG_BOOTSTRAP_EMAIL` and `OPENRAG_BOOTSTRAP_PASSWORD` before the first startup of any shared or internet-accessible deployment.
+
+The default stack uses the deterministic hash embedder and does not download an embedding model. To add local Text Embeddings Inference with BGE-M3 and Ollama:
+
+```bash
+OPENRAG_EMBEDDING_BACKEND=tei \
+docker compose -f deploy/compose.yaml --profile ml up -d --build
+```
+
+The `ml` profile can take several minutes on first launch while model images and weights download. Completion models are never silently selected: after signing in, register a hosted or local completion model under **Superadmin → Models**, create a workspace, upload a document, wait for **Indexed**, and start a chat.
+
+Copy `.env.example` to `.env` to override ports or bootstrap settings. Application ports bind to loopback by default; `OPENRAG_WEB_PORT` and `OPENRAG_API_PORT` change the host ports.
+
+## Local source development
 
 Prerequisites: Docker, Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 20+, and Corepack.
 
-Start the infrastructure from the repository root:
+Start only the infrastructure:
 
 ```bash
-docker compose -f deploy/compose.yaml --profile ml up -d
+docker compose -f deploy/compose.yaml up -d postgres redis qdrant minio litellm
 ```
-
-The `ml` profile starts Text Embeddings Inference with BGE-M3 and may take several minutes on its first run. For a lightweight functional smoke without downloading the embedding model, omit `--profile ml` and start the API and worker with `OPENRAG_EMBEDDING_BACKEND=hash`.
 
 Prepare and start the backend:
 
@@ -109,7 +133,7 @@ Open [http://localhost:5173](http://localhost:5173). During local development, s
 - Email: `root@openrag.internal`
 - Password: `changeme123`
 
-These are development-only bootstrap credentials. Change them for any shared or internet-accessible deployment. After signing in, register a completion model under **Superadmin → Models**, create a workspace, upload a document, wait for **Indexed**, and start a chat.
+These are development-only bootstrap credentials. Change them for any shared or internet-accessible deployment.
 
 Useful service URLs:
 

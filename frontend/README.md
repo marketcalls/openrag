@@ -2,6 +2,16 @@
 
 The OpenRAG web application is built with React 18, Vite, strict TypeScript, Tailwind CSS, TanStack Query, and a generated OpenAPI client.
 
+## Containerized application
+
+The repository-level Compose stack builds this frontend into an Nginx image, serves SPA routes, and proxies API and health requests to FastAPI:
+
+```bash
+docker compose -f deploy/compose.yaml up -d --build
+```
+
+Open <http://localhost:5173>. Use `OPENRAG_WEB_PORT` to override the loopback host port. The commands below are for source development and verification.
+
 ## Commands
 
 Run these from `frontend/`:
