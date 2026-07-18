@@ -21,6 +21,10 @@ const UsersPage = lazy(async () => {
   const module = await import('@/features/admin/users/users-page');
   return { default: module.UsersPage };
 });
+const ModelsPage = lazy(async () => {
+  const module = await import('@/features/admin/models/models-page');
+  return { default: module.ModelsPage };
+});
 
 function ChatRoute() {
   return (
@@ -64,8 +68,18 @@ function UsersRoute() {
   );
 }
 
-function ComingSoon({ name }: { name: string }) {
-  return <p className="p-6 text-secondary">{name} — under construction</p>;
+function ModelsRoute() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-1 items-center justify-center">
+          <Spinner label="Loading models…" />
+        </div>
+      }
+    >
+      <ModelsPage />
+    </Suspense>
+  );
 }
 
 export const router = createBrowserRouter(
@@ -88,7 +102,7 @@ export const router = createBrowserRouter(
             },
             {
               element: <RequireRole role="superadmin" />,
-              children: [{ path: '/admin/models', element: <ComingSoon name="Models" /> }],
+              children: [{ path: '/admin/models', element: <ModelsRoute /> }],
             },
           ],
         },

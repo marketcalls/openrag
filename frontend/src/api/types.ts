@@ -8,7 +8,9 @@ export type DocumentOut = components['schemas']['DocumentOut'];
 export type ChatOut = components['schemas']['ChatOut'];
 export type ChatDetailOut = components['schemas']['ChatTreeOut'];
 export type MessageOut = components['schemas']['MessageNode'];
+export type ModelCreate = components['schemas']['ModelCreate'];
 export type ModelOut = components['schemas']['ModelOut'];
+export type ModelPatch = components['schemas']['ModelPatch'];
 export type ModelPublic = components['schemas']['ModelPublic'];
 
 export type DocumentStatus = DocumentOut['status'];
