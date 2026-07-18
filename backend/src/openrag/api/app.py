@@ -1,9 +1,12 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from openrag.api.routes.admin_secrets import router as admin_secrets_router
 from openrag.api.routes.auth import router as auth_router
@@ -16,6 +19,7 @@ from openrag.core.config import get_settings
 from openrag.core.db import build_engine, build_session_factory
 from openrag.core.errors import OpenRAGError
 from openrag.core.logging import configure_logging
+from openrag.modules.models.sync import sync_models_to_litellm
 
 
 def create_app(
@@ -23,19 +27,41 @@ def create_app(
     redis_client: Redis | None = None,
 ) -> FastAPI:
     configure_logging()
+    settings = get_settings()
+    owned_engine: AsyncEngine | None = None
+    if session_factory is None:
+        owned_engine = build_engine(settings.database_url)
+        session_factory = build_session_factory(owned_engine)
+    owns_redis = redis_client is None
+    if redis_client is None:
+        redis_client = Redis.from_url(settings.redis_url)
+    logger = structlog.get_logger("openrag.api")
+
+    @asynccontextmanager
+    async def lifespan(runtime_app: FastAPI) -> AsyncIterator[None]:
+        try:
+            async with runtime_app.state.session_factory() as session:
+                deployed = await sync_models_to_litellm(session, settings)
+            logger.info("litellm_startup_sync", deployed=deployed)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("litellm_startup_sync_failed", error=str(exc))
+
+        try:
+            yield
+        finally:
+            if owns_redis:
+                await runtime_app.state.redis.aclose()
+            if owned_engine is not None:
+                await owned_engine.dispose()
+
     app = FastAPI(
         title="OpenRAG",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
+        lifespan=lifespan,
     )
-    if session_factory is None:
-        engine = build_engine(get_settings().database_url)
-        session_factory = build_session_factory(engine)
     app.state.session_factory = session_factory
-    if redis_client is None:
-        redis_client = Redis.from_url(get_settings().redis_url)
     app.state.redis = redis_client
-    logger = structlog.get_logger("openrag.api")
 
     def problem(status: int, title: str, detail: str) -> JSONResponse:
         return JSONResponse(
