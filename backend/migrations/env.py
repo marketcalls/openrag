@@ -10,6 +10,7 @@ import openrag.core.app_settings  # noqa: F401
 import openrag.modules.audit.models  # noqa: F401
 import openrag.modules.auth.models  # noqa: F401
 import openrag.modules.documents.models  # noqa: F401
+import openrag.modules.secrets.models  # noqa: F401
 import openrag.modules.tenancy.models  # noqa: F401
 from openrag.core.config import get_settings
 from openrag.core.db import Base
