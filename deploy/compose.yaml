@@ -1,4 +1,29 @@
 name: openrag
+
+x-openrag-environment: &openrag-environment
+  OPENRAG_DATABASE_URL: postgresql+asyncpg://openrag:openrag@postgres:5432/openrag
+  OPENRAG_REDIS_URL: redis://redis:6379/0
+  OPENRAG_ENVIRONMENT: ${OPENRAG_ENVIRONMENT:-dev}
+  OPENRAG_QDRANT_URL: http://qdrant:6333
+  OPENRAG_MINIO_ENDPOINT: http://minio:9000
+  OPENRAG_MINIO_ACCESS_KEY: openrag
+  OPENRAG_MINIO_SECRET_KEY: openrag123
+  OPENRAG_MINIO_BUCKET: openrag-documents
+  OPENRAG_TEI_URL: http://tei:80
+  OPENRAG_EMBEDDING_BACKEND: ${OPENRAG_EMBEDDING_BACKEND:-hash}
+  OPENRAG_EMBEDDING_DIM: ${OPENRAG_EMBEDDING_DIM:-1024}
+  OPENRAG_LITELLM_URL: http://litellm:4000
+  OPENRAG_LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-openrag-dev-master}
+  OPENRAG_KEK_FILE: /data/openrag_kek
+
+x-openrag-backend: &openrag-backend
+  image: openrag-backend:local
+  build:
+    context: ../backend
+  environment: *openrag-environment
+  volumes:
+    - kekdata:/data
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -84,8 +109,111 @@ services:
       timeout: 5s
       retries: 12
 
+  migrate:
+    <<: *openrag-backend
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  bootstrap:
+    <<: *openrag-backend
+    command: ["uv", "run", "python", "-m", "openrag.bootstrap"]
+    environment:
+      <<: *openrag-environment
+      OPENRAG_BOOTSTRAP_EMAIL: ${OPENRAG_BOOTSTRAP_EMAIL:-root@openrag.internal}
+      OPENRAG_BOOTSTRAP_PASSWORD: ${OPENRAG_BOOTSTRAP_PASSWORD:-changeme123}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  api:
+    <<: *openrag-backend
+    command:
+      - uv
+      - run
+      - uvicorn
+      - --factory
+      - openrag.api.app:create_app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    ports: ["127.0.0.1:${OPENRAG_API_PORT:-8000}:8000"]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - uv
+        - run
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://localhost:8000/readyz')
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    <<: *openrag-backend
+    command:
+      - uv
+      - run
+      - celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - worker
+      - -Q
+      - interactive,default
+      - -l
+      - info
+      - --concurrency=1
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    image: openrag-frontend:local
+    build:
+      context: ../frontend
+    ports: ["127.0.0.1:${OPENRAG_WEB_PORT:-5173}:80"]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ml"]
+    ports: ["127.0.0.1:${OPENRAG_OLLAMA_PORT:-11434}:11434"]
+    volumes: [ollamadata:/root/.ollama]
+
 volumes:
   pgdata:
   qdrantdata:
   miniodata:
   teidata:
+  kekdata:
+  ollamadata:
