@@ -19,6 +19,10 @@ class AuthorizationError(OpenRAGError):
     title = "Not permitted"
 
 
+class WorkspaceAccessDenied(AuthorizationError):
+    title = "Workspace access denied"
+
+
 class NotFoundError(OpenRAGError):
     status_code = 404
     title = "Not found"

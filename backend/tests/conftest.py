@@ -6,13 +6,18 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from testcontainers.minio import MinioContainer
 from testcontainers.postgres import PostgresContainer
+from testcontainers.qdrant import QdrantContainer
 from testcontainers.redis import RedisContainer
 
 from openrag.api.app import create_app
+from openrag.core.config import get_settings
 from openrag.core.db import Base, build_engine, build_session_factory
 from openrag.core.storage import ObjectStorage
 from openrag.modules.auth.models import User
 from openrag.modules.auth.passwords import hash_password
+from openrag.modules.retrieval.client import COLLECTION, get_qdrant
+from openrag.modules.retrieval.embeddings import get_dense_embedder
+from openrag.modules.retrieval.service import ensure_collection
 from openrag.modules.tenancy.models import Organization
 
 
@@ -48,6 +53,48 @@ def minio_config() -> Iterator[dict[str, str]]:
             "access_key": config["access_key"],
             "secret_key": config["secret_key"],
         }
+
+
+@pytest.fixture(scope="session")
+def qdrant_url() -> Iterator[str]:
+    with QdrantContainer("qdrant/qdrant:v1.10.1") as qdrant:
+        yield (
+            f"http://{qdrant.get_container_host_ip()}:"
+            f"{qdrant.get_exposed_port(6333)}"
+        )
+
+
+def clear_ambient_caches() -> None:
+    get_settings.cache_clear()
+    get_qdrant.cache_clear()
+    get_dense_embedder.cache_clear()
+
+
+@pytest.fixture
+def stack_env(
+    pg_url: str,
+    qdrant_url: str,
+    minio_config: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[None]:
+    monkeypatch.setenv("OPENRAG_DATABASE_URL", pg_url)
+    monkeypatch.setenv("OPENRAG_QDRANT_URL", qdrant_url)
+    monkeypatch.setenv("OPENRAG_MINIO_ENDPOINT", minio_config["endpoint"])
+    monkeypatch.setenv("OPENRAG_MINIO_ACCESS_KEY", minio_config["access_key"])
+    monkeypatch.setenv("OPENRAG_MINIO_SECRET_KEY", minio_config["secret_key"])
+    monkeypatch.setenv("OPENRAG_MINIO_BUCKET", "openrag-test")
+    monkeypatch.setenv("OPENRAG_EMBEDDING_BACKEND", "hash")
+    clear_ambient_caches()
+    yield
+    clear_ambient_caches()
+
+
+@pytest.fixture
+async def qdrant_collection(stack_env: None) -> None:
+    client = get_qdrant()
+    if await client.collection_exists(COLLECTION):
+        await client.delete_collection(COLLECTION)
+    await ensure_collection()
 
 
 @pytest.fixture

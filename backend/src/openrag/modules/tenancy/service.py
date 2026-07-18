@@ -3,11 +3,31 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from openrag.core.errors import NotFoundError
+from openrag.core.errors import NotFoundError, WorkspaceAccessDenied
 from openrag.modules.audit.service import record_audit
 from openrag.modules.auth.models import User
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Workspace, WorkspaceMember
+
+
+async def get_workspace_checked(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+) -> Workspace:
+    workspace = (
+        await session.execute(
+            select(Workspace).where(
+                Workspace.id == workspace_id,
+                Workspace.org_id == context.org_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if workspace is None or (
+        context.role == "user" and workspace_id not in context.workspace_ids
+    ):
+        raise WorkspaceAccessDenied("workspace not found or not accessible")
+    return workspace
 
 
 async def create_workspace(
