@@ -117,6 +117,7 @@ Useful service URLs:
 |---|---|
 | OpenRAG web app | <http://localhost:5173> |
 | API documentation | <http://localhost:8000/api/docs> |
+| API liveness / readiness | <http://localhost:8000/healthz> / <http://localhost:8000/readyz> |
 | MinIO console | <http://localhost:59001> |
 | LiteLLM proxy | <http://localhost:54000> |
 
@@ -127,7 +128,7 @@ Useful service URLs:
 cd backend
 uv run pytest
 uv run ruff check .
-uv run mypy src tests
+uv run mypy src
 uv run lint-imports
 
 # Frontend
