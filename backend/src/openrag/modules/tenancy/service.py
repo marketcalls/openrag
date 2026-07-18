@@ -1,0 +1,71 @@
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from openrag.core.errors import NotFoundError
+from openrag.modules.auth.models import User
+from openrag.modules.tenancy.context import TenantContext
+from openrag.modules.tenancy.models import Workspace, WorkspaceMember
+
+
+async def create_workspace(
+    session: AsyncSession,
+    context: TenantContext,
+    name: str,
+) -> Workspace:
+    workspace = Workspace(org_id=context.org_id, name=name)
+    session.add(workspace)
+    await session.commit()
+    return workspace
+
+
+async def list_workspaces(
+    session: AsyncSession,
+    context: TenantContext,
+) -> list[Workspace]:
+    statement = select(Workspace).where(Workspace.org_id == context.org_id)
+    if context.role == "user":
+        statement = statement.where(Workspace.id.in_(context.workspace_ids))
+    return list(
+        (await session.execute(statement.order_by(Workspace.name))).scalars()
+    )
+
+
+async def add_member(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+    user_id: UUID,
+    role: str,
+) -> None:
+    workspace = (
+        await session.execute(
+            select(Workspace).where(
+                Workspace.id == workspace_id,
+                Workspace.org_id == context.org_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if workspace is None:
+        raise NotFoundError("workspace not found")
+
+    user = (
+        await session.execute(
+            select(User).where(
+                User.id == user_id,
+                User.org_id == context.org_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if user is None:
+        raise NotFoundError("user not found")
+
+    session.add(
+        WorkspaceMember(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            role=role,
+        )
+    )
+    await session.commit()
