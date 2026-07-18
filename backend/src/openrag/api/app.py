@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from openrag.api.routes.auth import router as auth_router
+from openrag.api.routes.health import router as health_router
 from openrag.api.routes.users import router as users_router
 from openrag.api.routes.workspaces import router as workspaces_router
 from openrag.core.config import get_settings
@@ -42,6 +43,7 @@ def create_app(
         )
 
     app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(health_router)
     app.include_router(users_router, prefix="/api/v1")
     app.include_router(workspaces_router, prefix="/api/v1")
     return app
