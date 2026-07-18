@@ -7,6 +7,7 @@ from openrag.core.errors import NotFoundError, WorkspaceAccessDenied
 from openrag.modules.audit.service import record_audit
 from openrag.modules.auth.models import User
 from openrag.modules.models import service as models_service
+from openrag.modules.tenancy.authorization import ensure_workspace_access
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Workspace, WorkspaceMember
 from openrag.modules.tenancy.schemas import WorkspaceMemberOut
@@ -17,39 +18,29 @@ async def get_workspace(
     context: TenantContext,
     workspace_id: UUID,
 ) -> Workspace:
-    workspace = (
-        await session.execute(
-            select(Workspace).where(
-                Workspace.id == workspace_id,
-                Workspace.org_id == context.org_id,
-            )
+    try:
+        return await ensure_workspace_access(
+            session,
+            context,
+            workspace_id,
+            "workspace.manage",
         )
-    ).scalar_one_or_none()
-    if workspace is None or (
-        context.role == "user" and workspace_id not in context.workspace_ids
-    ):
-        raise NotFoundError("workspace not found")
-    return workspace
+    except WorkspaceAccessDenied as exc:
+        raise NotFoundError("workspace not found") from exc
 
 
 async def get_workspace_checked(
     session: AsyncSession,
     context: TenantContext,
     workspace_id: UUID,
+    permission: str = "document.read",
 ) -> Workspace:
-    workspace = (
-        await session.execute(
-            select(Workspace).where(
-                Workspace.id == workspace_id,
-                Workspace.org_id == context.org_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if workspace is None or (
-        context.role == "user" and workspace_id not in context.workspace_ids
-    ):
-        raise WorkspaceAccessDenied("workspace not found or not accessible")
-    return workspace
+    return await ensure_workspace_access(
+        session,
+        context,
+        workspace_id,
+        permission,
+    )
 
 
 async def create_workspace(
@@ -57,6 +48,8 @@ async def create_workspace(
     context: TenantContext,
     name: str,
 ) -> Workspace:
+    if not context.authorization.has("workspace.manage"):
+        raise WorkspaceAccessDenied("workspace not found or not accessible")
     workspace = Workspace(org_id=context.org_id, name=name)
     session.add(workspace)
     await session.flush()
@@ -77,7 +70,7 @@ async def list_workspaces(
     context: TenantContext,
 ) -> list[Workspace]:
     statement = select(Workspace).where(Workspace.org_id == context.org_id)
-    if context.role == "user":
+    if not context.authorization.has("workspace.read_all"):
         statement = statement.where(Workspace.id.in_(context.workspace_ids))
     return list(
         (await session.execute(statement.order_by(Workspace.name))).scalars()
@@ -105,16 +98,8 @@ async def add_member(
     user_id: UUID,
     role: str,
 ) -> None:
-    workspace = (
-        await session.execute(
-            select(Workspace).where(
-                Workspace.id == workspace_id,
-                Workspace.org_id == context.org_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if workspace is None:
-        raise NotFoundError("workspace not found")
+    del role  # capability assignment moves to role bindings in RBAC Task 4
+    await get_workspace(session, context, workspace_id)
 
     user = (
         await session.execute(
@@ -129,9 +114,9 @@ async def add_member(
 
     session.add(
         WorkspaceMember(
+            org_id=context.org_id,
             workspace_id=workspace_id,
             user_id=user_id,
-            role=role,
         )
     )
     await record_audit(
@@ -155,7 +140,6 @@ async def list_members(
         select(
             WorkspaceMember.user_id,
             User.email,
-            WorkspaceMember.role,
         )
         .join(User, User.id == WorkspaceMember.user_id)
         .join(Workspace, Workspace.id == WorkspaceMember.workspace_id)
@@ -167,6 +151,6 @@ async def list_members(
         .order_by(User.email)
     )
     return [
-        WorkspaceMemberOut(user_id=user_id, email=email, role=role)
-        for user_id, email, role in rows.all()
+        WorkspaceMemberOut(user_id=user_id, email=email, role="member")
+        for user_id, email in rows.all()
     ]

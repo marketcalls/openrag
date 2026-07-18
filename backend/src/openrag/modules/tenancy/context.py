@@ -14,15 +14,29 @@ from openrag.core.errors import AuthenticationError, AuthorizationError
 from openrag.core.ratelimit import FixedWindowLimiter, RedisFixedWindowLimiter
 from openrag.modules.auth.models import User
 from openrag.modules.auth.tokens import decode_access_token
-from openrag.modules.tenancy.models import WorkspaceMember
+from openrag.modules.tenancy.authorization import (
+    AuthorizationSnapshot,
+    resolve_authorization,
+)
+from openrag.modules.tenancy.permissions import ALL_PERMISSIONS
 
 
 @dataclass(frozen=True)
 class TenantContext:
     user_id: UUID
     org_id: UUID
-    role: str
-    workspace_ids: frozenset[UUID]
+    authorization: AuthorizationSnapshot
+
+    def __post_init__(self) -> None:
+        if (
+            self.authorization.user_id != self.user_id
+            or self.authorization.org_id != self.org_id
+        ):
+            raise ValueError("authorization snapshot does not match tenant context")
+
+    @property
+    def workspace_ids(self) -> frozenset[UUID]:
+        return self.authorization.workspace_ids
 
 
 _bearer = HTTPBearer(auto_error=False)
@@ -43,35 +57,53 @@ async def get_tenant_context(
     user = (
         await session.execute(select(User).where(User.id == claims.user_id))
     ).scalar_one_or_none()
-    if user is None or not user.active:
+    if user is None or not user.active or user.org_id != claims.org_id:
         raise AuthenticationError("unknown or inactive user")
-
-    workspace_ids = (
-        await session.execute(
-            select(WorkspaceMember.workspace_id).where(
-                WorkspaceMember.user_id == user.id
-            )
-        )
-    ).scalars().all()
+    authorization = await resolve_authorization(session, user)
     return TenantContext(
         user_id=user.id,
         org_id=user.org_id,
-        role=user.role,
-        workspace_ids=frozenset(workspace_ids),
+        authorization=authorization,
     )
+
+
+def require_permission(
+    permission: str,
+) -> Callable[[TenantContext], Awaitable[TenantContext]]:
+    if permission not in ALL_PERMISSIONS:
+        raise ValueError(f"unknown permission: {permission}")
+
+    async def guard(
+        context: Annotated[TenantContext, Depends(get_tenant_context)],
+    ) -> TenantContext:
+        if not context.authorization.has(permission):
+            raise AuthorizationError(f"requires permission: {permission}")
+        return context
+
+    return guard
+
+
+def require_platform_superadmin(
+) -> Callable[[TenantContext], Awaitable[TenantContext]]:
+    async def guard(
+        context: Annotated[TenantContext, Depends(get_tenant_context)],
+    ) -> TenantContext:
+        if not context.authorization.is_platform_superadmin:
+            raise AuthorizationError("requires platform superadmin")
+        return context
+
+    return guard
 
 
 def require_role(
     *roles: str,
 ) -> Callable[[TenantContext], Awaitable[TenantContext]]:
-    async def guard(
-        context: Annotated[TenantContext, Depends(get_tenant_context)],
-    ) -> TenantContext:
-        if context.role != "superadmin" and context.role not in roles:
-            raise AuthorizationError(f"requires role in {sorted(roles)}")
-        return context
-
-    return guard
+    """Temporary fail-closed adapter for routes migrated in RBAC Task 4."""
+    if not roles:
+        return require_platform_superadmin()
+    if roles == ("admin",):
+        return require_permission("workspace.manage")
+    raise ValueError("legacy role dependency is not supported")
 
 
 def rate_limit_user(

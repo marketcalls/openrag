@@ -54,7 +54,13 @@ async def test_same_org_non_member_is_denied(
     two_orgs: TwoOrgs,
 ) -> None:
     context_a, workspace_a, _ = two_orgs["a"]
-    stranger = replace(context_a, workspace_ids=frozenset())
+    stranger = replace(
+        context_a,
+        authorization=replace(
+            context_a.authorization,
+            workspace_ids=frozenset(),
+        ),
+    )
 
     with pytest.raises(WorkspaceAccessDenied):
         await retrieve(session, stranger, workspace_a.id, "anything")

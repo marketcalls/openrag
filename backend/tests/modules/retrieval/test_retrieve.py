@@ -10,8 +10,10 @@ from openrag.modules.auth.models import User
 from openrag.modules.retrieval.client import COLLECTION, get_qdrant
 from openrag.modules.retrieval.embeddings import embed_sparse, get_dense_embedder
 from openrag.modules.retrieval.service import delete_document_points, retrieve
+from openrag.modules.tenancy.authorization import AuthorizationSnapshot
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Organization, Workspace, WorkspaceMember
+from openrag.modules.tenancy.permissions import ALL_PERMISSIONS
 
 
 async def seed_workspace(
@@ -34,20 +36,36 @@ async def seed_workspace(
         org_id=organization.id,
         email=f"user@{org_name}.com",
         password_hash="x",  # noqa: S106 - inert persisted test value
-        role=role,
     )
     session.add_all([workspace, user])
     await session.flush()
     if member:
         session.add(
-            WorkspaceMember(workspace_id=workspace.id, user_id=user.id)
+            WorkspaceMember(
+                org_id=organization.id,
+                workspace_id=workspace.id,
+                user_id=user.id,
+            )
         )
     await session.commit()
+    permissions = (
+        ALL_PERMISSIONS
+        if role == "admin"
+        else frozenset({"document.read", "document.upload"})
+    )
     context = TenantContext(
         user_id=user.id,
         org_id=organization.id,
-        role=role,
-        workspace_ids=frozenset({workspace.id}) if member else frozenset(),
+        authorization=AuthorizationSnapshot(
+            user_id=user.id,
+            org_id=organization.id,
+            is_platform_superadmin=False,
+            org_permissions=permissions,
+            workspace_permissions={},
+            workspace_ids=(
+                frozenset({workspace.id}) if member else frozenset()
+            ),
+        ),
     )
     return context, workspace
 

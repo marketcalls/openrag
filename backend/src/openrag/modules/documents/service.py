@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import get_settings
-from openrag.core.errors import ConflictError, NotFoundError, WorkspaceAccessDenied
+from openrag.core.errors import ConflictError, NotFoundError
 from openrag.core.storage import build_storage
 from openrag.modules.audit.service import record_audit
 from openrag.modules.documents.models import Document
@@ -22,7 +22,12 @@ async def create_from_upload(
     mime: str,
     data: bytes,
 ) -> Document:
-    workspace = await get_workspace_checked(session, context, workspace_id)
+    workspace = await get_workspace_checked(
+        session,
+        context,
+        workspace_id,
+        "document.upload",
+    )
     content_hash = hashlib.sha256(data).hexdigest()
     duplicate = (
         await session.execute(
@@ -72,7 +77,12 @@ async def list_documents(
     context: TenantContext,
     workspace_id: UUID,
 ) -> list[Document]:
-    workspace = await get_workspace_checked(session, context, workspace_id)
+    workspace = await get_workspace_checked(
+        session,
+        context,
+        workspace_id,
+        "document.read",
+    )
     statement = (
         select(Document)
         .where(Document.workspace_id == workspace.id)
@@ -96,9 +106,10 @@ async def get_document_checked(
     ).scalar_one_or_none()
     if document is None:
         raise NotFoundError("document not found")
-    if (
-        context.role == "user"
-        and document.workspace_id not in context.workspace_ids
-    ):
-        raise WorkspaceAccessDenied("workspace not found or not accessible")
+    await get_workspace_checked(
+        session,
+        context,
+        document.workspace_id,
+        "document.read",
+    )
     return document
