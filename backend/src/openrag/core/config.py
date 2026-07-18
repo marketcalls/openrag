@@ -11,9 +11,9 @@ class Settings(BaseSettings):
     )
 
     database_url: str = (
-        "postgresql+asyncpg://openrag:openrag@localhost:5432/openrag"
+        "postgresql+asyncpg://openrag:openrag@127.0.0.1:55432/openrag"
     )
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = "redis://127.0.0.1:56379/0"
     environment: str = "dev"
     access_token_ttl_seconds: int = 900
     refresh_token_ttl_seconds: int = 1_209_600

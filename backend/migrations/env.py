@@ -6,6 +6,8 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+import openrag.modules.auth.models  # noqa: F401
+import openrag.modules.tenancy.models  # noqa: F401
 from openrag.core.config import get_settings
 from openrag.core.db import Base
 

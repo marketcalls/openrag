@@ -13,5 +13,6 @@ def test_settings_reads_env(monkeypatch) -> None:  # type: ignore[no-untyped-def
 def test_settings_use_openrag_database_defaults() -> None:
     settings = Settings(_env_file=None)
     assert settings.database_url == (
-        "postgresql+asyncpg://openrag:openrag@localhost:5432/openrag"
+        "postgresql+asyncpg://openrag:openrag@127.0.0.1:55432/openrag"
     )
+    assert settings.redis_url == "redis://127.0.0.1:56379/0"

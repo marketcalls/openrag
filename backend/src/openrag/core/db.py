@@ -14,11 +14,17 @@ class Base(DeclarativeBase):
     pass
 
 
+def naive_utc() -> datetime:
+    """Return naive UTC for PostgreSQL TIMESTAMP WITHOUT TIME ZONE columns."""
+
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 class UUIDPk:
     """UUID primary key and creation timestamp shared by persisted entities."""
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(default=naive_utc)
 
 
 def build_engine(url: str) -> AsyncEngine:
