@@ -9,12 +9,13 @@ import { Sidebar } from './sidebar';
 
 const base64 = (value: object) =>
   btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const tokenFor = (role: string) =>
+const tokenFor = (permissions: string[], platformSuperadmin = false) =>
   `${base64({ alg: 'HS256' })}.${base64({
-    sub: 'u1',
-    org: 'o1',
-    role,
-    exp: 9,
+    sub: '550e8400-e29b-41d4-a716-446655440000',
+    org: '6ba7b810-9dad-41d1-80b4-00c04fd430c8',
+    platform_superadmin: platformSuperadmin,
+    permissions,
+    exp: 4_102_444_800,
   })}.signature`;
 
 function renderSidebar() {
@@ -58,17 +59,28 @@ afterEach(() => {
 });
 
 test('a user sees no administration links', async () => {
-  setAccessToken(tokenFor('user'));
+  setAccessToken(tokenFor(['chat.use', 'document.read']));
   renderSidebar();
   expect(await screen.findByText('Finance')).toBeInTheDocument();
   expect(screen.queryByText('Users')).not.toBeInTheDocument();
   expect(screen.queryByText('Models')).not.toBeInTheDocument();
+  expect(screen.queryByText('Roles')).not.toBeInTheDocument();
 });
 
-test('a superadmin sees user and model administration links', async () => {
-  setAccessToken(tokenFor('superadmin'));
+test('capability hints show only matching organization administration links', async () => {
+  setAccessToken(tokenFor(['user.manage', 'role.manage']));
+  renderSidebar();
+  expect(await screen.findByText('Finance')).toBeInTheDocument();
+  expect(screen.getByText('Users')).toBeInTheDocument();
+  expect(screen.getByText('Roles')).toBeInTheDocument();
+  expect(screen.queryByText('Models')).not.toBeInTheDocument();
+});
+
+test('a platform superadmin sees platform and organization administration links', async () => {
+  setAccessToken(tokenFor([], true));
   renderSidebar();
   expect(await screen.findByText('Finance')).toBeInTheDocument();
   expect(await screen.findByText('Users')).toBeInTheDocument();
   expect(screen.getByText('Models')).toBeInTheDocument();
+  expect(screen.getByText('Roles')).toBeInTheDocument();
 });

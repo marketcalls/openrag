@@ -9,7 +9,9 @@ from openrag.modules.auth import service as auth_service
 from openrag.modules.auth.schemas import UserOut
 from openrag.modules.tenancy import service
 from openrag.modules.tenancy.context import TenantContext, require_permission
+from openrag.modules.tenancy.permissions import PERMISSION_CATALOG
 from openrag.modules.tenancy.schemas import (
+    PermissionCatalogOut,
     RoleBindingReplace,
     RoleCreate,
     RoleOut,
@@ -22,6 +24,21 @@ RoleManagerDep = Annotated[
     TenantContext,
     Depends(require_permission("role.manage")),
 ]
+
+
+@router.get("/roles/catalog", response_model=list[PermissionCatalogOut])
+async def permission_catalog(
+    context: RoleManagerDep,
+) -> list[PermissionCatalogOut]:
+    return [
+        PermissionCatalogOut(
+            code=item.code,
+            label=item.label,
+            group=item.group,
+            description=item.description,
+        )
+        for item in PERMISSION_CATALOG
+    ]
 
 
 @router.get("/roles", response_model=list[RoleOut])

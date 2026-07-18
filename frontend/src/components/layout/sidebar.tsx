@@ -1,8 +1,9 @@
-import { FileText, Settings2, Users } from 'lucide-react';
+import { FileText, KeyRound, Settings2, Users } from 'lucide-react';
 import { type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 
 import { cn } from '@/lib/cn';
+import { hasPermission } from '@/lib/jwt';
 import { useClaims } from '@/lib/use-claims';
 
 import { SidebarChatList } from './sidebar-chat-list';
@@ -28,7 +29,8 @@ function SideLink({ to, label, icon }: { to: string; label: string; icon: ReactN
 
 export function Sidebar() {
   const claims = useClaims();
-  const isAdmin = claims?.role === 'admin' || claims?.role === 'superadmin';
+  const canManageUsers = claims ? hasPermission(claims, 'user.manage') : false;
+  const canManageRoles = claims ? hasPermission(claims, 'role.manage') : false;
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-line bg-sidebar">
       <div className="flex items-center gap-2 px-3 pb-1 pt-3">
@@ -45,14 +47,21 @@ export function Sidebar() {
           label="Documents"
           icon={<FileText className="h-4 w-4" aria-hidden />}
         />
-        {isAdmin ? (
+        {canManageUsers ? (
           <SideLink
             to="/admin/users"
             label="Users"
             icon={<Users className="h-4 w-4" aria-hidden />}
           />
         ) : null}
-        {claims?.role === 'superadmin' ? (
+        {canManageRoles ? (
+          <SideLink
+            to="/admin/roles"
+            label="Roles"
+            icon={<KeyRound className="h-4 w-4" aria-hidden />}
+          />
+        ) : null}
+        {claims?.platform_superadmin ? (
           <SideLink
             to="/admin/models"
             label="Models"

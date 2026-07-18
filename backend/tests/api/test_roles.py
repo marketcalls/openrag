@@ -14,6 +14,7 @@ from openrag.modules.tenancy.models import (
     RolePermission,
     UserRoleBinding,
 )
+from openrag.modules.tenancy.permissions import ALL_PERMISSIONS
 
 
 async def auth(client: httpx.AsyncClient, email: str) -> dict[str, str]:
@@ -23,6 +24,68 @@ async def auth(client: httpx.AsyncClient, email: str) -> dict[str, str]:
     )
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+async def test_permission_catalog_is_explicit_stable_and_role_manager_only(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    session: AsyncSession,
+) -> None:
+    headers = await auth(client, seeded_user.email)
+    response = await client.get("/api/v1/roles/catalog", headers=headers)
+
+    assert response.status_code == 200
+    catalog = response.json()
+    assert catalog == sorted(catalog, key=lambda item: item["code"])
+    assert set(catalog[0]) == {"code", "label", "group", "description"}
+    catalog_codes = {item["code"] for item in catalog}
+    assert catalog_codes == ALL_PERMISSIONS
+    assert catalog_codes == {
+        "audit.read",
+        "chat.use",
+        "document.approve",
+        "document.read",
+        "document.upload",
+        "model.configure",
+        "rag.evaluate",
+        "role.manage",
+        "user.manage",
+        "workspace.manage",
+        "workspace.read_all",
+    }
+    assert all(item["label"] and item["group"] and item["description"] for item in catalog)
+    assert "platform.superadmin" not in {item["code"] for item in catalog}
+
+    ordinary = User(
+        org_id=seeded_user.org_id,
+        email="ordinary-catalog@acme.com",
+        password_hash=hash_password("pw123456"),
+    )
+    user_role = (
+        await session.execute(
+            select(Role).where(
+                Role.org_id == seeded_user.org_id,
+                Role.key == "user",
+            )
+        )
+    ).scalar_one()
+    session.add(ordinary)
+    await session.flush()
+    session.add(
+        UserRoleBinding(
+            org_id=seeded_user.org_id,
+            user_id=ordinary.id,
+            role_id=user_role.id,
+            created_by=seeded_user.id,
+        )
+    )
+    await session.commit()
+
+    denied = await client.get(
+        "/api/v1/roles/catalog",
+        headers=await auth(client, ordinary.email),
+    )
+    assert denied.status_code == 403
 
 
 async def test_role_crud_is_scoped_strict_and_audited(

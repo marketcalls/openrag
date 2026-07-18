@@ -1,13 +1,15 @@
-import { useState, type FormEvent } from 'react';
+import { CheckCircle2 } from 'lucide-react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/select';
-import { toast } from '@/components/ui/toaster';
+import { Spinner } from '@/components/ui/spinner';
+import { useRoles } from '@/features/admin/roles/queries';
 
-import { useInvite, type ManagedRole } from './queries';
+import { useInvite } from './queries';
 
 export function InviteDialog({
   open,
@@ -17,54 +19,46 @@ export function InviteDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const invite = useInvite();
+  const roles = useRoles();
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<ManagedRole>('user');
+  const [roleId, setRoleId] = useState('');
+  const assignableRoles = useMemo(
+    () => (roles.data ?? []).filter((role) => role.is_assignable && role.key !== 'platform_superadmin'),
+    [roles.data],
+  );
+
+  useEffect(() => {
+    if (open && !roleId && assignableRoles[0]) setRoleId(assignableRoles[0].id);
+  }, [assignableRoles, open, roleId]);
 
   const close = (next: boolean): void => {
     if (!next) {
       invite.reset();
       setEmail('');
-      setRole('user');
+      setRoleId('');
     }
     onOpenChange(next);
   };
 
   const onSubmit = (event: FormEvent): void => {
     event.preventDefault();
-    invite.mutate({ email: email.trim(), role });
+    if (roleId) invite.mutate({ email: email.trim(), role_id: roleId });
   };
-
-  const inviteLink = invite.data
-    ? `${window.location.origin}/invite?token=${invite.data.invite_token}`
-    : null;
 
   return (
     <Dialog open={open} onOpenChange={close}>
       <DialogContent
         title="Invite a user"
-        description="Copy this one-time invitation link and send it securely to the new user."
+        description="Assign an organization role. OpenRAG sends the one-time credential through the configured secure delivery channel."
       >
-        {inviteLink ? (
-          <div className="space-y-3">
-            <p className="break-all rounded-md border border-line bg-subtle p-2 font-mono text-[12px] text-ink">
-              {inviteLink}
+        {invite.isSuccess ? (
+          <div className="border-y border-line py-5 text-center">
+            <CheckCircle2 className="mx-auto h-7 w-7 text-success" aria-hidden />
+            <h3 className="mt-2 text-[14px] font-semibold text-ink">Invitation queued</h3>
+            <p className="mt-1 text-[12px] leading-relaxed text-secondary">
+              If the address is eligible, delivery will continue out of band. No invitation secret is shown here.
             </p>
-            <p className="text-[12px] text-secondary">
-              This token is shown once. Closing the dialog clears it from the screen.
-            </p>
-            <DialogFooter>
-              <Button
-                variant="primary"
-                onClick={() => {
-                  void navigator.clipboard
-                    .writeText(inviteLink)
-                    .then(() => toast.success('Invite link copied'))
-                    .catch(() => toast.error('Could not copy the invite link'));
-                }}
-              >
-                Copy link
-              </Button>
-            </DialogFooter>
+            <DialogFooter><Button variant="primary" onClick={() => close(false)}>Done</Button></DialogFooter>
           </div>
         ) : (
           <form onSubmit={onSubmit} className="space-y-3">
@@ -75,30 +69,32 @@ export function InviteDialog({
                 type="email"
                 autoComplete="email"
                 required
+                disabled={invite.isPending}
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
               />
             </div>
             <div>
               <Label htmlFor="invite-role">Role</Label>
+              {roles.isPending ? <Spinner label="Loading assignable roles…" /> : null}
               <NativeSelect
                 id="invite-role"
-                value={role}
-                onChange={(event) => setRole(event.target.value as ManagedRole)}
+                required
+                value={roleId}
+                disabled={roles.isPending || roles.isError || assignableRoles.length === 0 || invite.isPending}
+                onChange={(event) => setRoleId(event.target.value)}
               >
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
+                <option value="">Select a role</option>
+                {assignableRoles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
               </NativeSelect>
             </div>
-            {invite.isError ? (
-              <p role="alert" className="text-[12px] text-danger">
-                {invite.error.message}
-              </p>
-            ) : null}
+            {roles.isError ? <p role="alert" className="text-[12px] text-danger">{roles.error.message}</p> : null}
+            {roles.data && assignableRoles.length === 0 ? <p className="text-[12px] text-secondary">No assignable organization roles are available.</p> : null}
+            {invite.isError ? <p role="alert" className="text-[12px] text-danger">{invite.error.message}</p> : null}
             <DialogFooter>
               <Button onClick={() => close(false)}>Cancel</Button>
-              <Button type="submit" variant="primary" disabled={invite.isPending}>
-                {invite.isPending ? 'Creating…' : 'Send invite'}
+              <Button type="submit" variant="primary" disabled={!roleId || invite.isPending}>
+                {invite.isPending ? 'Queuing…' : 'Send invite'}
               </Button>
             </DialogFooter>
           </form>

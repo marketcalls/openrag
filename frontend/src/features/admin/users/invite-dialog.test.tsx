@@ -1,21 +1,37 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { InviteDialog } from './invite-dialog';
 
-function renderDialog() {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () =>
-      new Response(JSON.stringify({ invite_token: 'raw-tok-123' }), {
-        status: 201,
-        headers: { 'content-type': 'application/json' },
-      }),
-    ),
-  );
+const USER_ROLE_ID = '550e8400-e29b-41d4-a716-446655440001';
+const roles = [
+  {
+    id: USER_ROLE_ID,
+    key: 'user',
+    name: 'User',
+    description: 'Grounded chat access',
+    permissions: ['chat.use', 'document.read'],
+    is_system: true,
+    is_assignable: true,
+  },
+  {
+    id: '550e8400-e29b-41d4-a716-446655440002',
+    key: 'platform_superadmin',
+    name: 'Platform Superadmin',
+    description: 'Must never be assignable',
+    permissions: [],
+    is_system: true,
+    is_assignable: false,
+  },
+];
+
+function renderDialog(fetchMock: ReturnType<typeof vi.fn>) {
+  vi.stubGlobal('fetch', fetchMock);
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+    >
       <InviteDialog open onOpenChange={vi.fn()} />
     </QueryClientProvider>,
   );
@@ -23,14 +39,51 @@ function renderDialog() {
 
 afterEach(() => vi.unstubAllGlobals());
 
-test('creates an invitation and reveals the one-time link', async () => {
+test('submits an opaque assignable role id and shows only the generic 202 result', async () => {
+  const requests: Request[] = [];
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    if (!(input instanceof Request)) throw new Error('Expected Request');
+    requests.push(input);
+    if (input.method === 'GET' && input.url.endsWith('/api/v1/roles')) {
+      return Response.json(roles);
+    }
+    return Response.json({ accepted: true }, { status: 202 });
+  });
   const user = userEvent.setup();
-  renderDialog();
+  renderDialog(fetchMock);
 
+  await screen.findByRole('option', { name: 'User' });
+  expect(screen.queryByRole('option', { name: 'Platform Superadmin' })).not.toBeInTheDocument();
   await user.type(screen.getByLabelText('Email'), 'new@acme.com');
-  await user.selectOptions(screen.getByLabelText('Role'), 'admin');
+  await user.selectOptions(screen.getByLabelText('Role'), USER_ROLE_ID);
   await user.click(screen.getByRole('button', { name: 'Send invite' }));
 
-  expect(await screen.findByText(/\/invite\?token=raw-tok-123/)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Copy link' })).toBeInTheDocument();
+  expect(await screen.findByText('Invitation queued')).toBeInTheDocument();
+  expect(screen.queryByText(/invite\?token=/)).not.toBeInTheDocument();
+  await waitFor(() => expect(requests.some((request) => request.method === 'POST')).toBe(true));
+  const post = requests.find((request) => request.method === 'POST');
+  if (!post) throw new Error('Expected invitation POST');
+  expect(await post.clone().json()).toEqual({ email: 'new@acme.com', role_id: USER_ROLE_ID });
+});
+
+test('renders an authorization error and keeps the invitation form', async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    if (!(input instanceof Request)) throw new Error('Expected Request');
+    if (input.method === 'GET') return Response.json(roles);
+    return Response.json(
+      { detail: 'You no longer have permission to invite users.' },
+      { status: 403, headers: { 'content-type': 'application/problem+json' } },
+    );
+  });
+  const user = userEvent.setup();
+  renderDialog(fetchMock);
+
+  await screen.findByRole('option', { name: 'User' });
+  await user.type(screen.getByLabelText('Email'), 'new@acme.com');
+  await user.click(screen.getByRole('button', { name: 'Send invite' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'You no longer have permission to invite users.',
+  );
+  expect(screen.getByLabelText('Email')).toHaveValue('new@acme.com');
 });

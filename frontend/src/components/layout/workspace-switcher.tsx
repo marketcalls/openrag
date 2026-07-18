@@ -3,6 +3,7 @@ import { useState, type FormEvent } from 'react';
 
 import { useCreateWorkspace, useWorkspaces } from '@/features/workspaces/queries';
 import { useWorkspace } from '@/features/workspaces/workspace-context';
+import { hasPermission } from '@/lib/jwt';
 import { useClaims } from '@/lib/use-claims';
 
 import { Button } from '../ui/button';
@@ -28,7 +29,7 @@ export function WorkspaceSwitcher() {
   const [name, setName] = useState('');
 
   const current = workspaces?.find((workspace) => workspace.id === workspaceId);
-  const canCreate = claims?.role === 'admin' || claims?.role === 'superadmin';
+  const canCreate = claims ? hasPermission(claims, 'workspace.manage') : false;
 
   const onCreate = (event: FormEvent) => {
     event.preventDefault();

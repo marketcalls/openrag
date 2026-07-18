@@ -47,7 +47,7 @@ export function useAddWorkspaceMember() {
     mutationFn: async (input: { workspaceId: string; userId: string }) => {
       const { error } = await api.POST('/api/v1/workspaces/{workspace_id}/members', {
         params: { path: { workspace_id: input.workspaceId } },
-        body: { user_id: input.userId, role: 'member' },
+        body: { user_id: input.userId },
       });
       if (error) throw new Error('Failed to add workspace member');
     },

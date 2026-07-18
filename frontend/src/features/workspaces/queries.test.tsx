@@ -31,7 +31,7 @@ test('adds a user to a workspace as a member', async () => {
   const request = firstRequest(fetchMock);
   expect(request.method).toBe('POST');
   expect(request.url).toContain('/api/v1/workspaces/workspace-1/members');
-  expect(await request.clone().json()).toEqual({ user_id: 'user-1', role: 'member' });
+  expect(await request.clone().json()).toEqual({ user_id: 'user-1' });
 });
 
 test('sets the workspace default model', async () => {

@@ -7,7 +7,7 @@ import { LoginPage } from '@/features/auth/login-page';
 import { Spinner } from '@/components/ui/spinner';
 
 import { RequireAuth } from './require-auth';
-import { RequireRole } from './require-role';
+import { RequirePermission, RequirePlatformSuperadmin } from './require-permission';
 
 const ChatPage = lazy(async () => {
   const module = await import('@/features/chat/chat-page');
@@ -24,6 +24,10 @@ const UsersPage = lazy(async () => {
 const ModelsPage = lazy(async () => {
   const module = await import('@/features/admin/models/models-page');
   return { default: module.ModelsPage };
+});
+const RolesPage = lazy(async () => {
+  const module = await import('@/features/admin/roles/roles-page');
+  return { default: module.RolesPage };
 });
 
 function ChatRoute() {
@@ -82,6 +86,20 @@ function ModelsRoute() {
   );
 }
 
+function RolesRoute() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-1 items-center justify-center">
+          <Spinner label="Loading roles…" />
+        </div>
+      }
+    >
+      <RolesPage />
+    </Suspense>
+  );
+}
+
 export const router = createBrowserRouter(
   [
     { path: '/login', element: <LoginPage /> },
@@ -97,11 +115,15 @@ export const router = createBrowserRouter(
             { path: '/chat/:chatId', element: <ChatRoute /> },
             { path: '/documents', element: <DocumentsRoute /> },
             {
-              element: <RequireRole role="admin" />,
+              element: <RequirePermission permission="user.manage" />,
               children: [{ path: '/admin/users', element: <UsersRoute /> }],
             },
             {
-              element: <RequireRole role="superadmin" />,
+              element: <RequirePermission permission="role.manage" />,
+              children: [{ path: '/admin/roles', element: <RolesRoute /> }],
+            },
+            {
+              element: <RequirePlatformSuperadmin />,
               children: [{ path: '/admin/models', element: <ModelsRoute /> }],
             },
           ],

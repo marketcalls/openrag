@@ -3,6 +3,13 @@
 import type { components } from './schema';
 
 export type UserOut = components['schemas']['UserOut'];
+export type InvitationCreate = components['schemas']['InvitationCreate'];
+export type PermissionCatalogOut = components['schemas']['PermissionCatalogOut'];
+export type PermissionCode = PermissionCatalogOut['code'];
+export type RoleBindingReplace = components['schemas']['RoleBindingReplace'];
+export type RoleCreate = components['schemas']['RoleCreate'];
+export type RoleOut = components['schemas']['RoleOut'];
+export type RolePatch = components['schemas']['RolePatch'];
 export type WorkspaceOut = components['schemas']['WorkspaceOut'];
 export type WorkspaceMemberOut = components['schemas']['WorkspaceMemberOut'];
 export type DocumentOut = components['schemas']['DocumentOut'];

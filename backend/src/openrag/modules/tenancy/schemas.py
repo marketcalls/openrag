@@ -31,6 +31,13 @@ class RoleOut(BaseModel):
     is_assignable: bool
 
 
+class PermissionCatalogOut(BaseModel):
+    code: PermissionCode
+    label: str
+    group: str
+    description: str
+
+
 class RoleBindingReplace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

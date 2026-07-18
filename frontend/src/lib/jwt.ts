@@ -1,14 +1,16 @@
-export interface AccessClaims {
+export interface Claims {
   sub: string;
   org: string;
-  role: 'superadmin' | 'admin' | 'user';
+  platform_superadmin: boolean;
+  permissions: string[];
   exp: number;
 }
 
-const ROLES = new Set<AccessClaims['role']>(['superadmin', 'admin', 'user']);
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** Payload decode only: this is for UI hints; the server remains authoritative. */
-export function decodeClaims(token: string): AccessClaims | null {
+/** Payload decode only: claims are UI hints; the server remains authoritative. */
+export function decodeClaims(token: string): Claims | null {
   const part = token.split('.')[1];
   if (!part) return null;
 
@@ -18,21 +20,35 @@ export function decodeClaims(token: string): AccessClaims | null {
     const payload = JSON.parse(atob(padded)) as Record<string, unknown>;
     if (
       typeof payload.sub !== 'string' ||
+      !UUID_PATTERN.test(payload.sub) ||
       typeof payload.org !== 'string' ||
-      typeof payload.role !== 'string' ||
-      !ROLES.has(payload.role as AccessClaims['role']) ||
-      typeof payload.exp !== 'number'
+      !UUID_PATTERN.test(payload.org) ||
+      typeof payload.platform_superadmin !== 'boolean' ||
+      typeof payload.exp !== 'number' ||
+      !Number.isInteger(payload.exp) ||
+      payload.exp <= Date.now() / 1000
     ) {
       return null;
     }
 
+    const permissions =
+      Array.isArray(payload.permissions) &&
+      payload.permissions.every((permission) => typeof permission === 'string')
+        ? payload.permissions
+        : [];
+
     return {
       sub: payload.sub,
       org: payload.org,
-      role: payload.role as AccessClaims['role'],
+      platform_superadmin: payload.platform_superadmin,
+      permissions,
       exp: payload.exp,
     };
   } catch {
     return null;
   }
+}
+
+export function hasPermission(claims: Claims, permission: string): boolean {
+  return claims.platform_superadmin || claims.permissions.includes(permission);
 }

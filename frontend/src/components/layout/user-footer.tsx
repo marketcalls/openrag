@@ -13,7 +13,11 @@ export function UserFooter() {
     <div className="flex items-center justify-between border-t border-line-faint px-2 py-2">
       <div className="min-w-0">
         <p className="truncate text-[12px] font-medium text-ink">{claims?.sub ?? ''}</p>
-        <p className="text-[11px] text-muted">{claims?.role ?? ''}</p>
+        <p className="text-[11px] text-muted">
+          {claims?.platform_superadmin
+            ? 'Platform operator'
+            : `${claims?.permissions.length ?? 0} capabilities`}
+        </p>
       </div>
       <div className="flex items-center">
         <ThemeToggle />

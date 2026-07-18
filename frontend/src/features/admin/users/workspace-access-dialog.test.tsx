@@ -9,8 +9,9 @@ import { WorkspaceAccessDialog } from './workspace-access-dialog';
 const userRecord: UserOut = {
   id: 'user-1',
   email: 'new@acme.com',
-  role: 'user',
   active: true,
+  is_platform_superadmin: false,
+  roles: [],
 };
 
 function workspaceResponse() {
@@ -67,7 +68,7 @@ test('grants a user access to the selected workspace', async () => {
   );
   const post = requests.find((request) => request.method === 'POST');
   if (!post) throw new Error('Expected membership POST');
-  expect(await post.clone().json()).toEqual({ user_id: 'user-1', role: 'member' });
+  expect(await post.clone().json()).toEqual({ user_id: 'user-1' });
 });
 
 test('shows when the user is already a member', async () => {
@@ -75,7 +76,7 @@ test('shows when the user is already a member', async () => {
     if (!(input instanceof Request)) throw new Error('Expected Request');
     if (input.url.endsWith('/api/v1/workspaces')) return workspaceResponse();
     return new Response(
-      JSON.stringify([{ user_id: 'user-1', email: 'new@acme.com', role: 'member' }]),
+      JSON.stringify([{ user_id: 'user-1', email: 'new@acme.com' }]),
       { status: 200, headers: { 'content-type': 'application/json' } },
     );
   });
