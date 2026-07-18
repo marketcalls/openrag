@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.errors import NotFoundError
+from openrag.modules.audit.service import record_audit
 from openrag.modules.auth.models import User
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Workspace, WorkspaceMember
@@ -16,6 +17,15 @@ async def create_workspace(
 ) -> Workspace:
     workspace = Workspace(org_id=context.org_id, name=name)
     session.add(workspace)
+    await session.flush()
+    await record_audit(
+        session,
+        org_id=context.org_id,
+        actor_id=context.user_id,
+        action="workspace.created",
+        target_type="workspace",
+        target_id=str(workspace.id),
+    )
     await session.commit()
     return workspace
 
@@ -67,5 +77,13 @@ async def add_member(
             user_id=user_id,
             role=role,
         )
+    )
+    await record_audit(
+        session,
+        org_id=context.org_id,
+        actor_id=context.user_id,
+        action="workspace.member_added",
+        target_type="workspace",
+        target_id=f"{workspace_id}:{user_id}",
     )
     await session.commit()

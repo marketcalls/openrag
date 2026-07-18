@@ -11,6 +11,7 @@ from openrag.core.app_settings import get_or_create_signing_key
 from openrag.core.config import Settings
 from openrag.core.db import naive_utc
 from openrag.core.errors import AuthenticationError, ConflictError, NotFoundError
+from openrag.modules.audit.service import record_audit
 from openrag.modules.auth.models import Invitation, RefreshToken, User
 from openrag.modules.auth.passwords import hash_password, verify_password
 from openrag.modules.auth.tokens import issue_access_token
@@ -66,7 +67,24 @@ async def login(
         await session.execute(select(User).where(User.email == email))
     ).scalar_one_or_none()
     if user is None or not user.active or not verify_password(user.password_hash, password):
+        await record_audit(
+            session,
+            org_id=None,
+            actor_id=None,
+            action="login.failure",
+            target_type="user",
+            target_id=email,
+        )
+        await session.commit()
         raise AuthenticationError("invalid credentials")
+    await record_audit(
+        session,
+        org_id=user.org_id,
+        actor_id=user.id,
+        action="login.success",
+        target_type="user",
+        target_id=str(user.id),
+    )
     return await _issue_pair(session, user, uuid4(), settings)
 
 
@@ -129,14 +147,22 @@ async def create_invitation(
         raise ConflictError("email already registered")
 
     raw_token = secrets.token_urlsafe(32)
-    session.add(
-        Invitation(
-            org_id=context.org_id,
-            email=email,
-            role=role,
-            token_hash=_hash(raw_token),
-            expires_at=naive_utc() + timedelta(hours=ttl_hours),
-        )
+    invitation = Invitation(
+        org_id=context.org_id,
+        email=email,
+        role=role,
+        token_hash=_hash(raw_token),
+        expires_at=naive_utc() + timedelta(hours=ttl_hours),
+    )
+    session.add(invitation)
+    await session.flush()
+    await record_audit(
+        session,
+        org_id=context.org_id,
+        actor_id=context.user_id,
+        action="invitation.created",
+        target_type="invitation",
+        target_id=str(invitation.id),
     )
     await session.commit()
     return raw_token
@@ -169,6 +195,15 @@ async def accept_invitation(
         role=invitation.role,
     )
     session.add(user)
+    await session.flush()
+    await record_audit(
+        session,
+        org_id=invitation.org_id,
+        actor_id=user.id,
+        action="invitation.accepted",
+        target_type="user",
+        target_id=str(user.id),
+    )
     await session.commit()
     return user
 
@@ -211,6 +246,15 @@ async def set_user_active(
 ) -> User:
     user = await get_user(session, context, user_id)
     user.active = active
+    if not active:
+        await record_audit(
+            session,
+            org_id=context.org_id,
+            actor_id=context.user_id,
+            action="user.deactivated",
+            target_type="user",
+            target_id=str(user.id),
+        )
     await session.commit()
     return user
 
@@ -223,5 +267,13 @@ async def set_user_role(
 ) -> User:
     user = await get_user(session, context, user_id)
     user.role = role
+    await record_audit(
+        session,
+        org_id=context.org_id,
+        actor_id=context.user_id,
+        action="user.role_changed",
+        target_type="user",
+        target_id=str(user.id),
+    )
     await session.commit()
     return user
