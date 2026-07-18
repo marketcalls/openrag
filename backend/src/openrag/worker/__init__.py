@@ -1,0 +1,1 @@
+"""Celery worker entrypoint layer."""

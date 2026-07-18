@@ -67,7 +67,7 @@ root_package = "openrag"
 [[tool.importlinter.contracts]]
 name = "Layered architecture"
 type = "layers"
-layers = ["openrag.api", "openrag.modules", "openrag.core"]
+layers = ["openrag.api", "openrag.worker", "openrag.modules", "openrag.core"]
 
 [[tool.mypy.overrides]]
 module = [
