@@ -7,13 +7,21 @@ from openrag.api.deps import get_session
 from openrag.core.config import Settings, get_settings
 from openrag.core.errors import AuthenticationError
 from openrag.modules.auth import service
-from openrag.modules.auth.schemas import AccessTokenResponse, LoginRequest
+from openrag.modules.auth.schemas import (
+    AccessTokenResponse,
+    InvitationAccept,
+    InvitationCreate,
+    InvitationOut,
+    LoginRequest,
+)
+from openrag.modules.tenancy.context import TenantContext, require_role
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 RefreshCookie = Annotated[str | None, Cookie(alias="refresh_token")]
+AdminDep = Annotated[TenantContext, Depends(require_role("admin"))]
 
 
 def _set_refresh(response: Response, raw: str, settings: Settings) -> None:
@@ -72,3 +80,31 @@ async def logout(
     if refresh_token:
         await service.logout(session, raw_refresh=refresh_token)
     response.delete_cookie("refresh_token", path="/api/v1/auth")
+
+
+@router.post("/invitations", status_code=201, response_model=InvitationOut)
+async def create_invitation(
+    body: InvitationCreate,
+    session: SessionDep,
+    context: AdminDep,
+) -> InvitationOut:
+    raw_token = await service.create_invitation(
+        session,
+        context,
+        email=body.email,
+        role=body.role,
+    )
+    return InvitationOut(invite_token=raw_token)
+
+
+@router.post("/invitations/accept", status_code=201)
+async def accept_invitation(
+    body: InvitationAccept,
+    session: SessionDep,
+) -> dict[str, str]:
+    user = await service.accept_invitation(
+        session,
+        raw_token=body.token,
+        password=body.password,
+    )
+    return {"email": user.email}

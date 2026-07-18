@@ -10,10 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.core.app_settings import get_or_create_signing_key
 from openrag.core.config import Settings
 from openrag.core.db import naive_utc
-from openrag.core.errors import AuthenticationError
-from openrag.modules.auth.models import RefreshToken, User
-from openrag.modules.auth.passwords import verify_password
+from openrag.core.errors import AuthenticationError, ConflictError
+from openrag.modules.auth.models import Invitation, RefreshToken, User
+from openrag.modules.auth.passwords import hash_password, verify_password
 from openrag.modules.auth.tokens import issue_access_token
+from openrag.modules.tenancy.context import TenantContext
 
 
 @dataclass(frozen=True)
@@ -111,3 +112,62 @@ async def logout(session: AsyncSession, *, raw_refresh: str) -> None:
         .values(revoked_at=naive_utc())
     )
     await session.commit()
+
+
+async def create_invitation(
+    session: AsyncSession,
+    context: TenantContext,
+    *,
+    email: str,
+    role: str,
+    ttl_hours: int = 72,
+) -> str:
+    existing = (
+        await session.execute(select(User).where(User.email == email))
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise ConflictError("email already registered")
+
+    raw_token = secrets.token_urlsafe(32)
+    session.add(
+        Invitation(
+            org_id=context.org_id,
+            email=email,
+            role=role,
+            token_hash=_hash(raw_token),
+            expires_at=naive_utc() + timedelta(hours=ttl_hours),
+        )
+    )
+    await session.commit()
+    return raw_token
+
+
+async def accept_invitation(
+    session: AsyncSession,
+    *,
+    raw_token: str,
+    password: str,
+) -> User:
+    invitation = (
+        await session.execute(
+            select(Invitation).where(Invitation.token_hash == _hash(raw_token))
+        )
+    ).scalar_one_or_none()
+    now = naive_utc()
+    if (
+        invitation is None
+        or invitation.accepted_at is not None
+        or invitation.expires_at < now
+    ):
+        raise AuthenticationError("invalid or expired invitation")
+
+    invitation.accepted_at = now
+    user = User(
+        org_id=invitation.org_id,
+        email=invitation.email,
+        password_hash=hash_password(password),
+        role=invitation.role,
+    )
+    session.add(user)
+    await session.commit()
+    return user
