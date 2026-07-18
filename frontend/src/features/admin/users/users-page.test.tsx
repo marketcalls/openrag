@@ -121,6 +121,8 @@ test('keeps effective roles unchanged when authorization fails', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Role management permission was revoked.',
   );
+  expect(screen.getByRole('checkbox', { name: /Engineer/ })).toBeChecked();
+  expect(screen.getByRole('checkbox', { name: /Safety reviewer/ })).not.toBeChecked();
   expect(screen.getByText('Engineer')).toBeInTheDocument();
 });
 
@@ -134,4 +136,17 @@ test('does not expose role-dependent controls without role.manage', async () => 
   expect(await screen.findByText('engineer@acme.com')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Manage roles for/ })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Invite' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Workspace access' })).not.toBeInTheDocument();
+});
+
+test('workspace.manage independently enables workspace access controls', async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    if (!(input instanceof Request)) throw new Error('Expected Request');
+    return Response.json(users);
+  });
+  renderPage(fetchMock, ['user.manage', 'workspace.manage']);
+
+  expect(await screen.findByText('engineer@acme.com')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Workspace access' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Manage roles for/ })).not.toBeInTheDocument();
 });

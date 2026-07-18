@@ -9,6 +9,10 @@ export interface Claims {
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
 /** Payload decode only: claims are UI hints; the server remains authoritative. */
 export function decodeClaims(token: string): Claims | null {
   const part = token.split('.')[1];
@@ -26,22 +30,17 @@ export function decodeClaims(token: string): Claims | null {
       typeof payload.platform_superadmin !== 'boolean' ||
       typeof payload.exp !== 'number' ||
       !Number.isInteger(payload.exp) ||
-      payload.exp <= Date.now() / 1000
+      payload.exp <= Date.now() / 1000 ||
+      !isStringArray(payload.permissions)
     ) {
       return null;
     }
-
-    const permissions =
-      Array.isArray(payload.permissions) &&
-      payload.permissions.every((permission) => typeof permission === 'string')
-        ? payload.permissions
-        : [];
 
     return {
       sub: payload.sub,
       org: payload.org,
       platform_superadmin: payload.platform_superadmin,
-      permissions,
+      permissions: payload.permissions,
       exp: payload.exp,
     };
   } catch {

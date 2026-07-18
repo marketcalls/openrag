@@ -34,18 +34,19 @@ test('returns null for garbage', () => {
   expect(decodeClaims('a.%%%.c')).toBeNull();
 });
 
-test('treats malformed permission claims as an empty list', () => {
-  expect(
-    decodeClaims(
+test('rejects every malformed permission array even for platform claims', () => {
+  for (const permissions of [undefined, 'role.manage', ['role.manage', 7]]) {
+    const claims = decodeClaims(
       fakeJwt({
         sub: USER_ID,
         org: ORG_ID,
-        platform_superadmin: false,
-        permissions: ['role.manage', 7],
+        platform_superadmin: true,
+        permissions,
         exp: FUTURE_EXPIRY,
       }),
-    )?.permissions,
-  ).toEqual([]);
+    );
+    expect(claims).toBeNull();
+  }
 });
 
 test('does not treat a legacy role name as a permission', () => {

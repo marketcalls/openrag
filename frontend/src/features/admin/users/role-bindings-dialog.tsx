@@ -45,6 +45,9 @@ export function RoleBindingsDialog({
           toast.success('Role bindings updated');
           onOpenChange(false);
         },
+        onError: () => {
+          setSelected(new Set(user.roles.map((role) => role.id)));
+        },
       },
     );
   };

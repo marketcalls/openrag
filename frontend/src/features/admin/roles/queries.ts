@@ -55,7 +55,12 @@ export function usePatchRole() {
       if (error) throw new Error(problemDetail(error, 'Failed to update role'));
       return data;
     },
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: roleKeys.all }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: roleKeys.all }),
+        queryClient.invalidateQueries({ queryKey: ['users'] }),
+      ]);
+    },
   });
 }
 

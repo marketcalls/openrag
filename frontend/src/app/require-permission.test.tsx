@@ -68,3 +68,22 @@ test('denies platform routes even when an organization claim has model configura
   expect(screen.getByText('Safe chat')).toBeInTheDocument();
   expect(screen.queryByText('Platform models')).not.toBeInTheDocument();
 });
+
+test('malformed platform permission claims cannot unlock platform UI', () => {
+  act(() => setAccessToken(tokenFor(['role.manage', 7], true)));
+  render(
+    <MemoryRouter
+      initialEntries={['/admin/models']}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
+      <Routes>
+        <Route path="/chat" element={<p>Safe chat</p>} />
+        <Route element={<RequirePlatformSuperadmin />}>
+          <Route path="/admin/models" element={<p>Platform models</p>} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  );
+  expect(screen.getByText('Safe chat')).toBeInTheDocument();
+  expect(screen.queryByText('Platform models')).not.toBeInTheDocument();
+});

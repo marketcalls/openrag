@@ -26,6 +26,7 @@ export function UsersPage() {
   const [accessUser, setAccessUser] = useState<UserOut | null>(null);
   const [roleUser, setRoleUser] = useState<UserOut | null>(null);
   const canManageRoles = claims ? hasPermission(claims, 'role.manage') : false;
+  const canManageWorkspaces = claims ? hasPermission(claims, 'workspace.manage') : false;
 
   const updateActive = (userId: string, active: boolean) => {
     patchUser.mutate(
@@ -69,7 +70,7 @@ export function UsersPage() {
                       {!user.is_platform_superadmin ? (
                         <div className="flex flex-wrap justify-end gap-1.5">
                           {canManageRoles ? <Button size="sm" aria-label={`Manage roles for ${user.email}`} onClick={() => setRoleUser(user)}><KeyRound className="h-3.5 w-3.5" aria-hidden /> Roles</Button> : null}
-                          <Button size="sm" onClick={() => setAccessUser(user)}><FolderKey className="h-3.5 w-3.5" aria-hidden /> Workspace access</Button>
+                          {canManageWorkspaces ? <Button size="sm" onClick={() => setAccessUser(user)}><FolderKey className="h-3.5 w-3.5" aria-hidden /> Workspace access</Button> : null}
                           <Button size="sm" onClick={() => setConfirmUser(user)}>{user.active ? 'Deactivate' : 'Reactivate'}</Button>
                         </div>
                       ) : <span className="text-[11px] text-muted">Platform-managed</span>}
