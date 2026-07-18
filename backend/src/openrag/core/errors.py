@@ -27,3 +27,8 @@ class NotFoundError(OpenRAGError):
 class ConflictError(OpenRAGError):
     status_code = 409
     title = "Conflict"
+
+
+class RateLimitExceeded(OpenRAGError):
+    status_code = 429
+    title = "Too many requests"

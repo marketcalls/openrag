@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.api.deps import get_session
 from openrag.core.config import Settings, get_settings
 from openrag.core.errors import AuthenticationError
+from openrag.core.ratelimit import rate_limit
 from openrag.modules.auth import service
 from openrag.modules.auth.schemas import (
     AccessTokenResponse,
@@ -36,7 +37,11 @@ def _set_refresh(response: Response, raw: str, settings: Settings) -> None:
     )
 
 
-@router.post("/login", response_model=AccessTokenResponse)
+@router.post(
+    "/login",
+    response_model=AccessTokenResponse,
+    dependencies=[Depends(rate_limit("login", limit=10, window_seconds=60))],
+)
 async def login(
     body: LoginRequest,
     response: Response,
