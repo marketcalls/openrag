@@ -1,4 +1,4 @@
-import { Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import type { ModelOut } from '@/api/types';
@@ -30,6 +30,7 @@ export function ModelsPage() {
   const patchModel = usePatchModel();
   const deleteModel = useDeleteModel();
   const [addOpen, setAddOpen] = useState(false);
+  const [editing, setEditing] = useState<ModelOut | null>(null);
   const [removing, setRemoving] = useState<ModelOut | null>(null);
 
   return (
@@ -102,14 +103,24 @@ export function ModelsPage() {
                       />
                     </TD>
                     <TD className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Remove ${model.display_name}`}
-                        onClick={() => setRemoving(model)}
-                      >
-                        <Trash2 className="h-4 w-4" aria-hidden />
-                      </Button>
+                      <div className="flex justify-end gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Edit ${model.display_name}`}
+                          onClick={() => setEditing(model)}
+                        >
+                          <Pencil className="h-4 w-4" aria-hidden />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Remove ${model.display_name}`}
+                          onClick={() => setRemoving(model)}
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden />
+                        </Button>
+                      </div>
                     </TD>
                   </TR>
                 ))}
@@ -124,6 +135,13 @@ export function ModelsPage() {
         </div>
       </div>
       <ModelFormDialog open={addOpen} onOpenChange={setAddOpen} />
+      {editing ? (
+        <ModelFormDialog
+          model={editing}
+          open
+          onOpenChange={(open) => !open && setEditing(null)}
+        />
+      ) : null}
       <Dialog open={removing !== null} onOpenChange={(open) => !open && setRemoving(null)}>
         <DialogContent
           title="Remove model"
