@@ -29,6 +29,7 @@ from openrag.modules.chat.prompting import (
     build_messages,
     parse_citation_markers,
 )
+from openrag.modules.chat.schemas import ChatTreeOut, CitationOut, MessageNode
 from openrag.modules.documents import service as documents_service
 from openrag.modules.models.models import Model
 from openrag.modules.retrieval.service import RetrievalResult
@@ -461,4 +462,57 @@ async def stream_reply(
             usage.completion_tokens if usage is not None else 0
         ),
         no_answer=False,
+    )
+
+
+def build_tree(
+    messages: list[Message],
+    citations: dict[UUID, list[Citation]],
+) -> list[MessageNode]:
+    children: dict[UUID | None, list[Message]] = defaultdict(list)
+    for message in messages:
+        children[message.parent_message_id].append(message)
+
+    def node(message: Message) -> MessageNode:
+        child_messages = sorted(
+            children.get(message.id, []),
+            key=lambda child: child.sibling_index,
+        )
+        return MessageNode(
+            id=message.id,
+            parent_message_id=message.parent_message_id,
+            sibling_index=message.sibling_index,
+            role=message.role,
+            content=message.content,
+            model_id=message.model_id,
+            prompt_tokens=message.prompt_tokens,
+            completion_tokens=message.completion_tokens,
+            created_at=message.created_at,
+            citations=[
+                CitationOut.model_validate(citation)
+                for citation in citations.get(message.id, [])
+            ],
+            children=[node(child) for child in child_messages],
+        )
+
+    roots = sorted(
+        children.get(None, []),
+        key=lambda message: message.sibling_index,
+    )
+    return [node(root) for root in roots]
+
+
+async def get_chat_tree(
+    session: AsyncSession,
+    context: TenantContext,
+    chat_id: UUID,
+) -> ChatTreeOut:
+    chat = await get_chat(session, context, chat_id)
+    messages = await list_messages(session, chat_id)
+    citations = await list_citations(session, chat_id)
+    return ChatTreeOut(
+        id=chat.id,
+        workspace_id=chat.workspace_id,
+        title=chat.title,
+        messages=build_tree(messages, citations),
     )

@@ -16,6 +16,8 @@ from openrag.modules.chat.models import Chat
 from openrag.modules.chat.schemas import (
     ChatCreate,
     ChatOut,
+    ChatPatch,
+    ChatTreeOut,
     MessageSend,
     RegenerateRequest,
 )
@@ -186,3 +188,48 @@ async def regenerate(
             settings=settings,
         )
     )
+
+
+@router.get("/chats", response_model=list[ChatOut])
+async def list_chats(
+    session: SessionDep,
+    context: ContextDep,
+) -> list[ChatOut]:
+    return [
+        ChatOut.model_validate(chat)
+        for chat in await service.list_chats(session, context)
+    ]
+
+
+@router.get("/chats/{chat_id}", response_model=ChatTreeOut)
+async def get_chat_tree(
+    chat_id: UUID,
+    session: SessionDep,
+    context: ContextDep,
+) -> ChatTreeOut:
+    return await service.get_chat_tree(session, context, chat_id)
+
+
+@router.patch("/chats/{chat_id}", response_model=ChatOut)
+async def rename_chat(
+    chat_id: UUID,
+    body: ChatPatch,
+    session: SessionDep,
+    context: ContextDep,
+) -> ChatOut:
+    chat = await service.rename_chat(
+        session,
+        context,
+        chat_id,
+        body.title,
+    )
+    return ChatOut.model_validate(chat)
+
+
+@router.delete("/chats/{chat_id}", status_code=204)
+async def delete_chat(
+    chat_id: UUID,
+    session: SessionDep,
+    context: ContextDep,
+) -> None:
+    await service.delete_chat(session, context, chat_id)
