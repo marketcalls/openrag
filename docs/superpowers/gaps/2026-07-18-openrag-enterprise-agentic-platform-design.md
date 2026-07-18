@@ -236,7 +236,7 @@ mutating tool effects.
 ```json
 {
   "id": "uuid",
-  "seq": 12,
+  "sequence": 12,
   "schema_version": 1,
   "run_id": "uuid",
   "org_id": "uuid",
@@ -263,7 +263,7 @@ Public event types include:
 - `usage.updated`, `approval.requested`, `clarification.requested`, and
   `heartbeat`.
 
-Events are authorized using the current tenant context, ordered by `seq`, and
+Events are authorized using the current tenant context, ordered by `sequence`, and
 resumable with `Last-Event-ID`. Durable milestones are persisted; token deltas
 are coalesced and kept in the broker/replay buffer instead of inserting one
 database row per token.
