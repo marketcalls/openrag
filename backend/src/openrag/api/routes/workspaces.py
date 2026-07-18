@@ -52,7 +52,7 @@ async def patch_workspace(
     workspace_id: UUID,
     body: WorkspacePatch,
     session: SessionDep,
-    context: AdminDep,
+    context: ContextDep,
 ) -> WorkspaceOut:
     if "default_model_id" in body.model_fields_set:
         workspace = await service.set_default_model(

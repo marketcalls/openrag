@@ -1,8 +1,10 @@
 from dataclasses import dataclass, replace
+from typing import get_type_hints
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from openrag.api.routes.workspaces import ContextDep, patch_workspace
 from openrag.core.errors import (
     AuthenticationError,
     NotFoundError,
@@ -30,6 +32,12 @@ class AuthorizationSeed:
     organization: Organization
     user: User
     workspaces: tuple[Workspace, Workspace]
+
+
+def test_workspace_patch_defers_to_field_specific_service_capability() -> None:
+    hints = get_type_hints(patch_workspace, include_extras=True)
+
+    assert hints["context"] == ContextDep
 
 
 async def seed_authorization_subject(
