@@ -14,6 +14,7 @@ from openrag.modules.tenancy.context import (
 from openrag.modules.tenancy.schemas import (
     MemberAdd,
     WorkspaceCreate,
+    WorkspaceMemberOut,
     WorkspaceOut,
     WorkspacePatch,
 )
@@ -80,3 +81,12 @@ async def add_member(
         body.user_id,
         body.role,
     )
+
+
+@router.get("/{workspace_id}/members", response_model=list[WorkspaceMemberOut])
+async def list_members(
+    workspace_id: UUID,
+    session: SessionDep,
+    context: AdminDep,
+) -> list[WorkspaceMemberOut]:
+    return await service.list_members(session, context, workspace_id)

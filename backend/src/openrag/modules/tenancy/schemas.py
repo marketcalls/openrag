@@ -22,5 +22,11 @@ class MemberAdd(BaseModel):
     role: str = "member"
 
 
+class WorkspaceMemberOut(BaseModel):
+    user_id: UUID
+    email: str
+    role: str
+
+
 class WorkspacePatch(BaseModel):
     default_model_id: UUID | None = None

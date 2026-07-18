@@ -9,6 +9,7 @@ from openrag.modules.auth.models import User
 from openrag.modules.models import service as models_service
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Workspace, WorkspaceMember
+from openrag.modules.tenancy.schemas import WorkspaceMemberOut
 
 
 async def get_workspace(
@@ -142,3 +143,30 @@ async def add_member(
         target_id=f"{workspace_id}:{user_id}",
     )
     await session.commit()
+
+
+async def list_members(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+) -> list[WorkspaceMemberOut]:
+    await get_workspace(session, context, workspace_id)
+    rows = await session.execute(
+        select(
+            WorkspaceMember.user_id,
+            User.email,
+            WorkspaceMember.role,
+        )
+        .join(User, User.id == WorkspaceMember.user_id)
+        .join(Workspace, Workspace.id == WorkspaceMember.workspace_id)
+        .where(
+            WorkspaceMember.workspace_id == workspace_id,
+            Workspace.org_id == context.org_id,
+            User.org_id == context.org_id,
+        )
+        .order_by(User.email)
+    )
+    return [
+        WorkspaceMemberOut(user_id=user_id, email=email, role=role)
+        for user_id, email, role in rows.all()
+    ]
