@@ -80,6 +80,7 @@ async def _resolve_model(
         session,
         context,
         chat.workspace_id,
+        "chat.use",
     )
     return await models_service.resolve_model(
         session,

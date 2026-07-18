@@ -66,7 +66,12 @@ async def create_chat(
     workspace_id: UUID,
     title: str | None = None,
 ) -> Chat:
-    await tenancy_service.get_workspace(session, context, workspace_id)
+    await tenancy_service.get_workspace(
+        session,
+        context,
+        workspace_id,
+        "chat.use",
+    )
     chat = Chat(
         org_id=context.org_id,
         workspace_id=workspace_id,

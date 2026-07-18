@@ -15,14 +15,17 @@ from openrag.modules.auth.schemas import (
     InvitationOut,
     LoginRequest,
 )
-from openrag.modules.tenancy.context import TenantContext, require_role
+from openrag.modules.tenancy.context import TenantContext, require_permission
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 RefreshCookie = Annotated[str | None, Cookie(alias="refresh_token")]
-AdminDep = Annotated[TenantContext, Depends(require_role("admin"))]
+AdminDep = Annotated[
+    TenantContext,
+    Depends(require_permission("user.manage")),
+]
 
 
 def _set_refresh(response: Response, raw: str, settings: Settings) -> None:

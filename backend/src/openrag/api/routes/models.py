@@ -17,14 +17,17 @@ from openrag.modules.models.sync import sync_models_to_litellm
 from openrag.modules.tenancy.context import (
     TenantContext,
     get_tenant_context,
-    require_role,
+    require_platform_superadmin,
 )
 
 router = APIRouter(tags=["models"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 ContextDep = Annotated[TenantContext, Depends(get_tenant_context)]
-SuperadminDep = Annotated[TenantContext, Depends(require_role())]
+SuperadminDep = Annotated[
+    TenantContext,
+    Depends(require_platform_superadmin()),
+]
 
 
 async def _sync(
@@ -121,4 +124,3 @@ async def list_public_models(
         ModelPublic.model_validate(model)
         for model in await service.list_enabled_models(session)
     ]
-

@@ -7,12 +7,18 @@ from openrag.api.deps import get_session
 from openrag.core.config import Settings, get_settings
 from openrag.modules.secrets import service
 from openrag.modules.secrets.schemas import SecretOut, SecretWrite
-from openrag.modules.tenancy.context import TenantContext, require_role
+from openrag.modules.tenancy.context import (
+    TenantContext,
+    require_platform_superadmin,
+)
 
 router = APIRouter(prefix="/admin/secrets", tags=["admin"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
-SuperadminDep = Annotated[TenantContext, Depends(require_role())]
+SuperadminDep = Annotated[
+    TenantContext,
+    Depends(require_platform_superadmin()),
+]
 
 
 @router.put("/{name}", response_model=SecretOut)

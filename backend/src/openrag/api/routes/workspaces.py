@@ -9,7 +9,7 @@ from openrag.modules.tenancy import service
 from openrag.modules.tenancy.context import (
     TenantContext,
     get_tenant_context,
-    require_role,
+    require_permission,
 )
 from openrag.modules.tenancy.schemas import (
     MemberAdd,
@@ -22,7 +22,10 @@ from openrag.modules.tenancy.schemas import (
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ContextDep = Annotated[TenantContext, Depends(get_tenant_context)]
-AdminDep = Annotated[TenantContext, Depends(require_role("admin"))]
+AdminDep = Annotated[
+    TenantContext,
+    Depends(require_permission("workspace.manage")),
+]
 
 
 @router.post("", status_code=201, response_model=WorkspaceOut)
@@ -63,6 +66,7 @@ async def patch_workspace(
             session,
             context,
             workspace_id,
+            "workspace.manage",
         )
     return WorkspaceOut.model_validate(workspace)
 

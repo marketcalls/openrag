@@ -7,11 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.api.deps import get_session
 from openrag.modules.auth import service
 from openrag.modules.auth.schemas import UserOut, UserPatch
-from openrag.modules.tenancy.context import TenantContext, require_role
+from openrag.modules.tenancy.context import TenantContext, require_permission
 
 router = APIRouter(prefix="/users", tags=["users"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-AdminDep = Annotated[TenantContext, Depends(require_role("admin"))]
+AdminDep = Annotated[
+    TenantContext,
+    Depends(require_permission("user.manage")),
+]
 
 
 @router.get("", response_model=list[UserOut])

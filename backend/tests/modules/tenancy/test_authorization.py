@@ -3,7 +3,11 @@ from dataclasses import dataclass, replace
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from openrag.core.errors import AuthenticationError, WorkspaceAccessDenied
+from openrag.core.errors import (
+    AuthenticationError,
+    NotFoundError,
+    WorkspaceAccessDenied,
+)
 from openrag.modules.auth.models import User
 from openrag.modules.tenancy.authorization import (
     ensure_workspace_access,
@@ -18,7 +22,7 @@ from openrag.modules.tenancy.models import (
     Workspace,
     WorkspaceMember,
 )
-from openrag.modules.tenancy.service import list_workspaces
+from openrag.modules.tenancy.service import get_workspace, list_workspaces
 
 
 @dataclass(frozen=True)
@@ -213,6 +217,42 @@ async def test_platform_superadmin_still_lists_only_deliberate_org_scope(
     assert not {workspace.id for workspace in visible}.intersection(
         workspace.id for workspace in foreign.workspaces
     )
+
+
+async def test_chat_capability_can_open_workspace_without_manage_capability(
+    session: AsyncSession,
+) -> None:
+    seed = await seed_authorization_subject(session, "Chat Reader")
+    await bind_role(
+        session,
+        seed,
+        key="chat_reader",
+        permissions={"chat.use"},
+    )
+    session.add(
+        WorkspaceMember(
+            org_id=seed.organization.id,
+            workspace_id=seed.workspaces[0].id,
+            user_id=seed.user.id,
+        )
+    )
+    await session.commit()
+    context = await context_for(session, seed)
+
+    workspace = await get_workspace(
+        session,
+        context,
+        seed.workspaces[0].id,
+        "chat.use",
+    )
+    assert workspace.id == seed.workspaces[0].id
+    with pytest.raises(NotFoundError):
+        await get_workspace(
+            session,
+            context,
+            seed.workspaces[0].id,
+            "workspace.manage",
+        )
 
 
 async def test_inactive_user_is_rejected_before_permission_resolution(

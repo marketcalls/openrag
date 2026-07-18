@@ -95,17 +95,6 @@ def require_platform_superadmin(
     return guard
 
 
-def require_role(
-    *roles: str,
-) -> Callable[[TenantContext], Awaitable[TenantContext]]:
-    """Temporary fail-closed adapter for routes migrated in RBAC Task 4."""
-    if not roles:
-        return require_platform_superadmin()
-    if roles == ("admin",):
-        return require_permission("workspace.manage")
-    raise ValueError("legacy role dependency is not supported")
-
-
 def rate_limit_user(
     scope: str,
     limit: int,

@@ -17,13 +17,14 @@ async def get_workspace(
     session: AsyncSession,
     context: TenantContext,
     workspace_id: UUID,
+    permission: str,
 ) -> Workspace:
     try:
         return await ensure_workspace_access(
             session,
             context,
             workspace_id,
-            "workspace.manage",
+            permission,
         )
     except WorkspaceAccessDenied as exc:
         raise NotFoundError("workspace not found") from exc
@@ -83,7 +84,12 @@ async def set_default_model(
     workspace_id: UUID,
     model_id: UUID | None,
 ) -> Workspace:
-    workspace = await get_workspace(session, context, workspace_id)
+    workspace = await get_workspace(
+        session,
+        context,
+        workspace_id,
+        "model.configure",
+    )
     if model_id is not None:
         await models_service.get_model(session, model_id)
     workspace.default_model_id = model_id
@@ -99,7 +105,12 @@ async def add_member(
     role: str,
 ) -> None:
     del role  # capability assignment moves to role bindings in RBAC Task 4
-    await get_workspace(session, context, workspace_id)
+    await get_workspace(
+        session,
+        context,
+        workspace_id,
+        "workspace.manage",
+    )
 
     user = (
         await session.execute(
@@ -135,7 +146,12 @@ async def list_members(
     context: TenantContext,
     workspace_id: UUID,
 ) -> list[WorkspaceMemberOut]:
-    await get_workspace(session, context, workspace_id)
+    await get_workspace(
+        session,
+        context,
+        workspace_id,
+        "workspace.manage",
+    )
     rows = await session.execute(
         select(
             WorkspaceMember.user_id,
