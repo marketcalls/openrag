@@ -4,11 +4,13 @@ from typing import Any
 
 import httpx
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.modules.auth.models import User
 from openrag.modules.auth.passwords import hash_password
-from openrag.modules.tenancy.models import Organization
+from openrag.modules.tenancy.models import Organization, Role, UserRoleBinding
+from openrag.modules.tenancy.service import seed_builtin_roles
 from tests.api.test_chat_stream import (
     auth,
     chat_client,
@@ -29,9 +31,18 @@ async def org_b_user(session: AsyncSession) -> User:
         org_id=organization.id,
         email="b@rival.example.com",
         password_hash=hash_password("pw123456"),
-        role="admin",
     )
     session.add(user)
+    roles = await seed_builtin_roles(session, organization.id)
+    await session.flush()
+    session.add(
+        UserRoleBinding(
+            org_id=organization.id,
+            user_id=user.id,
+            role_id=roles["administrator"].id,
+            created_by=user.id,
+        )
+    )
     await session.commit()
     return user
 
@@ -129,9 +140,25 @@ async def test_same_org_users_have_private_chats(
         org_id=seeded_user.org_id,
         email="peer@acme.com",
         password_hash=hash_password("pw123456"),
-        role="user",
     )
     session.add(peer)
+    await session.flush()
+    user_role = (
+        await session.execute(
+            select(Role).where(
+                Role.org_id == seeded_user.org_id,
+                Role.key == "user",
+            )
+        )
+    ).scalar_one()
+    session.add(
+        UserRoleBinding(
+            org_id=seeded_user.org_id,
+            user_id=peer.id,
+            role_id=user_role.id,
+            created_by=seeded_user.id,
+        )
+    )
     await session.commit()
     peer_headers = await auth(chat_client, peer.email)
 

@@ -14,8 +14,13 @@ from openrag.core.errors import AuthenticationError, ConflictError, NotFoundErro
 from openrag.modules.audit.service import record_audit
 from openrag.modules.auth.models import Invitation, RefreshToken, User
 from openrag.modules.auth.passwords import hash_password, verify_password
+from openrag.modules.auth.schemas import UserOut
 from openrag.modules.auth.tokens import issue_access_token
+from openrag.modules.tenancy import service as tenancy_service
+from openrag.modules.tenancy.authorization import resolve_authorization
 from openrag.modules.tenancy.context import TenantContext
+from openrag.modules.tenancy.models import Role, UserRoleBinding
+from openrag.modules.tenancy.schemas import RoleOut
 
 
 @dataclass(frozen=True)
@@ -46,10 +51,12 @@ async def _issue_pair(
         )
     )
     await session.commit()
+    authorization = await resolve_authorization(session, user)
     access_token = issue_access_token(
         user_id=user.id,
         org_id=user.org_id,
-        role=user.role,
+        is_platform_superadmin=authorization.is_platform_superadmin,
+        permissions=authorization.org_permissions,
         signing_key=signing_key,
         ttl_seconds=settings.access_token_ttl_seconds,
     )
@@ -137,7 +144,7 @@ async def create_invitation(
     context: TenantContext,
     *,
     email: str,
-    role: str,
+    role_id: UUID,
     ttl_hours: int = 72,
 ) -> str:
     existing = (
@@ -146,11 +153,23 @@ async def create_invitation(
     if existing is not None:
         raise ConflictError("email already registered")
 
+    role = (
+        await session.execute(
+            select(Role).where(
+                Role.id == role_id,
+                Role.org_id == context.org_id,
+                Role.is_assignable.is_(True),
+            )
+        )
+    ).scalar_one_or_none()
+    if role is None:
+        raise NotFoundError("role not found")
+
     raw_token = secrets.token_urlsafe(32)
     invitation = Invitation(
         org_id=context.org_id,
         email=email,
-        role=role,
+        role_id=role.id,
         token_hash=_hash(raw_token),
         expires_at=naive_utc() + timedelta(hours=ttl_hours),
     )
@@ -176,7 +195,9 @@ async def accept_invitation(
 ) -> User:
     invitation = (
         await session.execute(
-            select(Invitation).where(Invitation.token_hash == _hash(raw_token))
+            select(Invitation)
+            .where(Invitation.token_hash == _hash(raw_token))
+            .with_for_update()
         )
     ).scalar_one_or_none()
     now = naive_utc()
@@ -188,14 +209,32 @@ async def accept_invitation(
         raise AuthenticationError("invalid or expired invitation")
 
     invitation.accepted_at = now
+    role = (
+        await session.execute(
+            select(Role).where(
+                Role.id == invitation.role_id,
+                Role.org_id == invitation.org_id,
+                Role.is_assignable.is_(True),
+            )
+        )
+    ).scalar_one_or_none()
+    if role is None:
+        raise AuthenticationError("invalid or expired invitation")
     user = User(
         org_id=invitation.org_id,
         email=invitation.email,
         password_hash=hash_password(password),
-        role=invitation.role,
     )
     session.add(user)
     await session.flush()
+    session.add(
+        UserRoleBinding(
+            org_id=invitation.org_id,
+            user_id=user.id,
+            role_id=role.id,
+            created_by=None,
+        )
+    )
     await record_audit(
         session,
         org_id=invitation.org_id,
@@ -214,7 +253,10 @@ async def list_users(
 ) -> list[User]:
     statement = (
         select(User)
-        .where(User.org_id == context.org_id)
+        .where(
+            User.org_id == context.org_id,
+            User.is_platform_superadmin.is_(False),
+        )
         .order_by(User.email)
     )
     return list((await session.execute(statement)).scalars())
@@ -233,7 +275,7 @@ async def get_user(
             )
         )
     ).scalar_one_or_none()
-    if user is None or user.role == "superadmin":
+    if user is None or user.is_platform_superadmin:
         raise NotFoundError("user not found")
     return user
 
@@ -245,6 +287,12 @@ async def set_user_active(
     active: bool,
 ) -> User:
     user = await get_user(session, context, user_id)
+    if not active and user.active:
+        await tenancy_service.ensure_can_deactivate_user(
+            session,
+            org_id=context.org_id,
+            user_id=user.id,
+        )
     user.active = active
     if not active:
         await record_audit(
@@ -259,21 +307,40 @@ async def set_user_active(
     return user
 
 
-async def set_user_role(
+async def user_to_out(
     session: AsyncSession,
-    context: TenantContext,
-    user_id: UUID,
-    role: str,
-) -> User:
-    user = await get_user(session, context, user_id)
-    user.role = role
-    await record_audit(
-        session,
-        org_id=context.org_id,
-        actor_id=context.user_id,
-        action="user.role_changed",
-        target_type="user",
-        target_id=str(user.id),
+    user: User,
+) -> UserOut:
+    roles = list(
+        (
+            await session.execute(
+                select(Role)
+                .join(
+                    UserRoleBinding,
+                    (UserRoleBinding.role_id == Role.id)
+                    & (UserRoleBinding.org_id == Role.org_id),
+                )
+                .where(
+                    UserRoleBinding.org_id == user.org_id,
+                    UserRoleBinding.user_id == user.id,
+                    UserRoleBinding.workspace_id.is_(None),
+                )
+                .order_by(Role.name, Role.id)
+            )
+        ).scalars()
     )
-    await session.commit()
-    return user
+    role_out: list[RoleOut] = await tenancy_service.roles_to_out(session, roles)
+    return UserOut(
+        id=user.id,
+        email=user.email,
+        active=user.active,
+        is_platform_superadmin=user.is_platform_superadmin,
+        roles=role_out,
+    )
+
+
+async def users_to_out(
+    session: AsyncSession,
+    users: list[User],
+) -> list[UserOut]:
+    return [await user_to_out(session, user) for user in users]

@@ -83,7 +83,6 @@ async def add_member(
         context,
         workspace_id,
         body.user_id,
-        body.role,
     )
 
 

@@ -21,7 +21,6 @@ async def test_admin_creates_workspace_and_adds_member(
         org_id=seeded_user.org_id,
         email="p@acme.com",
         password_hash=seeded_user.password_hash,
-        role="user",
     )
     session.add(plain_user)
     await session.commit()
@@ -68,7 +67,6 @@ async def test_admin_lists_workspace_members(
         org_id=seeded_user.org_id,
         email="member@acme.com",
         password_hash=seeded_user.password_hash,
-        role="user",
     )
     session.add(member)
     await session.commit()
@@ -81,7 +79,7 @@ async def test_admin_lists_workspace_members(
     workspace_id = workspace.json()["id"]
     await client.post(
         f"/api/v1/workspaces/{workspace_id}/members",
-        json={"user_id": str(member.id), "role": "member"},
+        json={"user_id": str(member.id)},
         headers=headers,
     )
 

@@ -19,7 +19,6 @@ async def make_user(session: AsyncSession, email: str = "u@acme.com") -> User:
         org_id=organization.id,
         email=email,
         password_hash=hash_password("pw123456"),
-        role="user",
     )
     session.add(user)
     await session.commit()

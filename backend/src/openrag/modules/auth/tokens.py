@@ -5,6 +5,7 @@ from uuid import UUID
 import jwt
 
 from openrag.core.errors import AuthenticationError
+from openrag.modules.tenancy.permissions import ALL_PERMISSIONS
 
 _ALGORITHM = "HS256"
 
@@ -13,14 +14,16 @@ _ALGORITHM = "HS256"
 class AccessClaims:
     user_id: UUID
     org_id: UUID
-    role: str
+    is_platform_superadmin: bool
+    permissions: frozenset[str]
 
 
 def issue_access_token(
     *,
     user_id: UUID,
     org_id: UUID,
-    role: str,
+    is_platform_superadmin: bool,
+    permissions: frozenset[str],
     signing_key: str,
     ttl_seconds: int,
 ) -> str:
@@ -28,7 +31,8 @@ def issue_access_token(
     payload = {
         "sub": str(user_id),
         "org": str(org_id),
-        "role": role,
+        "platform_superadmin": is_platform_superadmin,
+        "permissions": sorted(permissions),
         "iat": now,
         "exp": now + timedelta(seconds=ttl_seconds),
     }
@@ -38,10 +42,20 @@ def issue_access_token(
 def decode_access_token(token: str, signing_key: str) -> AccessClaims:
     try:
         payload = jwt.decode(token, signing_key, algorithms=[_ALGORITHM])
+        platform_superadmin = payload["platform_superadmin"]
+        permissions = payload["permissions"]
+        if type(platform_superadmin) is not bool:  # bool must not accept int
+            raise TypeError("platform_superadmin must be boolean")
+        if not isinstance(permissions, list) or any(
+            not isinstance(permission, str) or permission not in ALL_PERMISSIONS
+            for permission in permissions
+        ):
+            raise TypeError("permissions must use the closed vocabulary")
         return AccessClaims(
             user_id=UUID(payload["sub"]),
             org_id=UUID(payload["org"]),
-            role=payload["role"],
+            is_platform_superadmin=platform_superadmin,
+            permissions=frozenset(permissions),
         )
     except (jwt.InvalidTokenError, KeyError, TypeError, ValueError) as exc:
         raise AuthenticationError("invalid or expired token") from exc

@@ -28,4 +28,20 @@ async def test_bootstrap_idempotent(engine: AsyncEngine) -> None:
         user = (
             await session.execute(select(User).where(User.email == "root@x.com"))
         ).scalar_one()
-        assert user.role == "superadmin"
+        assert user.is_platform_superadmin is True
+
+
+async def test_http_user_contract_cannot_create_platform_superadmin(
+    client,
+    seeded_user: User,
+) -> None:
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": seeded_user.email, "password": "pw123456"},
+    )
+    response = await client.patch(
+        f"/api/v1/users/{seeded_user.id}",
+        json={"is_platform_superadmin": True},
+        headers={"Authorization": f"Bearer {login.json()['access_token']}"},
+    )
+    assert response.status_code == 422

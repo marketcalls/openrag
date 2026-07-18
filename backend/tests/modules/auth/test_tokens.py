@@ -20,21 +20,24 @@ def test_token_roundtrip() -> None:
     token = issue_access_token(
         user_id=user_id,
         org_id=org_id,
-        role="admin",
+        is_platform_superadmin=False,
+        permissions=frozenset({"role.manage"}),
         signing_key="k" * 43,
         ttl_seconds=900,
     )
     claims = decode_access_token(token, "k" * 43)
     assert claims.user_id == user_id
     assert claims.org_id == org_id
-    assert claims.role == "admin"
+    assert claims.is_platform_superadmin is False
+    assert claims.permissions == frozenset({"role.manage"})
 
 
 def test_bad_signature_rejected() -> None:
     token = issue_access_token(
         user_id=uuid4(),
         org_id=uuid4(),
-        role="user",
+        is_platform_superadmin=False,
+        permissions=frozenset({"chat.use"}),
         signing_key="k" * 43,
         ttl_seconds=900,
     )
@@ -46,7 +49,8 @@ def test_expired_rejected() -> None:
     token = issue_access_token(
         user_id=uuid4(),
         org_id=uuid4(),
-        role="user",
+        is_platform_superadmin=False,
+        permissions=frozenset({"chat.use"}),
         signing_key="k" * 43,
         ttl_seconds=-1,
     )

@@ -21,7 +21,6 @@ async def test_list_and_deactivate(
         org_id=seeded_user.org_id,
         email="p@acme.com",
         password_hash=seeded_user.password_hash,
-        role="user",
     )
     session.add(plain_user)
     await session.commit()

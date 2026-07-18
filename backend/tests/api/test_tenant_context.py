@@ -8,7 +8,7 @@ from openrag.modules.auth.models import User
 from openrag.modules.tenancy.context import (
     TenantContext,
     get_tenant_context,
-    require_role,
+    require_permission,
 )
 
 
@@ -16,10 +16,16 @@ def wire_probe(app: FastAPI) -> None:
     @app.get("/probe/me")
     async def me(
         ctx: Annotated[TenantContext, Depends(get_tenant_context)],
-    ) -> dict[str, str]:
-        return {"role": ctx.role, "org_id": str(ctx.org_id)}
+    ) -> dict[str, str | bool]:
+        return {
+            "can_manage_roles": ctx.authorization.has("role.manage"),
+            "org_id": str(ctx.org_id),
+        }
 
-    @app.get("/probe/admin", dependencies=[Depends(require_role("admin"))])
+    @app.get(
+        "/probe/admin",
+        dependencies=[Depends(require_permission("role.manage"))],
+    )
     async def admin_only() -> dict[str, bool]:
         return {"ok": True}
 
@@ -47,7 +53,7 @@ async def test_me_requires_token(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 200
-    assert response.json()["role"] == "admin"
+    assert response.json()["can_manage_roles"] is True
 
 
 async def test_role_guard(
@@ -60,7 +66,6 @@ async def test_role_guard(
         org_id=seeded_user.org_id,
         email="p@acme.com",
         password_hash=seeded_user.password_hash,
-        role="user",
     )
     session.add(plain_user)
     await session.commit()

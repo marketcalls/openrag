@@ -15,10 +15,9 @@ async def test_login_writes_audit(session: AsyncSession) -> None:
     await session.flush()
     session.add(
         User(
-            org_id=organization.id,
-            email="a@a.com",
-            password_hash=hash_password("pw123456"),
-            role="user",
+                org_id=organization.id,
+                email="a@a.com",
+                password_hash=hash_password("pw123456"),
         )
     )
     await session.commit()

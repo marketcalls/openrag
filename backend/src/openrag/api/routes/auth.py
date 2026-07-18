@@ -104,7 +104,7 @@ async def create_invitation(
         session,
         context,
         email=body.email,
-        role=body.role,
+        role_id=body.role_id,
     )
     return InvitationOut(invite_token=raw_token)
 

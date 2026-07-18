@@ -1,11 +1,15 @@
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+from openrag.modules.tenancy.schemas import RoleOut
 
 
 class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
-    password: str
+    password: str = Field(min_length=1, max_length=1024)
 
 
 class AccessTokenResponse(BaseModel):
@@ -14,8 +18,10 @@ class AccessTokenResponse(BaseModel):
 
 
 class InvitationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
-    role: str = "user"
+    role_id: UUID
 
 
 class InvitationOut(BaseModel):
@@ -23,19 +29,21 @@ class InvitationOut(BaseModel):
 
 
 class InvitationAccept(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     token: str
-    password: str
+    password: str = Field(min_length=8, max_length=1024)
 
 
 class UserOut(BaseModel):
     id: UUID
     email: EmailStr
-    role: str
     active: bool
-
-    model_config = {"from_attributes": True}
+    is_platform_superadmin: bool
+    roles: list[RoleOut]
 
 
 class UserPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     active: bool | None = None
-    role: str | None = None

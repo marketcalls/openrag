@@ -1,6 +1,9 @@
 import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.modules.auth.models import User
+from openrag.modules.tenancy.models import Role
 
 
 async def auth(client: httpx.AsyncClient, email: str) -> dict[str, str]:
@@ -14,11 +17,20 @@ async def auth(client: httpx.AsyncClient, email: str) -> dict[str, str]:
 async def test_invite_flow(
     client: httpx.AsyncClient,
     seeded_user: User,
+    session: AsyncSession,
 ) -> None:
     headers = await auth(client, "a@acme.com")
+    role = (
+        await session.execute(
+            select(Role).where(
+                Role.org_id == seeded_user.org_id,
+                Role.key == "user",
+            )
+        )
+    ).scalar_one()
     response = await client.post(
         "/api/v1/auth/invitations",
-        json={"email": "new@acme.com", "role": "user"},
+        json={"email": "new@acme.com", "role_id": str(role.id)},
         headers=headers,
     )
     assert response.status_code == 201

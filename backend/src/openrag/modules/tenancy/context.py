@@ -57,7 +57,9 @@ async def get_tenant_context(
     user = (
         await session.execute(select(User).where(User.id == claims.user_id))
     ).scalar_one_or_none()
-    if user is None or not user.active or user.org_id != claims.org_id:
+    # Only the signed subject identifies the principal. Organization and permission
+    # claims are display hints; authoritative state is reloaded for every request.
+    if user is None or not user.active:
         raise AuthenticationError("unknown or inactive user")
     authorization = await resolve_authorization(session, user)
     return TenantContext(

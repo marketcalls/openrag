@@ -29,9 +29,13 @@ from openrag.modules.secrets.crypto import ensure_kek
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import (
     Organization,
+    Role,
+    RolePermission,
+    UserRoleBinding,
     Workspace,
     WorkspaceMember,
 )
+from openrag.modules.tenancy.permissions import BUILTIN_ROLE_TEMPLATES
 
 
 @pytest.fixture(scope="session")
@@ -242,9 +246,33 @@ async def seeded_user(session: AsyncSession) -> User:
         org_id=organization.id,
         email="a@acme.com",
         password_hash=hash_password("pw123456"),
-        role="admin",
     )
     session.add(user)
+    roles = {}
+    for template in BUILTIN_ROLE_TEMPLATES.values():
+        role = Role(
+            org_id=organization.id,
+            key=template.key,
+            name=template.name,
+            description=template.description,
+            is_system=True,
+        )
+        session.add(role)
+        await session.flush()
+        session.add_all(
+            RolePermission(role_id=role.id, permission=permission)
+            for permission in template.permissions
+        )
+        roles[template.key] = role
+    await session.flush()
+    session.add(
+        UserRoleBinding(
+            org_id=organization.id,
+            user_id=user.id,
+            role_id=roles["administrator"].id,
+            created_by=user.id,
+        )
+    )
     await session.commit()
     return user
 
@@ -258,7 +286,7 @@ async def seeded_superadmin(session: AsyncSession) -> User:
         org_id=organization.id,
         email="root@platform.example.com",
         password_hash=hash_password("pw123456"),
-        role="superadmin",
+        is_platform_superadmin=True,
     )
     session.add(user)
     await session.commit()
@@ -275,6 +303,7 @@ async def chat_env(
     await session.flush()
     session.add(
         WorkspaceMember(
+            org_id=seeded_user.org_id,
             workspace_id=workspace.id,
             user_id=seeded_user.id,
         )

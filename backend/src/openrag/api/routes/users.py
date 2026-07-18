@@ -23,7 +23,7 @@ async def list_users(
     context: AdminDep,
 ) -> list[UserOut]:
     users = await service.list_users(session, context)
-    return [UserOut.model_validate(user) for user in users]
+    return await service.users_to_out(session, users)
 
 
 @router.patch("/{user_id}", response_model=UserOut)
@@ -41,11 +41,4 @@ async def patch_user(
             user_id,
             body.active,
         )
-    if body.role is not None:
-        user = await service.set_user_role(
-            session,
-            context,
-            user_id,
-            body.role,
-        )
-    return UserOut.model_validate(user)
+    return await service.user_to_out(session, user)

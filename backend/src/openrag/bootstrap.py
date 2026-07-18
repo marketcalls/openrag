@@ -17,6 +17,7 @@ from openrag.modules.auth.models import User
 from openrag.modules.auth.passwords import hash_password
 from openrag.modules.secrets.crypto import ensure_kek
 from openrag.modules.tenancy.models import Organization
+from openrag.modules.tenancy.service import seed_builtin_roles
 
 
 async def bootstrap_superadmin(
@@ -27,20 +28,29 @@ async def bootstrap_superadmin(
 ) -> bool:
     async with session_factory() as session:
         existing = (
-            await session.execute(select(User).where(User.role == "superadmin"))
+            await session.execute(
+                select(User).where(User.is_platform_superadmin.is_(True))
+            )
         ).scalar_one_or_none()
         if existing is not None:
             return False
 
-        organization = Organization(name="Platform")
-        session.add(organization)
-        await session.flush()
+        organization = (
+            await session.execute(
+                select(Organization).where(Organization.name == "Platform")
+            )
+        ).scalar_one_or_none()
+        if organization is None:
+            organization = Organization(name="Platform")
+            session.add(organization)
+            await session.flush()
+        await seed_builtin_roles(session, organization.id)
         session.add(
             User(
                 org_id=organization.id,
                 email=email,
                 password_hash=hash_password(password),
-                role="superadmin",
+                is_platform_superadmin=True,
             )
         )
         await session.commit()
