@@ -65,18 +65,48 @@ async def test_agent_run_idempotency_is_enforced(
     session: AsyncSession,
     run_env: dict[str, Any],
 ) -> None:
+    assistant_message = Message(
+        chat_id=run_env["chat"].id,
+        parent_message_id=run_env["user_message"].id,
+        sibling_index=0,
+        role="assistant",
+        content="hello back",
+    )
+    session.add(assistant_message)
+    await session.flush()
+    followup_message = Message(
+        chat_id=run_env["chat"].id,
+        parent_message_id=assistant_message.id,
+        sibling_index=0,
+        role="user",
+        content="follow up",
+    )
+    session.add(followup_message)
+    await session.flush()
+
     request_id = uuid4()
-    values = {
+    common_values = {
         "org_id": run_env["user"].org_id,
         "workspace_id": run_env["workspace"].id,
         "user_id": run_env["user"].id,
         "chat_id": run_env["chat"].id,
-        "input_message_id": run_env["user_message"].id,
         "client_request_id": request_id,
     }
-    session.add_all([AgentRun(**values), AgentRun(**values)])
-    with pytest.raises(IntegrityError):
+    session.add_all(
+        [
+            AgentRun(
+                **common_values,
+                input_message_id=run_env["user_message"].id,
+            ),
+            AgentRun(
+                **common_values,
+                input_message_id=followup_message.id,
+            ),
+        ]
+    )
+    with pytest.raises(IntegrityError) as raised:
         await session.commit()
+    assert "uq_agent_runs_user_request" in str(raised.value.orig)
 
 
 async def test_outbox_and_inbox_dedupe_keys_are_unique(
