@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import openrag
 from openrag.core.config import Settings
-from openrag.core.errors import UpstreamError
+from openrag.core.errors import SecretsError, UpstreamError
 from openrag.modules.auth.models import User
 from openrag.modules.models.service import create_model, list_models, update_model
 from openrag.modules.models.sync import sync_models_to_litellm
@@ -203,6 +203,28 @@ async def test_proxy_failure_maps_to_upstream_error(
     assert {
         model.sync_status for model in await list_models(session)
     } == {"error"}
+
+
+async def test_decryption_failure_does_not_mutate_gateway(
+    session: AsyncSession,
+    seeded_user: User,
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    await seed_two_models(session, seeded_user, settings)
+    wrong_kek = tmp_path / "wrong-kek"
+    ensure_kek(str(wrong_kek))
+    wrong_settings = Settings(_env_file=None, kek_file=str(wrong_kek))
+    recorder = Recorder(deployed_ids=["working-deployment"])
+
+    with pytest.raises(SecretsError, match="wrong or rotated KEK"):
+        await sync_models_to_litellm(
+            session,
+            wrong_settings,
+            transport=recorder.transport,
+        )
+
+    assert recorder.calls == []
 
 
 def test_decryption_has_exactly_one_caller() -> None:

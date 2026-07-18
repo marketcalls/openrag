@@ -72,6 +72,17 @@ async def sync_models_to_litellm(
     enabled_models = await list_enabled_models(session)
     all_models = await list_models(session)
     headers = {"Authorization": f"Bearer {settings.litellm_master_key}"}
+    payloads = [
+        {
+            "model_name": model.litellm_model_name,
+            "litellm_params": await _litellm_params(
+                session,
+                model,
+                settings,
+            ),
+        }
+        for model in enabled_models
+    ]
 
     try:
         async with httpx.AsyncClient(
@@ -95,15 +106,7 @@ async def sync_models_to_litellm(
                     )
                     delete_response.raise_for_status()
 
-            for model in enabled_models:
-                payload = {
-                    "model_name": model.litellm_model_name,
-                    "litellm_params": await _litellm_params(
-                        session,
-                        model,
-                        settings,
-                    ),
-                }
+            for payload in payloads:
                 create_response = await client.post(
                     "/model/new",
                     json=payload,
