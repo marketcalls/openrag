@@ -57,7 +57,7 @@ def minio_config() -> Iterator[dict[str, str]]:
 
 @pytest.fixture(scope="session")
 def qdrant_url() -> Iterator[str]:
-    with QdrantContainer("qdrant/qdrant:v1.10.1") as qdrant:
+    with QdrantContainer("qdrant/qdrant:v1.18.0") as qdrant:
         yield (
             f"http://{qdrant.get_container_host_ip()}:"
             f"{qdrant.get_exposed_port(6333)}"

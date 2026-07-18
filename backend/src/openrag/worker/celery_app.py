@@ -10,6 +10,7 @@ def build_celery() -> Celery:
         "openrag",
         broker=settings.redis_url,
         backend=settings.redis_url,
+        include=["openrag.worker.tasks"],
     )
     app.conf.update(
         task_acks_late=True,

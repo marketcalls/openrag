@@ -4,6 +4,7 @@ from openrag.worker.tasks import build_ingest_chain, select_queue
 
 def test_celery_config() -> None:
     assert celery_app.conf.task_acks_late is True
+    assert "openrag.worker.tasks" in celery_app.conf.include
     assert {queue.name for queue in celery_app.conf.task_queues} == {
         "default",
         "interactive",
