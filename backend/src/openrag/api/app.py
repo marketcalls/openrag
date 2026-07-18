@@ -1,6 +1,7 @@
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -16,6 +17,7 @@ from openrag.core.logging import configure_logging
 
 def create_app(
     session_factory: async_sessionmaker[AsyncSession] | None = None,
+    redis_client: Redis | None = None,
 ) -> FastAPI:
     configure_logging()
     app = FastAPI(
@@ -27,6 +29,9 @@ def create_app(
         engine = build_engine(get_settings().database_url)
         session_factory = build_session_factory(engine)
     app.state.session_factory = session_factory
+    if redis_client is None:
+        redis_client = Redis.from_url(get_settings().redis_url)
+    app.state.redis = redis_client
     logger = structlog.get_logger("openrag.api")
 
     def problem(status: int, title: str, detail: str) -> JSONResponse:
