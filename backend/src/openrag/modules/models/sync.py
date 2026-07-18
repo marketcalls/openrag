@@ -18,6 +18,25 @@ from openrag.modules.models.service import list_enabled_models, list_models
 from openrag.modules.secrets import service as secrets_service
 
 
+def _is_empty_registry_response(response: httpx.Response) -> bool:
+    """Recognize LiteLLM 1.72's empty-registry management response."""
+    if response.status_code != 500:
+        return False
+    try:
+        payload: object = response.json()
+    except ValueError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    detail: object = payload.get("detail")
+    if not isinstance(detail, dict):
+        return False
+    error: object = detail.get("error")
+    return isinstance(error, str) and error.startswith(
+        "LLM Model List not loaded in."
+    )
+
+
 async def _litellm_params(
     session: AsyncSession,
     model: Model,
@@ -62,8 +81,12 @@ async def sync_models_to_litellm(
             timeout=30.0,
         ) as client:
             info_response = await client.get("/v1/model/info")
-            info_response.raise_for_status()
-            for deployed in info_response.json().get("data", []):
+            if _is_empty_registry_response(info_response):
+                deployed_models: list[dict[str, Any]] = []
+            else:
+                info_response.raise_for_status()
+                deployed_models = info_response.json().get("data", [])
+            for deployed in deployed_models:
                 deployed_id = deployed.get("model_info", {}).get("id")
                 if deployed_id:
                     delete_response = await client.post(

@@ -38,9 +38,11 @@ class Recorder:
         self,
         deployed_ids: list[str] | None = None,
         fail: bool = False,
+        empty_registry_500: bool = False,
     ) -> None:
         self.deployed_ids = deployed_ids or []
         self.fail = fail
+        self.empty_registry_500 = empty_registry_500
         self.calls: list[tuple[str, str, bytes]] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -48,6 +50,16 @@ class Recorder:
         if self.fail:
             return httpx.Response(500, json={"error": "boom"})
         if request.url.path == "/v1/model/info":
+            if self.empty_registry_500 and not self.deployed_ids:
+                return httpx.Response(
+                    500,
+                    json={
+                        "detail": {
+                            "error": "LLM Model List not loaded in. "
+                            "Make sure you passed models in your config.yaml"
+                        }
+                    },
+                )
             data = [
                 {"model_info": {"id": deployed_id}}
                 for deployed_id in self.deployed_ids
@@ -153,6 +165,25 @@ async def test_replay_is_idempotent(
         )
         == 1
     )
+
+
+async def test_empty_gateway_registry_500_is_treated_as_empty(
+    session: AsyncSession,
+    seeded_user: User,
+    settings: Settings,
+) -> None:
+    await seed_two_models(session, seeded_user, settings)
+    recorder = Recorder(empty_registry_500=True)
+
+    assert (
+        await sync_models_to_litellm(
+            session,
+            settings,
+            transport=recorder.transport,
+        )
+        == 1
+    )
+    assert recorder.calls[-1][1] == "/model/new"
 
 
 async def test_proxy_failure_maps_to_upstream_error(
