@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.app_settings import get_or_create_signing_key
@@ -31,6 +31,11 @@ class TokenPair:
 
 def _hash(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _email_lock_id(email: str) -> int:
+    digest = hashlib.sha256(email.casefold().encode()).digest()
+    return int.from_bytes(digest[:8], signed=True)
 
 
 async def _issue_pair(
@@ -159,14 +164,6 @@ async def create_invitation(
     if role is None:
         raise NotFoundError("role not found")
 
-    # The database has a global unique-email constraint. Always perform the same
-    # lookup but never disclose whether a match belongs to this or another tenant.
-    existing = (
-        await session.execute(select(User.id).where(User.email == email))
-    ).scalar_one_or_none()
-    if existing is not None:
-        return secrets.token_urlsafe(32)
-
     raw_token = secrets.token_urlsafe(32)
     invitation = Invitation(
         org_id=context.org_id,
@@ -210,7 +207,6 @@ async def accept_invitation(
     ):
         raise AuthenticationError("invalid or expired invitation")
 
-    invitation.accepted_at = now
     role = (
         await session.execute(
             select(Role).where(
@@ -222,6 +218,30 @@ async def accept_invitation(
     ).scalar_one_or_none()
     if role is None:
         raise AuthenticationError("invalid or expired invitation")
+    # Serialize invitation acceptance for the globally unique email, then reject
+    # all pre-existing accounts with the same generic authentication error.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_id)"),
+        {"lock_id": _email_lock_id(invitation.email)},
+    )
+    existing = (
+        await session.execute(select(User.id).where(User.email == invitation.email))
+    ).scalar_one_or_none()
+    if existing is not None:
+        # Consume the one-time credential even though account creation is refused;
+        # otherwise a rejected token would remain replayable until expiry.
+        invitation.accepted_at = now
+        await record_audit(
+            session,
+            org_id=invitation.org_id,
+            actor_id=None,
+            action="invitation.rejected",
+            target_type="invitation",
+            target_id=str(invitation.id),
+        )
+        await session.commit()
+        raise AuthenticationError("invalid or expired invitation")
+    invitation.accepted_at = now
     user = User(
         org_id=invitation.org_id,
         email=invitation.email,

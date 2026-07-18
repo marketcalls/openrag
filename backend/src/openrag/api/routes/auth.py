@@ -94,19 +94,21 @@ async def logout(
     response.delete_cookie("refresh_token", path="/api/v1/auth")
 
 
-@router.post("/invitations", status_code=201, response_model=InvitationOut)
+@router.post("/invitations", status_code=202, response_model=InvitationOut)
 async def create_invitation(
     body: InvitationCreate,
     session: SessionDep,
     context: AdminDep,
 ) -> InvitationOut:
-    raw_token = await service.create_invitation(
+    # Delivery is deliberately out-of-band. Never expose the actionable token
+    # through this administrator-facing API.
+    await service.create_invitation(
         session,
         context,
         email=body.email,
         role_id=body.role_id,
     )
-    return InvitationOut(invite_token=raw_token)
+    return InvitationOut()
 
 
 @router.post(

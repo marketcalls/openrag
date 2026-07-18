@@ -1,3 +1,4 @@
+import hashlib
 from uuid import uuid4
 
 import httpx
@@ -5,9 +6,12 @@ import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from openrag.modules.auth import service
 from openrag.modules.auth.models import Invitation, User
 from openrag.modules.auth.passwords import hash_password
 from openrag.modules.auth.tokens import decode_access_token
+from openrag.modules.tenancy.authorization import resolve_authorization
+from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Organization, Role, UserRoleBinding
 
 
@@ -70,13 +74,6 @@ async def test_invitation_accepts_role_id_and_creates_binding(
     seeded_user: User,
     session: AsyncSession,
 ) -> None:
-    login_response = await client.post(
-        "/api/v1/auth/login",
-        json={"email": seeded_user.email, "password": "pw123456"},
-    )
-    headers = {
-        "Authorization": f"Bearer {login_response.json()['access_token']}"
-    }
     role = (
         await session.execute(
             select(Role).where(
@@ -85,16 +82,21 @@ async def test_invitation_accepts_role_id_and_creates_binding(
             )
         )
     ).scalar_one()
-    invitation = await client.post(
-        "/api/v1/auth/invitations",
-        json={"email": "new@acme.com", "role_id": str(role.id)},
-        headers=headers,
+    authorization = await resolve_authorization(session, seeded_user)
+    invitation_token = await service.create_invitation(
+        session,
+        TenantContext(
+            user_id=seeded_user.id,
+            org_id=seeded_user.org_id,
+            authorization=authorization,
+        ),
+        email="new@acme.com",
+        role_id=role.id,
     )
-    assert invitation.status_code == 201
     accepted = await client.post(
         "/api/v1/auth/invitations/accept",
         json={
-            "token": invitation.json()["invite_token"],
+            "token": invitation_token,
             "password": "newpw12345",
         },
     )
@@ -159,25 +161,22 @@ async def test_invitation_does_not_enumerate_foreign_tenant_email(
         "Authorization": f"Bearer {login_response.json()['access_token']}"
     }
 
-    foreign = await client.post(
-        "/api/v1/auth/invitations",
-        json={
-            "email": foreign_user.email,
-            "role_id": str(role.id),
-        },
-        headers=headers,
-    )
-    unknown = await client.post(
-        "/api/v1/auth/invitations",
-        json={
-            "email": "unknown@foreign.example.com",
-            "role_id": str(role.id),
-        },
-        headers=headers,
-    )
+    responses = [
+        await client.post(
+            "/api/v1/auth/invitations",
+            json={"email": email, "role_id": str(role.id)},
+            headers=headers,
+        )
+        for email in (
+            foreign_user.email,
+            seeded_user.email,
+            "unknown@foreign.example.com",
+        )
+    ]
 
-    assert foreign.status_code == unknown.status_code == 201
-    assert set(foreign.json()) == set(unknown.json()) == {"invite_token"}
+    assert {response.status_code for response in responses} == {202}
+    assert {response.text for response in responses} == {'{"accepted":true}'}
+    assert all("token" not in response.text for response in responses)
     invitations = list(
         (
             await session.execute(
@@ -185,18 +184,52 @@ async def test_invitation_does_not_enumerate_foreign_tenant_email(
             )
         ).scalars()
     )
-    assert [invitation.email for invitation in invitations] == [
-        "unknown@foreign.example.com"
-    ]
+    assert {invitation.email for invitation in invitations} == {
+        foreign_user.email,
+        seeded_user.email,
+        "unknown@foreign.example.com",
+    }
+
+    authorization = await resolve_authorization(session, seeded_user)
+    foreign_token = await service.create_invitation(
+        session,
+        TenantContext(
+            user_id=seeded_user.id,
+            org_id=seeded_user.org_id,
+            authorization=authorization,
+        ),
+        email=foreign_user.email,
+        role_id=role.id,
+    )
+    rejected = await client.post(
+        "/api/v1/auth/invitations/accept",
+        json={"token": foreign_token, "password": "newpw12345"},
+    )
+    assert rejected.status_code == 401
+    consumed = (
+        await session.execute(
+            select(Invitation).where(
+                Invitation.token_hash
+                == hashlib.sha256(foreign_token.encode()).hexdigest()
+            )
+        )
+    ).scalar_one()
+    await session.refresh(consumed)
+    assert consumed.accepted_at is not None
     assert (
         await client.post(
             "/api/v1/auth/invitations/accept",
-            json={
-                "token": foreign.json()["invite_token"],
-                "password": "newpw12345",
-            },
+            json={"token": foreign_token, "password": "otherpw12345"},
         )
     ).status_code == 401
+    assert (
+        await session.execute(
+            select(User).where(
+                User.org_id == seeded_user.org_id,
+                User.email == foreign_user.email,
+            )
+        )
+    ).scalar_one_or_none() is None
 
 
 async def test_malformed_signed_claim_maps_to_http_401(
@@ -212,6 +245,8 @@ async def test_malformed_signed_claim_maps_to_http_401(
             "org": False,
             "platform_superadmin": False,
             "permissions": ["role.manage"],
+            "iat": 1,
+            "exp": 2,
         },
         signing_key,
         algorithm="HS256",

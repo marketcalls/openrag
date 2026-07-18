@@ -41,11 +41,27 @@ def issue_access_token(
 
 def decode_access_token(token: str, signing_key: str) -> AccessClaims:
     try:
-        payload = jwt.decode(token, signing_key, algorithms=[_ALGORITHM])
+        payload = jwt.decode(
+            token,
+            signing_key,
+            algorithms=[_ALGORITHM],
+            options={
+                "require": [
+                    "sub",
+                    "org",
+                    "platform_superadmin",
+                    "permissions",
+                    "iat",
+                    "exp",
+                ]
+            },
+        )
         subject = payload["sub"]
         organization = payload["org"]
         platform_superadmin = payload["platform_superadmin"]
         permissions = payload["permissions"]
+        issued_at = payload["iat"]
+        expires_at = payload["exp"]
         if type(subject) is not str or type(organization) is not str:
             raise TypeError("sub and org must be strings")
         if type(platform_superadmin) is not bool:  # bool must not accept int
@@ -55,6 +71,10 @@ def decode_access_token(token: str, signing_key: str) -> AccessClaims:
             for permission in permissions
         ):
             raise TypeError("permissions must use the closed vocabulary")
+        if type(issued_at) is not int or type(expires_at) is not int:
+            raise TypeError("iat and exp must be integers")
+        if expires_at <= issued_at:
+            raise ValueError("exp must follow iat")
         return AccessClaims(
             user_id=UUID(subject),
             org_id=UUID(organization),

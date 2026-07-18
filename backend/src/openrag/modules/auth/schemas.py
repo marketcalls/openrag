@@ -25,7 +25,7 @@ class InvitationCreate(BaseModel):
 
 
 class InvitationOut(BaseModel):
-    invite_token: str
+    accepted: bool = True
 
 
 class InvitationAccept(BaseModel):

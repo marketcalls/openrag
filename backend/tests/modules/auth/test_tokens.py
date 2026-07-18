@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import jwt
@@ -10,11 +11,14 @@ from openrag.modules.auth.tokens import decode_access_token, issue_access_token
 
 
 def signed_claims(**overrides: object) -> str:
+    now = int(datetime.now(UTC).timestamp())
     payload: dict[str, object] = {
         "sub": str(uuid4()),
         "org": str(uuid4()),
         "platform_superadmin": False,
         "permissions": ["chat.use"],
+        "iat": now,
+        "exp": now + 300,
     }
     payload.update(overrides)
     return jwt.encode(payload, "k" * 43, algorithm="HS256")
@@ -93,6 +97,7 @@ def test_malformed_signed_claim_shapes_are_rejected(
 
 
 def test_non_allowlisted_algorithm_is_rejected() -> None:
+    now = int(datetime.now(UTC).timestamp())
     signing_key = "k" * 48
     token = jwt.encode(
         {
@@ -100,9 +105,60 @@ def test_non_allowlisted_algorithm_is_rejected() -> None:
             "org": str(uuid4()),
             "platform_superadmin": False,
             "permissions": ["chat.use"],
+            "iat": now,
+            "exp": now + 300,
         },
         signing_key,
         algorithm="HS384",
     )
     with pytest.raises(AuthenticationError):
         decode_access_token(token, signing_key)
+
+
+@pytest.mark.parametrize(
+    "missing_claim",
+    ["sub", "org", "platform_superadmin", "permissions", "iat", "exp"],
+)
+def test_required_claims_cannot_be_omitted(missing_claim: str) -> None:
+    now = int(datetime.now(UTC).timestamp())
+    payload: dict[str, object] = {
+        "sub": str(uuid4()),
+        "org": str(uuid4()),
+        "platform_superadmin": False,
+        "permissions": ["chat.use"],
+        "iat": now,
+        "exp": now + 300,
+    }
+    del payload[missing_claim]
+    token = jwt.encode(payload, "k" * 43, algorithm="HS256")
+
+    with pytest.raises(AuthenticationError):
+        decode_access_token(token, "k" * 43)
+
+
+@pytest.mark.parametrize(
+    ("claim", "value"),
+    [
+        ("iat", True),
+        ("iat", "100"),
+        ("iat", 10.5),
+        ("exp", False),
+        ("exp", "200"),
+        ("exp", 20.5),
+    ],
+)
+def test_temporal_claims_must_be_non_boolean_integers(
+    claim: str,
+    value: object,
+) -> None:
+    with pytest.raises(AuthenticationError):
+        decode_access_token(signed_claims(**{claim: value}), "k" * 43)
+
+
+def test_expiry_must_follow_issued_at() -> None:
+    now = int(datetime.now(UTC).timestamp())
+    with pytest.raises(AuthenticationError):
+        decode_access_token(
+            signed_claims(iat=now + 100, exp=now + 50),
+            "k" * 43,
+        )
