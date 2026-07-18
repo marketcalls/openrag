@@ -13,6 +13,10 @@ const ChatPage = lazy(async () => {
   const module = await import('@/features/chat/chat-page');
   return { default: module.ChatPage };
 });
+const DocumentsPage = lazy(async () => {
+  const module = await import('@/features/documents/documents-page');
+  return { default: module.DocumentsPage };
+});
 
 function ChatRoute() {
   return (
@@ -24,6 +28,20 @@ function ChatRoute() {
       }
     >
       <ChatPage />
+    </Suspense>
+  );
+}
+
+function DocumentsRoute() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-1 items-center justify-center">
+          <Spinner label="Loading documents…" />
+        </div>
+      }
+    >
+      <DocumentsPage />
     </Suspense>
   );
 }
@@ -45,7 +63,7 @@ export const router = createBrowserRouter(
             { path: '/', element: <Navigate to="/chat" replace /> },
             { path: '/chat', element: <ChatRoute /> },
             { path: '/chat/:chatId', element: <ChatRoute /> },
-            { path: '/documents', element: <ComingSoon name="Documents" /> },
+            { path: '/documents', element: <DocumentsRoute /> },
             {
               element: <RequireRole role="admin" />,
               children: [{ path: '/admin/users', element: <ComingSoon name="Users" /> }],
