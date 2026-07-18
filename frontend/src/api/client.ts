@@ -60,7 +60,7 @@ export async function authFetch(input: Request): Promise<Response> {
 }
 
 export const api = createClient<paths>({
-  baseUrl: '/',
+  baseUrl: window.location.origin,
   credentials: 'include',
   fetch: authFetch,
 });

@@ -2,8 +2,11 @@ import { render, screen } from '@testing-library/react';
 
 import { App } from './app';
 
-test('renders the OpenRAG entry point', () => {
-  render(<App />);
+afterEach(() => vi.unstubAllGlobals());
 
-  expect(screen.getByRole('heading', { name: 'OpenRAG' })).toBeInTheDocument();
+test('unauthenticated app redirects to the login page', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 401 })));
+  window.history.pushState({}, '', '/');
+  render(<App />);
+  expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
 });
