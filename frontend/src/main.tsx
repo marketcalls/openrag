@@ -7,7 +7,10 @@ import '@fontsource/inter/600.css';
 import '@fontsource/inter/700.css';
 
 import { App } from './app';
+import { applyTheme, resolveInitialTheme } from './lib/theme';
 import './styles/globals.css';
+
+applyTheme(resolveInitialTheme());
 
 const root = document.getElementById('root');
 
