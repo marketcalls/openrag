@@ -42,8 +42,12 @@ def issue_access_token(
 def decode_access_token(token: str, signing_key: str) -> AccessClaims:
     try:
         payload = jwt.decode(token, signing_key, algorithms=[_ALGORITHM])
+        subject = payload["sub"]
+        organization = payload["org"]
         platform_superadmin = payload["platform_superadmin"]
         permissions = payload["permissions"]
+        if type(subject) is not str or type(organization) is not str:
+            raise TypeError("sub and org must be strings")
         if type(platform_superadmin) is not bool:  # bool must not accept int
             raise TypeError("platform_superadmin must be boolean")
         if not isinstance(permissions, list) or any(
@@ -52,10 +56,16 @@ def decode_access_token(token: str, signing_key: str) -> AccessClaims:
         ):
             raise TypeError("permissions must use the closed vocabulary")
         return AccessClaims(
-            user_id=UUID(payload["sub"]),
-            org_id=UUID(payload["org"]),
+            user_id=UUID(subject),
+            org_id=UUID(organization),
             is_platform_superadmin=platform_superadmin,
             permissions=frozenset(permissions),
         )
-    except (jwt.InvalidTokenError, KeyError, TypeError, ValueError) as exc:
+    except (
+        jwt.InvalidTokenError,
+        AttributeError,
+        KeyError,
+        TypeError,
+        ValueError,
+    ) as exc:
         raise AuthenticationError("invalid or expired token") from exc

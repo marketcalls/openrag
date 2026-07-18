@@ -1,13 +1,19 @@
+import asyncio
 from uuid import uuid4
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.modules.audit.models import AuditEvent
 from openrag.modules.auth.models import User
 from openrag.modules.auth.passwords import hash_password
-from openrag.modules.tenancy.models import Role, UserRoleBinding
+from openrag.modules.tenancy.models import (
+    Organization,
+    Role,
+    RolePermission,
+    UserRoleBinding,
+)
 
 
 async def auth(client: httpx.AsyncClient, email: str) -> dict[str, str]:
@@ -174,3 +180,150 @@ async def test_bindings_reject_escalation_cross_org_and_last_admin_removal(
         headers=headers,
     )
     assert arbitrary_legacy.status_code == 422
+
+
+async def test_bound_role_cannot_be_deleted_and_real_invalid_roles_cannot_bind(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    session: AsyncSession,
+) -> None:
+    target = User(
+        org_id=seeded_user.org_id,
+        email="binding-target@acme.com",
+        password_hash=hash_password("pw123456"),
+    )
+    session.add(target)
+    foreign_org = Organization(name="Foreign roles org")
+    session.add(foreign_org)
+    await session.flush()
+    foreign_role = Role(
+        org_id=foreign_org.id,
+        key="foreign",
+        name="Foreign",
+    )
+    unassignable = Role(
+        org_id=seeded_user.org_id,
+        key="service_account",
+        name="Service Account",
+        is_assignable=False,
+    )
+    session.add_all([foreign_role, unassignable])
+    await session.commit()
+    headers = await auth(client, seeded_user.email)
+
+    for invalid_role in (foreign_role, unassignable):
+        response = await client.put(
+            f"/api/v1/users/{target.id}/role-bindings",
+            json={"role_ids": [str(invalid_role.id)]},
+            headers=headers,
+        )
+        assert response.status_code == 404
+
+    created = await client.post(
+        "/api/v1/roles",
+        json={"name": "Bound Role", "permissions": ["chat.use"]},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    role_id = created.json()["id"]
+    assert (
+        await client.put(
+            f"/api/v1/users/{target.id}/role-bindings",
+            json={"role_ids": [role_id]},
+            headers=headers,
+        )
+    ).status_code == 200
+    assert (
+        await client.delete(f"/api/v1/roles/{role_id}", headers=headers)
+    ).status_code == 409
+
+
+async def test_concurrent_replacements_preserve_one_active_administrator(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    session: AsyncSession,
+) -> None:
+    administrator = (
+        await session.execute(
+            select(Role).where(
+                Role.org_id == seeded_user.org_id,
+                Role.key == "administrator",
+            )
+        )
+    ).scalar_one()
+    user_role = (
+        await session.execute(
+            select(Role).where(
+                Role.org_id == seeded_user.org_id,
+                Role.key == "user",
+            )
+        )
+    ).scalar_one()
+    second = User(
+        org_id=seeded_user.org_id,
+        email="second-admin@acme.com",
+        password_hash=hash_password("pw123456"),
+    )
+    manager = User(
+        org_id=seeded_user.org_id,
+        email="role-manager@acme.com",
+        password_hash=hash_password("pw123456"),
+    )
+    manager_role = Role(
+        org_id=seeded_user.org_id,
+        key="concurrent_role_manager",
+        name="Concurrent Role Manager",
+    )
+    session.add_all([second, manager, manager_role])
+    await session.flush()
+    session.add_all(
+        [
+            RolePermission(
+                role_id=manager_role.id,
+                permission="role.manage",
+            ),
+        UserRoleBinding(
+            org_id=seeded_user.org_id,
+            user_id=second.id,
+            role_id=administrator.id,
+            created_by=seeded_user.id,
+            ),
+            UserRoleBinding(
+                org_id=seeded_user.org_id,
+                user_id=manager.id,
+                role_id=manager_role.id,
+                created_by=seeded_user.id,
+            ),
+        ]
+    )
+    await session.commit()
+    headers = await auth(client, manager.email)
+
+    responses = await asyncio.gather(
+        client.put(
+            f"/api/v1/users/{seeded_user.id}/role-bindings",
+            json={"role_ids": [str(user_role.id)]},
+            headers=headers,
+        ),
+        client.put(
+            f"/api/v1/users/{second.id}/role-bindings",
+            json={"role_ids": [str(user_role.id)]},
+            headers=headers,
+        ),
+    )
+
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    remaining = (
+        await session.execute(
+            select(func.count())
+            .select_from(UserRoleBinding)
+            .join(User, User.id == UserRoleBinding.user_id)
+            .where(
+                UserRoleBinding.org_id == seeded_user.org_id,
+                UserRoleBinding.role_id == administrator.id,
+                UserRoleBinding.workspace_id.is_(None),
+                User.active.is_(True),
+            )
+        )
+    ).scalar_one()
+    assert remaining == 1

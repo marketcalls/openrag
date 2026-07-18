@@ -8,7 +8,7 @@ import asyncio
 import os
 import sys
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from openrag.core.config import get_settings
@@ -19,6 +19,8 @@ from openrag.modules.secrets.crypto import ensure_kek
 from openrag.modules.tenancy.models import Organization
 from openrag.modules.tenancy.service import seed_builtin_roles
 
+_BOOTSTRAP_ADVISORY_LOCK_ID = 0x4F50454E524147
+
 
 async def bootstrap_superadmin(
     session_factory: async_sessionmaker[AsyncSession],
@@ -27,6 +29,12 @@ async def bootstrap_superadmin(
     password: str,
 ) -> bool:
     async with session_factory() as session:
+        # Serialize all bootstrap attempts before observing privileged state. A
+        # transaction-scoped lock is released only by commit/rollback/session close.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_id)"),
+            {"lock_id": _BOOTSTRAP_ADVISORY_LOCK_ID},
+        )
         existing = (
             await session.execute(
                 select(User).where(User.is_platform_superadmin.is_(True))

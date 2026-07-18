@@ -1,11 +1,23 @@
 from uuid import uuid4
 
+import jwt
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.app_settings import get_or_create_signing_key
 from openrag.core.errors import AuthenticationError
 from openrag.modules.auth.tokens import decode_access_token, issue_access_token
+
+
+def signed_claims(**overrides: object) -> str:
+    payload: dict[str, object] = {
+        "sub": str(uuid4()),
+        "org": str(uuid4()),
+        "platform_superadmin": False,
+        "permissions": ["chat.use"],
+    }
+    payload.update(overrides)
+    return jwt.encode(payload, "k" * 43, algorithm="HS256")
 
 
 async def test_signing_key_persisted(session: AsyncSession) -> None:
@@ -56,3 +68,41 @@ def test_expired_rejected() -> None:
     )
     with pytest.raises(AuthenticationError):
         decode_access_token(token, "k" * 43)
+
+
+@pytest.mark.parametrize(
+    ("claim", "value"),
+    [
+        ("sub", 123),
+        ("sub", True),
+        ("org", 123),
+        ("org", False),
+        ("platform_superadmin", 1),
+        ("platform_superadmin", "false"),
+        ("permissions", "chat.use"),
+        ("permissions", ["unknown.use"]),
+        ("permissions", [True]),
+    ],
+)
+def test_malformed_signed_claim_shapes_are_rejected(
+    claim: str,
+    value: object,
+) -> None:
+    with pytest.raises(AuthenticationError):
+        decode_access_token(signed_claims(**{claim: value}), "k" * 43)
+
+
+def test_non_allowlisted_algorithm_is_rejected() -> None:
+    signing_key = "k" * 48
+    token = jwt.encode(
+        {
+            "sub": str(uuid4()),
+            "org": str(uuid4()),
+            "platform_superadmin": False,
+            "permissions": ["chat.use"],
+        },
+        signing_key,
+        algorithm="HS384",
+    )
+    with pytest.raises(AuthenticationError):
+        decode_access_token(token, signing_key)

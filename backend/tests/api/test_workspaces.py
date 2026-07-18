@@ -93,6 +93,5 @@ async def test_admin_lists_workspace_members(
         {
             "user_id": str(member.id),
             "email": "member@acme.com",
-            "role": "member",
         }
     ]

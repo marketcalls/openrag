@@ -69,7 +69,6 @@ class MemberAdd(BaseModel):
 class WorkspaceMemberOut(BaseModel):
     user_id: UUID
     email: str
-    role: str
 
 
 class WorkspacePatch(BaseModel):

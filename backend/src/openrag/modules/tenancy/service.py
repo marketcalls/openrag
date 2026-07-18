@@ -531,6 +531,6 @@ async def list_members(
         .order_by(User.email)
     )
     return [
-        WorkspaceMemberOut(user_id=user_id, email=email, role="member")
+        WorkspaceMemberOut(user_id=user_id, email=email)
         for user_id, email in rows.all()
     ]

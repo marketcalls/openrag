@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.core.app_settings import get_or_create_signing_key
 from openrag.core.config import Settings
 from openrag.core.db import naive_utc
-from openrag.core.errors import AuthenticationError, ConflictError, NotFoundError
+from openrag.core.errors import AuthenticationError, NotFoundError
 from openrag.modules.audit.service import record_audit
 from openrag.modules.auth.models import Invitation, RefreshToken, User
 from openrag.modules.auth.passwords import hash_password, verify_password
@@ -147,12 +147,6 @@ async def create_invitation(
     role_id: UUID,
     ttl_hours: int = 72,
 ) -> str:
-    existing = (
-        await session.execute(select(User).where(User.email == email))
-    ).scalar_one_or_none()
-    if existing is not None:
-        raise ConflictError("email already registered")
-
     role = (
         await session.execute(
             select(Role).where(
@@ -164,6 +158,14 @@ async def create_invitation(
     ).scalar_one_or_none()
     if role is None:
         raise NotFoundError("role not found")
+
+    # The database has a global unique-email constraint. Always perform the same
+    # lookup but never disclose whether a match belongs to this or another tenant.
+    existing = (
+        await session.execute(select(User.id).where(User.email == email))
+    ).scalar_one_or_none()
+    if existing is not None:
+        return secrets.token_urlsafe(32)
 
     raw_token = secrets.token_urlsafe(32)
     invitation = Invitation(

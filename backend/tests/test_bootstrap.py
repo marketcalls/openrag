@@ -1,9 +1,13 @@
-from sqlalchemy import select
+import asyncio
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from openrag.bootstrap import bootstrap_superadmin
 from openrag.core.db import build_session_factory
 from openrag.modules.auth.models import User
+from openrag.modules.tenancy.models import Organization, Role
+from openrag.modules.tenancy.permissions import BUILTIN_ROLE_TEMPLATES
 
 
 async def test_bootstrap_idempotent(engine: AsyncEngine) -> None:
@@ -29,6 +33,48 @@ async def test_bootstrap_idempotent(engine: AsyncEngine) -> None:
             await session.execute(select(User).where(User.email == "root@x.com"))
         ).scalar_one()
         assert user.is_platform_superadmin is True
+
+
+async def test_bootstrap_concurrent_calls_create_exactly_one_platform_admin(
+    engine: AsyncEngine,
+) -> None:
+    factory = build_session_factory(engine)
+
+    outcomes = await asyncio.gather(
+        bootstrap_superadmin(
+            factory,
+            email="first@x.com",
+            password="rootpw12345",  # noqa: S106 - inert test credential
+        ),
+        bootstrap_superadmin(
+            factory,
+            email="second@x.com",
+            password="rootpw12345",  # noqa: S106 - inert test credential
+        ),
+    )
+
+    assert sorted(outcomes) == [False, True]
+    async with factory() as session:
+        assert (
+            await session.execute(
+                select(func.count())
+                .select_from(User)
+                .where(User.is_platform_superadmin.is_(True))
+            )
+        ).scalar_one() == 1
+        platform = (
+            await session.execute(
+                select(Organization).where(Organization.name == "Platform")
+            )
+        ).scalar_one()
+        keys = set(
+            (
+                await session.execute(
+                    select(Role.key).where(Role.org_id == platform.id)
+                )
+            ).scalars()
+        )
+        assert keys == set(BUILTIN_ROLE_TEMPLATES)
 
 
 async def test_http_user_contract_cannot_create_platform_superadmin(
