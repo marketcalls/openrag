@@ -31,4 +31,6 @@ test('defaults to the newest branch and select navigates to an older branch', ()
   expect(result.current.path[0]?.message.id).toBe('u1');
   expect(result.current.path[0]?.position).toBe(0);
   expect(result.current.path[0]?.siblings).toHaveLength(2);
+  act(() => result.current.reset());
+  expect(result.current.path[0]?.message.id).toBe('u1b');
 });

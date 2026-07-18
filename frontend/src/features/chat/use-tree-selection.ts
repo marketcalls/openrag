@@ -7,6 +7,7 @@ import { selectActivePath, type PathEntry } from './tree';
 export function useTreeSelection(messages: readonly MessageOut[] | undefined): {
   path: PathEntry[];
   select: (branchKey: string, id: string) => void;
+  reset: () => void;
 } {
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const path = useMemo(
@@ -16,5 +17,6 @@ export function useTreeSelection(messages: readonly MessageOut[] | undefined): {
   const select = useCallback((branchKey: string, id: string) => {
     setOverrides((current) => ({ ...current, [branchKey]: id }));
   }, []);
-  return { path, select };
+  const reset = useCallback(() => setOverrides({}), []);
+  return { path, select, reset };
 }

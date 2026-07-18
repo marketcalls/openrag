@@ -10,6 +10,8 @@ import { useWorkspace } from '@/features/workspaces/workspace-context';
 
 import { AssistantMessage } from './assistant-message';
 import { ChatInput } from './chat-input';
+import { EditMessageForm } from './edit-message-form';
+import { MessageActions } from './message-actions';
 import { ModelSelector } from './model-selector';
 import { useChat, useCreateChat } from './queries';
 import { StreamingMessage } from './streaming-message';
@@ -41,8 +43,9 @@ export function ChatPage() {
   const chatQuery = useChat(chatId);
   const createChat = useCreateChat();
   const stream = useChatStream(chatId);
-  const { path } = useTreeSelection(chatQuery.data?.messages);
+  const { path, select, reset: resetSelection } = useTreeSelection(chatQuery.data?.messages);
   const [modelId, setModelId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const endOfThread = useRef<HTMLDivElement>(null);
 
   const workspace = workspaces?.find((item) => item.id === workspaceId);
@@ -88,7 +91,8 @@ export function ChatPage() {
     );
   };
 
-  const busy = stream.status === 'retrieving' || stream.status === 'streaming';
+  const busy =
+    stream.status === 'retrieving' || stream.status === 'streaming' || stream.status === 'done';
   const showStream = stream.status !== 'idle' && !streamedInTree;
 
   return (
@@ -114,17 +118,57 @@ export function ChatPage() {
               Unable to load this chat.
             </p>
           ) : null}
-          {path.map((entry) =>
-            entry.message.role === 'user' ? (
-              <UserMessage key={entry.message.id} content={entry.message.content} />
-            ) : (
+          {path.map((entry) => {
+            const message = entry.message;
+            if (message.role === 'user') {
+              if (editingId === message.id) {
+                return (
+                  <EditMessageForm
+                    key={message.id}
+                    initial={message.content}
+                    onCancel={() => setEditingId(null)}
+                    onSend={(content) => {
+                      setEditingId(null);
+                      resetSelection();
+                      stream.send(content, message.parent_message_id, effectiveModelId);
+                    }}
+                  />
+                );
+              }
+              return (
+                <UserMessage
+                  key={message.id}
+                  content={message.content}
+                  footer={
+                    <MessageActions
+                      entry={entry}
+                      disabled={busy}
+                      onSelectSibling={select}
+                      onEdit={() => setEditingId(message.id)}
+                    />
+                  }
+                />
+              );
+            }
+            return (
               <AssistantMessage
-                key={entry.message.id}
-                content={entry.message.content}
-                sources={historicalSources(entry.message.citations)}
+                key={message.id}
+                content={message.content}
+                sources={historicalSources(message.citations)}
+                footer={
+                  <MessageActions
+                    entry={entry}
+                    disabled={busy}
+                    onSelectSibling={select}
+                    onRegenerate={() => {
+                      resetSelection();
+                      stream.regenerate(message.id);
+                    }}
+                  />
+                }
               />
-            ),
-          )}
+            );
+          })}
           {showStream ? <StreamingMessage stream={stream} /> : null}
           {!chatId && path.length === 0 && stream.status === 'idle' ? (
             <p className="pt-16 text-center text-[15px] text-secondary">
