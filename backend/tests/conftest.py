@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator, Iterator
+from uuid import UUID
 
 import httpx
 import pytest
@@ -15,11 +16,22 @@ from openrag.core.db import Base, build_engine, build_session_factory
 from openrag.core.storage import ObjectStorage
 from openrag.modules.auth.models import User
 from openrag.modules.auth.passwords import hash_password
+from openrag.modules.chat.llm import LLMDelta, LLMUsage
+from openrag.modules.documents.models import Document
 from openrag.modules.retrieval.client import COLLECTION, get_qdrant
 from openrag.modules.retrieval.embeddings import get_dense_embedder
-from openrag.modules.retrieval.service import ensure_collection
+from openrag.modules.retrieval.service import (
+    RetrievalResult,
+    RetrievedChunk,
+    ensure_collection,
+)
 from openrag.modules.secrets.crypto import ensure_kek
-from openrag.modules.tenancy.models import Organization
+from openrag.modules.tenancy.context import TenantContext
+from openrag.modules.tenancy.models import (
+    Organization,
+    Workspace,
+    WorkspaceMember,
+)
 
 
 @pytest.fixture(scope="session")
@@ -75,6 +87,61 @@ def stub_litellm_handler(request: httpx.Request) -> httpx.Response:
     if request.url.path == "/v1/model/info":
         return httpx.Response(200, json={"data": []})
     return httpx.Response(200, json={})
+
+
+class FakeStreamer:
+    def __init__(self, deltas: list[str] | None = None) -> None:
+        self.deltas = (
+            deltas
+            if deltas is not None
+            else ["Revenue was 12M ", "[1]."]
+        )
+        self.calls: list[dict[str, object]] = []
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+    ) -> AsyncIterator[LLMDelta | LLMUsage]:
+        self.calls.append({"model": model, "messages": messages})
+        for delta in self.deltas:
+            yield LLMDelta(delta)
+        yield LLMUsage(prompt_tokens=42, completion_tokens=7)
+
+
+class FakeRetriever:
+    def __init__(self, document_id: UUID, no_answer: bool = False) -> None:
+        self.document_id = document_id
+        self.no_answer = no_answer
+
+    async def __call__(
+        self,
+        session: AsyncSession,
+        context: TenantContext,
+        workspace_id: UUID,
+        query: str,
+        top_k: int = 8,
+    ) -> RetrievalResult:
+        return RetrievalResult(
+            chunks=[
+                RetrievedChunk(
+                    document_id=self.document_id,
+                    page=3,
+                    chunk_index=0,
+                    text="Revenue was 12M.",
+                    score=0.91,
+                ),
+                RetrievedChunk(
+                    document_id=self.document_id,
+                    page=5,
+                    chunk_index=2,
+                    text="Costs were 4M.",
+                    score=0.55,
+                ),
+            ],
+            no_answer=self.no_answer,
+        )
 
 
 @pytest.fixture
@@ -196,3 +263,33 @@ async def seeded_superadmin(session: AsyncSession) -> User:
     session.add(user)
     await session.commit()
     return user
+
+
+@pytest.fixture
+async def chat_env(
+    session: AsyncSession,
+    seeded_user: User,
+) -> dict[str, object]:
+    workspace = Workspace(org_id=seeded_user.org_id, name="Chat Workspace")
+    session.add(workspace)
+    await session.flush()
+    session.add(
+        WorkspaceMember(
+            workspace_id=workspace.id,
+            user_id=seeded_user.id,
+        )
+    )
+    document = Document(
+        org_id=seeded_user.org_id,
+        workspace_id=workspace.id,
+        filename="report.pdf",
+        mime="application/pdf",
+        size_bytes=10,
+        content_hash="chat-test-document",
+        status="indexed",
+        storage_key="chat-test/report.pdf",
+        created_by=seeded_user.id,
+    )
+    session.add(document)
+    await session.commit()
+    return {"workspace": workspace, "document": document}

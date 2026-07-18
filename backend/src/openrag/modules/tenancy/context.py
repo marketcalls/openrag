@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.core.app_settings import get_or_create_signing_key
 from openrag.core.db import get_session
 from openrag.core.errors import AuthenticationError, AuthorizationError
+from openrag.core.ratelimit import FixedWindowLimiter, RedisFixedWindowLimiter
 from openrag.modules.auth.models import User
 from openrag.modules.auth.tokens import decode_access_token
 from openrag.modules.tenancy.models import WorkspaceMember
@@ -68,6 +69,30 @@ def require_role(
     ) -> TenantContext:
         if context.role != "superadmin" and context.role not in roles:
             raise AuthorizationError(f"requires role in {sorted(roles)}")
+        return context
+
+    return guard
+
+
+def rate_limit_user(
+    scope: str,
+    limit: int,
+    window_seconds: int,
+) -> Callable[..., Awaitable[TenantContext]]:
+    """Authenticate first, then rate-limit using the stable user id."""
+    local = FixedWindowLimiter(limit, window_seconds)
+    shared = RedisFixedWindowLimiter(limit, window_seconds)
+
+    async def guard(
+        request: Request,
+        context: Annotated[TenantContext, Depends(get_tenant_context)],
+    ) -> TenantContext:
+        redis = getattr(request.app.state, "redis", None)
+        key = f"{scope}:{context.user_id}"
+        if redis is None:
+            local.check(f"{id(request.app)}:{key}")
+        else:
+            await shared.check(redis, key)
         return context
 
     return guard

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from openrag.api.routes.admin_secrets import router as admin_secrets_router
 from openrag.api.routes.auth import router as auth_router
+from openrag.api.routes.chats import router as chats_router
 from openrag.api.routes.documents import router as documents_router
 from openrag.api.routes.health import router as health_router
 from openrag.api.routes.models import router as models_router
@@ -21,13 +22,18 @@ from openrag.core.config import get_settings
 from openrag.core.db import build_engine, build_session_factory
 from openrag.core.errors import OpenRAGError
 from openrag.core.logging import configure_logging
+from openrag.modules.chat.llm import LLMStreamer
+from openrag.modules.chat.service import Retriever
 from openrag.modules.models.sync import sync_models_to_litellm
+from openrag.modules.retrieval.service import retrieve
 
 
 def create_app(
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     redis_client: Redis | None = None,
     litellm_transport: httpx.AsyncBaseTransport | None = None,
+    retriever: Retriever | None = None,
+    llm_streamer: LLMStreamer | None = None,
 ) -> FastAPI:
     configure_logging()
     settings = get_settings()
@@ -70,6 +76,8 @@ def create_app(
     app.state.session_factory = session_factory
     app.state.redis = redis_client
     app.state.litellm_transport = litellm_transport
+    app.state.retriever = retriever if retriever is not None else retrieve
+    app.state.llm_streamer = llm_streamer
 
     def problem(status: int, title: str, detail: str) -> JSONResponse:
         return JSONResponse(
@@ -115,6 +123,7 @@ def create_app(
 
     app.include_router(admin_secrets_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(chats_router, prefix="/api/v1")
     app.include_router(documents_router, prefix="/api/v1")
     app.include_router(health_router)
     app.include_router(models_router, prefix="/api/v1")
