@@ -23,5 +23,45 @@ services:
       timeout: 3s
       retries: 10
 
+  qdrant:
+    image: qdrant/qdrant:v1.10.1
+    ports: ["127.0.0.1:56333:6333"]
+    volumes: [qdrantdata:/qdrant/storage]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: openrag
+      MINIO_ROOT_PASSWORD: openrag123
+    ports: ["127.0.0.1:59000:9000", "127.0.0.1:59001:9001"]
+    volumes: [miniodata:/data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    profiles: ["ml"]
+    command: --model-id BAAI/bge-m3
+    ports: ["127.0.0.1:58080:80"]
+    volumes: [teidata:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/80' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 180s
+
 volumes:
   pgdata:
+  qdrantdata:
+  miniodata:
+  teidata:
