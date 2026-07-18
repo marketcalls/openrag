@@ -409,7 +409,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Members */
+        get: operations["list_members_api_v1_workspaces__workspace_id__members_get"];
         put?: never;
         /** Add Member */
         post: operations["add_member_api_v1_workspaces__workspace_id__members_post"];
@@ -787,6 +788,18 @@ export interface components {
         WorkspaceCreate: {
             /** Name */
             name: string;
+        };
+        /** WorkspaceMemberOut */
+        WorkspaceMemberOut: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Email */
+            email: string;
+            /** Role */
+            role: string;
         };
         /** WorkspaceOut */
         WorkspaceOut: {
@@ -1695,6 +1708,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_members_api_v1_workspaces__workspace_id__members_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMemberOut"][];
                 };
             };
             /** @description Validation Error */

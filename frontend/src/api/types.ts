@@ -4,6 +4,7 @@ import type { components } from './schema';
 
 export type UserOut = components['schemas']['UserOut'];
 export type WorkspaceOut = components['schemas']['WorkspaceOut'];
+export type WorkspaceMemberOut = components['schemas']['WorkspaceMemberOut'];
 export type DocumentOut = components['schemas']['DocumentOut'];
 export type ChatOut = components['schemas']['ChatOut'];
 export type ChatDetailOut = components['schemas']['ChatTreeOut'];
