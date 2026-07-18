@@ -13,7 +13,7 @@ class User(UUIDPk, Base):
     org_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"))
     email: Mapped[str] = mapped_column(unique=True, index=True)
     password_hash: Mapped[str]
-    role: Mapped[str]
+    is_platform_superadmin: Mapped[bool] = mapped_column(default=False)
     active: Mapped[bool] = mapped_column(default=True)
 
 
@@ -32,7 +32,7 @@ class Invitation(UUIDPk, Base):
 
     org_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"))
     email: Mapped[str] = mapped_column(index=True)
-    role: Mapped[str] = mapped_column(default="user")
+    role_id: Mapped[UUID] = mapped_column(ForeignKey("roles.id"))
     token_hash: Mapped[str] = mapped_column(unique=True)
     expires_at: Mapped[datetime]
     accepted_at: Mapped[datetime | None] = mapped_column(default=None)
