@@ -334,6 +334,7 @@ async def test_governance_reason_validation_does_not_bypass_object_oracle(
 
 async def test_dispatch_compensation_cannot_fail_an_active_ingest_attempt(
     session: AsyncSession,
+    stack_env: None,
 ) -> None:
     context, workspace = await seed_workspace(session, "active-dispatch-compensation", role="admin")
     document = await create_from_upload(
@@ -370,6 +371,7 @@ async def test_dispatch_compensation_cannot_fail_an_active_ingest_attempt(
 
 async def test_retry_rejects_recent_processing_legacy_attempt(
     session: AsyncSession,
+    stack_env: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context, workspace = await seed_workspace(session, "recent-legacy-recovery", role="admin")
@@ -412,6 +414,7 @@ async def test_retry_rejects_recent_processing_legacy_attempt(
 
 async def test_retry_recovers_stale_processing_legacy_attempt_with_fence(
     session: AsyncSession,
+    stack_env: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context, workspace = await seed_workspace(session, "stale-legacy-recovery", role="admin")
