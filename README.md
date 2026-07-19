@@ -221,7 +221,9 @@ For the revision-fenced ingestion upgrade, keep
 4. set `OPENRAG_INGEST_REVISION_PROTOCOL_V2_ENABLED=true`, then restart the
    API and workers before accepting uploads again.
 
-New workers can consume a residual one-argument legacy task as revision 1.
+While the flag is false, revision-1 uploads use rolling-compatible one-argument
+tasks; retries and stale-attempt recovery remain disabled. New workers can also
+consume a residual one-argument legacy task as revision 1.
 The database rejects lifecycle writes from an accidentally retained old worker,
 and retrieval excludes its non-approved vectors. After cutover, retrying an
 exact-Legacy processing item is allowed only after all unfinished work is older

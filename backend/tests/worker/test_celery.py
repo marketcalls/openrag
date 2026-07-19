@@ -9,6 +9,7 @@ from openrag.worker.celery_app import celery_app
 from openrag.worker.tasks import (
     IngestTask,
     build_ingest_chain,
+    build_legacy_ingest_chain,
     enqueue_ingest,
     parse_task,
     select_queue,
@@ -42,6 +43,21 @@ def test_ingest_chain_structure() -> None:
     assert all(task.args == ("doc-id-123", 7) for task in signature.tasks)
 
 
+def test_legacy_ingest_chain_structure() -> None:
+    signature = build_legacy_ingest_chain("doc-id-123", "interactive")
+
+    assert [task.task for task in signature.tasks] == [
+        "documents.parse",
+        "documents.chunk",
+        "documents.embed_upsert",
+    ]
+    assert all(
+        task.options.get("queue") == "interactive"
+        for task in signature.tasks
+    )
+    assert all(task.args == ("doc-id-123",) for task in signature.tasks)
+
+
 def test_revision_protocol_dispatch_is_fail_closed_until_cutover(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -54,7 +70,31 @@ def test_revision_protocol_dispatch_is_fail_closed_until_cutover(
         ),
     )
     with pytest.raises(RuntimeError, match="worker revision protocol v2"):
-        enqueue_ingest(UUID("12345678-1234-5678-1234-567812345678"), 10, 1)
+        enqueue_ingest(UUID("12345678-1234-5678-1234-567812345678"), 10, 2)
+
+
+def test_revision_one_dispatch_uses_legacy_envelope_before_cutover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    applied: list[bool] = []
+
+    class Signature:
+        def apply_async(self) -> None:
+            applied.append(True)
+
+    monkeypatch.setattr(
+        tasks,
+        "get_settings",
+        lambda: SimpleNamespace(
+            interactive_upload_mb=10,
+            ingest_revision_protocol_v2_enabled=False,
+        ),
+    )
+    monkeypatch.setattr(
+        tasks, "build_legacy_ingest_chain", lambda *_args: Signature()
+    )
+    enqueue_ingest(UUID("12345678-1234-5678-1234-567812345678"), 10, 1)
+    assert applied == [True]
 
 
 def test_revision_protocol_dispatch_is_enabled_after_cutover(

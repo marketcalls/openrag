@@ -126,20 +126,33 @@ def build_ingest_chain(
     )
 
 
+def build_legacy_ingest_chain(document_id: str, queue: str) -> Any:
+    """Build revision-1 envelopes consumable by old and new workers."""
+
+    return chain(
+        parse_task.si(document_id).set(queue=queue),
+        chunk_task.si(document_id).set(queue=queue),
+        embed_upsert_task.si(document_id).set(queue=queue),
+    )
+
+
 def enqueue_ingest(
     document_id: UUID,
     size_bytes: int,
     expected_revision: int,
 ) -> None:
-    if not get_settings().ingest_revision_protocol_v2_enabled:
+    queue = select_queue(size_bytes)
+    if get_settings().ingest_revision_protocol_v2_enabled:
+        workflow = build_ingest_chain(
+            str(document_id), queue, expected_revision
+        )
+    elif expected_revision == 1:
+        workflow = build_legacy_ingest_chain(str(document_id), queue)
+    else:
         raise RuntimeError(
             "worker revision protocol v2 is not enabled; drain legacy workers before cutover"
         )
-    build_ingest_chain(
-        str(document_id),
-        select_queue(size_bytes),
-        expected_revision,
-    ).apply_async()
+    workflow.apply_async()
 
 
 def enqueue_delete(document_id: UUID, actor_id: UUID) -> None:
