@@ -9,6 +9,7 @@ from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from openrag.api.middleware.request_body_limit import UploadBodyLimitMiddleware
 from openrag.api.routes.admin_secrets import router as admin_secrets_router
 from openrag.api.routes.auth import router as auth_router
 from openrag.api.routes.chats import router as chats_router
@@ -73,6 +74,13 @@ def create_app(
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         lifespan=lifespan,
+    )
+    app.add_middleware(
+        UploadBodyLimitMiddleware,
+        maximum_bytes=(
+            settings.max_upload_mb * 1024 * 1024
+            + settings.upload_multipart_overhead_kb * 1024
+        ),
     )
     app.state.session_factory = session_factory
     app.state.redis = redis_client

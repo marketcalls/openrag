@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     max_upload_mb: int = 100
     upload_quarantine_dir: str = "./data/quarantine"
     upload_stream_chunk_kb: int = Field(default=1024, ge=64, le=4096)
+    upload_multipart_overhead_kb: int = Field(default=1024, ge=64, le=8192)
     upload_archive_max_entries: int = Field(default=10_000, ge=1, le=100_000)
     upload_archive_max_uncompressed_mb: int = Field(default=500, ge=1, le=5000)
     upload_archive_max_ratio: int = Field(default=100, ge=1, le=1000)
