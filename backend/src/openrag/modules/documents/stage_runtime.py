@@ -66,7 +66,6 @@ from openrag.modules.embeddings.runtime import (
 )
 from openrag.modules.events.envelopes import DocumentVersionLifecycleV1
 from openrag.modules.events.outbox import add_registered_event
-from openrag.modules.retrieval.client import get_qdrant
 from openrag.modules.retrieval.embeddings import DenseEmbedder
 
 _logger = logging.getLogger(__name__)
@@ -671,7 +670,7 @@ async def run_durable_stage_once(
     engine = build_engine(resolved.database_url)
     session_factory = build_session_factory(engine)
     storage: ObjectStorage = build_storage(resolved)
-    qdrant: AsyncQdrantClient = get_qdrant()
+    qdrant = AsyncQdrantClient(url=resolved.qdrant_url)
 
     async def runtime(generation_id: UUID) -> EmbeddingRuntime:
         return await resolve_generation_runtime(

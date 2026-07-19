@@ -480,6 +480,9 @@ async def retry_stage(
                 )
                 if deployment is not None:
                     deployment.failed_versions += 1
+                    deployment.lease_owner = None
+                    deployment.lease_token = None
+                    deployment.lease_expires_at = None
                     deployment.status = "failed"
                     deployment.failure_code = "REINDEX_STAGE_FAILED"
         else:

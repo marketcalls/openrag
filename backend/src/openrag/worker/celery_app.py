@@ -57,6 +57,11 @@ def build_celery() -> Celery:
                 "schedule": 1.0,
                 "options": {"queue": "ingestion", "expires": 5},
             },
+            "scan-embedding-deployment": {
+                "task": "embeddings.scan_deployment",
+                "schedule": 1.0,
+                "options": {"queue": "ingestion", "expires": 5},
+            },
         },
         broker_connection_retry_on_startup=True,
     )
