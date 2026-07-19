@@ -66,7 +66,7 @@ async def test_same_org_non_member_is_denied(
         await retrieve(session, stranger, workspace_a.id, "anything")
 
 
-async def test_deleted_document_is_unretrievable(
+async def test_unmarked_governed_document_cannot_be_deleted_by_worker(
     session: AsyncSession,
     two_orgs: TwoOrgs,
 ) -> None:
@@ -79,10 +79,8 @@ async def test_deleted_document_is_unretrievable(
     await run_delete(document_a.id, context_a.user_id)
     after = await retrieve(session, context_a, workspace_a.id, "vault code 7431")
 
-    assert all(
-        chunk.document_id != document_a.id for chunk in after.chunks
-    )
-    assert all("7431" not in chunk.text for chunk in after.chunks)
+    assert any(chunk.document_id == document_a.id for chunk in after.chunks)
+    assert any("7431" in chunk.text for chunk in after.chunks)
 
 
 async def test_canary_unfiltered_query_sees_both_organizations(

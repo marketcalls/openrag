@@ -28,9 +28,9 @@ async def ingest_text(
         mime="text/plain",
         data=text.encode(),
     )
-    await run_parse(document.id)
-    await run_chunk(document.id)
-    await run_embed_upsert(document.id)
+    await run_parse(document.id, 1)
+    await run_chunk(document.id, 1)
+    await run_embed_upsert(document.id, 1)
     await session.refresh(document)
     assert document.status == "indexed"
     return document

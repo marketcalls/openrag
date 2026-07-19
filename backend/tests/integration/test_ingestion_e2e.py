@@ -55,9 +55,9 @@ async def test_docx_through_real_pipeline_then_hybrid_retrieval(
         data=fixture_docx(),
     )
 
-    await run_parse(document.id)
-    await run_chunk(document.id)
-    await run_embed_upsert(document.id)
+    await run_parse(document.id, 1)
+    await run_chunk(document.id, 1)
+    await run_embed_upsert(document.id, 1)
 
     await session.refresh(document)
     assert document.status == "indexed"
@@ -116,7 +116,7 @@ async def test_empty_and_unsupported_inputs_fail_cleanly(
     )
 
     with pytest.raises(IngestFailure, match="empty"):
-        await run_parse(empty.id)
+        await run_parse(empty.id, 1)
 
     await session.refresh(empty)
     assert empty.status == "failed"
@@ -131,7 +131,7 @@ async def test_empty_and_unsupported_inputs_fail_cleanly(
         data=b"\x00\x01",
     )
     with pytest.raises(IngestFailure):
-        await run_parse(unsupported.id)
+        await run_parse(unsupported.id, 1)
 
     await session.refresh(unsupported)
     assert unsupported.status == "failed"

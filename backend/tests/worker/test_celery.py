@@ -18,7 +18,7 @@ def test_queue_selection_by_size() -> None:
 
 
 def test_ingest_chain_structure() -> None:
-    signature = build_ingest_chain("doc-id-123", "interactive")
+    signature = build_ingest_chain("doc-id-123", "interactive", 7)
 
     assert [task.task for task in signature.tasks] == [
         "documents.parse",
@@ -29,4 +29,4 @@ def test_ingest_chain_structure() -> None:
         task.options.get("queue") == "interactive"
         for task in signature.tasks
     )
-    assert all(task.args == ("doc-id-123",) for task in signature.tasks)
+    assert all(task.args == ("doc-id-123", 7) for task in signature.tasks)

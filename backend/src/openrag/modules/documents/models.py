@@ -199,6 +199,16 @@ class DocumentVersion(UUIDPk, Base):
             "provenance_state IN ('none','legacy_pending','building','ready','failed')",
             name="ck_document_versions_provenance_state",
         ),
+        CheckConstraint(
+            "(source_delete_requested_at IS NULL "
+            "AND source_delete_requested_by IS NULL "
+            "AND source_deleted_at IS NULL) OR "
+            "(source_delete_requested_at IS NOT NULL "
+            "AND source_delete_requested_by IS NOT NULL "
+            "AND (source_deleted_at IS NULL "
+            "OR source_deleted_at >= source_delete_requested_at))",
+            name="ck_document_versions_source_deletion_markers",
+        ),
         ForeignKeyConstraint(
             ["org_id", "workspace_id", "document_id"],
             ["documents.org_id", "documents.workspace_id", "documents.id"],
@@ -229,6 +239,11 @@ class DocumentVersion(UUIDPk, Base):
             ["org_id", "obsolete_by"],
             ["users.org_id", "users.id"],
             name="fk_document_versions_org_obsolete_actor",
+        ),
+        ForeignKeyConstraint(
+            ["org_id", "source_delete_requested_by"],
+            ["users.org_id", "users.id"],
+            name="fk_document_versions_org_source_delete_requester",
         ),
     )
 
@@ -266,6 +281,9 @@ class DocumentVersion(UUIDPk, Base):
     superseded_at: Mapped[datetime | None] = mapped_column(default=None)
     decision_at: Mapped[datetime | None] = mapped_column(default=None)
     processing_error_code: Mapped[str | None] = mapped_column(String(100), default=None)
+    source_delete_requested_at: Mapped[datetime | None] = mapped_column(default=None)
+    source_delete_requested_by: Mapped[UUID | None] = mapped_column(default=None)
+    source_deleted_at: Mapped[datetime | None] = mapped_column(default=None)
     updated_at: Mapped[datetime] = mapped_column(default=naive_utc, onupdate=naive_utc)
 
 

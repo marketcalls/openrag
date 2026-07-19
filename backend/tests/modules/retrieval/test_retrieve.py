@@ -9,7 +9,11 @@ from openrag.core.errors import WorkspaceAccessDenied
 from openrag.modules.auth.models import User
 from openrag.modules.retrieval.client import COLLECTION, get_qdrant
 from openrag.modules.retrieval.embeddings import embed_sparse, get_dense_embedder
-from openrag.modules.retrieval.service import delete_document_points, retrieve
+from openrag.modules.retrieval.service import (
+    delete_document_points,
+    delete_document_version_points,
+    retrieve,
+)
 from openrag.modules.tenancy.authorization import AuthorizationSnapshot
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Organization, Workspace, WorkspaceMember
@@ -210,3 +214,75 @@ async def test_delete_document_points(
     )
 
     assert result.chunks == []
+
+
+async def test_delete_document_version_points_preserves_siblings_and_other_tenants(
+    session: AsyncSession,
+    qdrant_collection: None,
+) -> None:
+    context, workspace = await seed_workspace(session, "retrieval-version-delete")
+    other_context, other_workspace = await seed_workspace(
+        session, "retrieval-version-delete-other"
+    )
+    target_version_id = uuid4()
+    sibling_version_id = uuid4()
+    point_ids = {
+        "target": uuid4(),
+        "sibling": uuid4(),
+        "other_tenant": uuid4(),
+    }
+    texts = ["target", "sibling", "other tenant"]
+    dense_vectors = await get_dense_embedder().embed(texts)
+    sparse_vectors = await asyncio.to_thread(embed_sparse, texts)
+    payloads = (
+        {
+            "tenant_id": str(context.org_id),
+            "workspace_id": str(workspace.id),
+            "document_id": str(uuid4()),
+            "document_version_id": str(target_version_id),
+        },
+        {
+            "tenant_id": str(context.org_id),
+            "workspace_id": str(workspace.id),
+            "document_id": str(uuid4()),
+            "document_version_id": str(sibling_version_id),
+        },
+        {
+            "tenant_id": str(other_context.org_id),
+            "workspace_id": str(other_workspace.id),
+            "document_id": str(uuid4()),
+            "document_version_id": str(target_version_id),
+        },
+    )
+    await get_qdrant().upsert(
+        COLLECTION,
+        points=[
+            models.PointStruct(
+                id=str(point_id),
+                vector={"dense": dense, "sparse": sparse},
+                payload={**payload, "text": text, "page": 1, "chunk_index": 0},
+            )
+            for point_id, text, dense, sparse, payload in zip(
+                point_ids.values(),
+                texts,
+                dense_vectors,
+                sparse_vectors,
+                payloads,
+                strict=True,
+            )
+        ],
+        wait=True,
+    )
+
+    await delete_document_version_points(context.org_id, target_version_id)
+
+    remaining, _ = await get_qdrant().scroll(
+        COLLECTION,
+        limit=10,
+        with_payload=False,
+        with_vectors=False,
+    )
+    assert {str(point.id) for point in remaining} == {
+        str(point_ids["sibling"]),
+        str(point_ids["other_tenant"]),
+    }

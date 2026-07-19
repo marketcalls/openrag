@@ -34,6 +34,7 @@ def _tenant_filter(
     org_id: UUID,
     workspace_id: UUID | None = None,
     document_id: UUID | None = None,
+    document_version_id: UUID | None = None,
 ) -> models.Filter:
     must: list[models.Condition] = [
         models.FieldCondition(
@@ -53,6 +54,13 @@ def _tenant_filter(
             models.FieldCondition(
                 key="document_id",
                 match=models.MatchValue(value=str(document_id)),
+            )
+        )
+    if document_version_id is not None:
+        must.append(
+            models.FieldCondition(
+                key="document_version_id",
+                match=models.MatchValue(value=str(document_version_id)),
             )
         )
     return models.Filter(must=must)
@@ -161,6 +169,22 @@ async def delete_document_points(org_id: UUID, document_id: UUID) -> None:
         COLLECTION,
         points_selector=models.FilterSelector(
             filter=_tenant_filter(org_id=org_id, document_id=document_id)
+        ),
+        wait=True,
+    )
+
+
+async def delete_document_version_points(
+    org_id: UUID,
+    document_version_id: UUID,
+) -> None:
+    await get_qdrant().delete(
+        COLLECTION,
+        points_selector=models.FilterSelector(
+            filter=_tenant_filter(
+                org_id=org_id,
+                document_version_id=document_version_id,
+            )
         ),
         wait=True,
     )

@@ -1,7 +1,10 @@
 import runpy
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
+from threading import Event
+from time import monotonic, sleep
 from types import SimpleNamespace
 from typing import cast
 from uuid import UUID, uuid4
@@ -18,6 +21,7 @@ from openrag.core.config import get_settings
 PRE_RBAC_REVISION = "4f2e1c9a7b30"
 RBAC_REVISION = "6c4a2f8b9d10"
 AUTHORITY_REVISION = "9d2c7a4e1f60"
+DELETION_REVISION = "4b8e0f7a3c21"
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 EXPECTED_PERMISSIONS = {
@@ -108,6 +112,88 @@ def insert_user(
             "created_at": datetime(2026, 7, 19),
         },
     )
+
+
+def insert_nonlegacy_version(
+    connection: sa.Connection,
+    ids: SimpleNamespace,
+    *,
+    state: str,
+    provenance_state: str,
+    document_id: UUID | None = None,
+    version_id: UUID | None = None,
+) -> tuple[UUID, UUID]:
+    now = datetime(2026, 7, 19, 1)
+    document_id = document_id or uuid4()
+    version_id = version_id or uuid4()
+    connection.execute(
+        text(
+            "INSERT INTO documents "
+            "(id,org_id,workspace_id,name,created_by,updated_at,created_at) "
+            "VALUES (:document,:org,:workspace,'Versioned',:actor,:now,:now)"
+        ),
+        {
+            "document": document_id,
+            "org": ids.org_id,
+            "workspace": ids.workspace_id,
+            "actor": ids.user_id,
+            "now": now,
+        },
+    )
+    connection.execute(
+        text(
+            "INSERT INTO document_versions "
+            "(id,org_id,workspace_id,document_id,sequence,version_label,version_key,"
+            "content_hash,source_filename,source_mime,source_size_bytes,"
+            "source_storage_key,source_page_count,parser_profile_version,"
+            "ocr_profile_version,chunking_profile_version,embedding_profile_version,"
+            "index_profile_version,state,provenance_state,lifecycle_revision,"
+            "created_by,updated_at,created_at) VALUES "
+            "(:id,:org,:workspace,:document,1,'Rev 1','rev 1',:hash,'source.pdf',"
+            "'application/pdf',1,:key,:pages,'docling/v1','none/v1','semantic/v1',"
+            "'bge-m3/v1','hybrid/v1',:state,:provenance,1,:actor,:now,:now)"
+        ),
+        {
+            "id": version_id,
+            "org": ids.org_id,
+            "workspace": ids.workspace_id,
+            "document": document_id,
+            "hash": version_id.hex * 2,
+            "key": f"versions/{version_id}/source",
+            "pages": None if state in {"draft", "processing", "failed"} else 1,
+            "state": state,
+            "provenance": provenance_state,
+            "actor": ids.user_id,
+            "now": now,
+        },
+    )
+    return document_id, version_id
+
+
+def insert_document_block(
+    connection: sa.Connection,
+    ids: SimpleNamespace,
+    version_id: UUID,
+) -> UUID:
+    block_id = uuid4()
+    connection.execute(
+        text(
+            "INSERT INTO document_blocks "
+            "(id,org_id,document_version_id,parent_block_id,ordinal,text,page_number,"
+            "locator_kind,locator_label,block_type,section_path,source_coordinates,"
+            "extraction_method,ocr_profile_version,ocr_confidence,content_hash,created_at) "
+            "VALUES (:id,:org,:version,NULL,0,'evidence',1,'page','1','paragraph',"
+            "CAST('[\"Scope\"]' AS jsonb),NULL,'parser','none/v1',NULL,:hash,:now)"
+        ),
+        {
+            "id": block_id,
+            "org": ids.org_id,
+            "version": version_id,
+            "hash": block_id.hex * 2,
+            "now": datetime(2026, 7, 19, 1),
+        },
+    )
+    return block_id
 
 
 def test_capability_rbac_upgrade_locks_legacy_tables_during_backfill(
@@ -597,8 +683,587 @@ def authority_db(
 def test_authority_revision_is_the_single_head(authority_db: tuple[Config, Engine, object]) -> None:
     config, _engine, _ids = authority_db
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [AUTHORITY_REVISION]
+    assert script.get_heads() == [DELETION_REVISION]
     assert script.get_revision(AUTHORITY_REVISION).down_revision == RBAC_REVISION
+    assert script.get_revision(DELETION_REVISION).down_revision == AUTHORITY_REVISION
+
+
+def test_deletion_upgrade_adds_bounded_restartable_markers_and_closes_processing_delete(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, DELETION_REVISION)
+    columns = {
+        column["name"]: column
+        for column in inspect(engine).get_columns("document_versions")
+    }
+    assert set(columns) >= {
+        "source_delete_requested_at",
+        "source_delete_requested_by",
+        "source_deleted_at",
+    }
+    assert all(
+        columns[name]["nullable"]
+        for name in (
+            "source_delete_requested_at",
+            "source_delete_requested_by",
+            "source_deleted_at",
+        )
+    )
+
+    processing_id = ids.document_ids["processing"]
+    failed_id = ids.document_ids["failed"]
+    with engine.begin() as connection:
+        with pytest.raises(sa.exc.DBAPIError, match="deletion request"):
+            with connection.begin_nested():
+                connection.execute(
+                    text("DELETE FROM document_versions WHERE id=:id"),
+                    {"id": processing_id},
+                )
+
+    with engine.begin() as connection:
+        with pytest.raises(sa.exc.DBAPIError, match="deletion request"):
+            with connection.begin_nested():
+                connection.execute(
+                    text("DELETE FROM document_versions WHERE id=:id"),
+                    {"id": failed_id},
+                )
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE document_versions SET "
+                "source_delete_requested_at=:now, source_delete_requested_by=:actor "
+                "WHERE id=:id"
+            ),
+            {
+                "id": failed_id,
+                "actor": ids.user_id,
+                "now": datetime(2026, 7, 19, 1),
+            },
+        )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE document_versions SET source_deleted_at=:now WHERE id=:id"
+            ),
+            {"id": failed_id, "now": datetime(2026, 7, 19, 2)},
+        )
+        connection.execute(
+            text("DELETE FROM document_versions WHERE id=:id"), {"id": failed_id}
+        )
+        assert connection.execute(
+            text("SELECT count(*) FROM document_versions WHERE id=:id"),
+            {"id": failed_id},
+        ).scalar_one() == 0
+
+
+def test_deletion_upgrade_backfills_durable_legacy_approval_evidence(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    indexed_id = ids.document_ids["indexed"]
+    with engine.connect() as connection:
+        before = connection.execute(
+            text(
+                "SELECT approved_by, approved_at, decision_at "
+                "FROM document_versions WHERE id=:id"
+            ),
+            {"id": indexed_id},
+        ).one()
+    assert before == (None, None, None)
+
+    command.upgrade(config, DELETION_REVISION)
+
+    with engine.connect() as connection:
+        approved_by, approved_at, decision_at, created_by = connection.execute(
+            text(
+                "SELECT approved_by, approved_at, decision_at, created_by "
+                "FROM document_versions WHERE id=:id"
+            ),
+            {"id": indexed_id},
+        ).one()
+    assert approved_by == created_by == ids.user_id
+    assert approved_at is not None
+    assert decision_at == approved_at
+
+
+def test_deletion_upgrade_requires_ordered_complete_marker_and_preserves_decision_history(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, DELETION_REVISION)
+    with engine.begin() as connection:
+        document_id, rejected_id = insert_nonlegacy_version(
+            connection,
+            ids,
+            state="rejected",
+            provenance_state="ready",
+        )
+    with engine.begin() as connection:
+        with pytest.raises(sa.exc.DBAPIError):
+            with connection.begin_nested():
+                connection.execute(
+                    text(
+                        "UPDATE document_versions SET source_deleted_at=:now WHERE id=:id"
+                    ),
+                    {"id": rejected_id, "now": datetime(2026, 7, 19, 1)},
+                )
+
+    # A restrictive governance FK and append-only trigger retain a rejected
+    # metadata tombstone even after external bytes/provenance are purged.
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO document_version_decision_records "
+                "(id,org_id,workspace_id,document_id,document_version_id,"
+                "lifecycle_revision,decision,actor_id,reason,created_at) "
+                "VALUES (:row_id,:org,:workspace,:document,:version,1,'rejected',"
+                ":actor,'governed',:now)"
+            ),
+            {
+                "row_id": uuid4(),
+                "org": ids.org_id,
+                "workspace": ids.workspace_id,
+                "document": document_id,
+                "version": rejected_id,
+                "actor": ids.user_id,
+                "now": datetime(2026, 7, 19, 1),
+            },
+        )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE document_versions SET source_delete_requested_at=:now, "
+                "source_delete_requested_by=:actor WHERE id=:id"
+            ),
+            {
+                "id": rejected_id,
+                "actor": ids.user_id,
+                "now": datetime(2026, 7, 19, 1),
+            },
+        )
+    with engine.begin() as connection:
+        with pytest.raises(sa.exc.DBAPIError):
+            with connection.begin_nested():
+                connection.execute(
+                    text("DELETE FROM document_versions WHERE id=:id"),
+                    {"id": rejected_id},
+                )
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE document_versions SET source_deleted_at=:now WHERE id=:id"
+            ),
+            {"id": rejected_id, "now": datetime(2026, 7, 19, 2)},
+        )
+        assert connection.execute(
+            text(
+                "SELECT state, source_deleted_at FROM document_versions WHERE id=:id"
+            ),
+            {"id": rejected_id},
+        ).one()[0] == "rejected"
+        with pytest.raises(sa.exc.DBAPIError):
+            with connection.begin_nested():
+                connection.execute(
+                    text("DELETE FROM document_versions WHERE id=:id"),
+                    {"id": rejected_id},
+                )
+
+
+def test_deletion_upgrade_admits_only_explicit_never_approved_states(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, DELETION_REVISION)
+    now = datetime(2026, 7, 19, 1)
+
+    def insert_version(connection: sa.Connection, state: str) -> UUID:
+        document_id = uuid4()
+        version_id = uuid4()
+        connection.execute(
+            text(
+                "INSERT INTO documents "
+                "(id,org_id,workspace_id,name,created_by,updated_at,created_at) "
+                "VALUES (:document,:org,:workspace,:name,:actor,:now,:now)"
+            ),
+            {
+                "document": document_id,
+                "org": ids.org_id,
+                "workspace": ids.workspace_id,
+                "name": f"{state} document",
+                "actor": ids.user_id,
+                "now": now,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO document_versions "
+                "(id,org_id,workspace_id,document_id,sequence,version_label,version_key,"
+                "content_hash,source_filename,source_mime,source_size_bytes,"
+                "source_storage_key,source_page_count,parser_profile_version,"
+                "ocr_profile_version,chunking_profile_version,embedding_profile_version,"
+                "index_profile_version,state,provenance_state,lifecycle_revision,"
+                "created_by,updated_at,created_at) VALUES "
+                "(:id,:org,:workspace,:document,1,'Rev 1','rev 1',:hash,'source.pdf',"
+                "'application/pdf',1,:key,:pages,'docling/v1','none/v1','semantic/v1',"
+                "'bge-m3/v1','hybrid/v1',:state,:provenance,1,:actor,:now,:now)"
+            ),
+            {
+                "id": version_id,
+                "org": ids.org_id,
+                "workspace": ids.workspace_id,
+                "document": document_id,
+                "hash": version_id.hex.ljust(64, "0"),
+                "key": f"versions/{version_id}/source",
+                "pages": None if state in {"draft", "processing", "failed"} else 1,
+                "state": state,
+                "provenance": (
+                    "failed" if state == "failed" else "none"
+                    if state in {"draft", "processing"}
+                    else "ready"
+                ),
+                "actor": ids.user_id,
+                "now": now,
+            },
+        )
+        return version_id
+
+    with engine.begin() as connection:
+        version_ids = {
+            state: insert_version(connection, state)
+            for state in (
+                "draft",
+                "processing",
+                "review",
+                "approved",
+                "rejected",
+                "superseded",
+                "obsolete",
+                "failed",
+            )
+        }
+
+    for state in ("draft", "rejected", "failed"):
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE document_versions SET source_delete_requested_at=:now, "
+                    "source_delete_requested_by=:actor WHERE id=:id"
+                ),
+                {"now": now, "actor": ids.user_id, "id": version_ids[state]},
+            )
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE document_versions SET source_deleted_at=:deleted_at "
+                    "WHERE id=:id"
+                ),
+                {
+                    "deleted_at": datetime(2026, 7, 19, 2),
+                    "id": version_ids[state],
+                },
+            )
+            connection.execute(
+                text("DELETE FROM document_versions WHERE id=:id"),
+                {"id": version_ids[state]},
+            )
+
+    for state in ("processing", "review", "approved", "superseded", "obsolete"):
+        with engine.begin() as connection:
+            with pytest.raises(sa.exc.DBAPIError):
+                with connection.begin_nested():
+                    connection.execute(
+                        text(
+                            "UPDATE document_versions SET source_delete_requested_at=:now, "
+                            "source_delete_requested_by=:actor WHERE id=:id"
+                        ),
+                        {"now": now, "actor": ids.user_id, "id": version_ids[state]},
+                    )
+            assert connection.execute(
+                text("SELECT source_delete_requested_at FROM document_versions WHERE id=:id"),
+                {"id": version_ids[state]},
+            ).scalar_one() is None
+
+
+def test_deletion_marker_actor_pair_and_time_order_are_database_enforced(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, DELETION_REVISION)
+    failed_id = ids.document_ids["failed"]
+    now = datetime(2026, 7, 19, 1)
+    invalid_updates = (
+        ("source_delete_requested_at=:now", {"now": now}),
+        ("source_delete_requested_by=:actor", {"actor": ids.user_id}),
+        (
+            "source_delete_requested_at=:now, source_delete_requested_by=:actor, "
+            "source_deleted_at=:before",
+            {"now": now, "actor": ids.user_id, "before": datetime(2026, 7, 19)},
+        ),
+    )
+    for assignment, params in invalid_updates:
+        with engine.begin() as connection:
+            with pytest.raises(sa.exc.DBAPIError):
+                with connection.begin_nested():
+                    connection.execute(
+                        text(
+                            f"UPDATE document_versions SET {assignment} WHERE id=:id"  # noqa: S608 - closed test matrix
+                        ),
+                        {**params, "id": failed_id},
+                    )
+
+
+def test_evidence_artifact_mutation_requires_exact_processing_building_pair(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, DELETION_REVISION)
+    with engine.begin() as connection:
+        _document_id, allowed_id = insert_nonlegacy_version(
+            connection,
+            ids,
+            state="processing",
+            provenance_state="building",
+        )
+        denied_ids = [
+            insert_nonlegacy_version(
+                connection,
+                ids,
+                state=state,
+                provenance_state=provenance,
+            )[1]
+            for state, provenance in (
+                ("processing", "failed"),
+                ("draft", "building"),
+            )
+        ]
+
+    with engine.begin() as connection:
+        insert_document_block(connection, ids, allowed_id)
+
+    for version_id in denied_ids:
+        with engine.begin() as connection:
+            with pytest.raises(
+                sa.exc.DBAPIError,
+                match="processing/building owner",
+            ):
+                with connection.begin_nested():
+                    insert_document_block(connection, ids, version_id)
+
+
+def test_decision_insert_and_deletion_marker_serialize_in_both_race_orders(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, DELETION_REVISION)
+    with engine.begin() as connection:
+        first_document, marker_first_version = insert_nonlegacy_version(
+            connection,
+            ids,
+            state="failed",
+            provenance_state="failed",
+        )
+        second_document, decision_first_version = insert_nonlegacy_version(
+            connection,
+            ids,
+            state="failed",
+            provenance_state="failed",
+        )
+
+    def insert_approved_decision(
+        version_id: UUID,
+        document_id: UUID,
+        started: Event,
+    ) -> None:
+        with engine.begin() as connection:
+            started.set()
+            connection.execute(
+                text(
+                    "INSERT INTO document_version_decision_records "
+                    "(id,org_id,workspace_id,document_id,document_version_id,"
+                    "lifecycle_revision,decision,actor_id,reason,created_at) VALUES "
+                    "(:id,:org,:workspace,:document,:version,1,'approved',:actor,NULL,:now)"
+                ),
+                {
+                    "id": uuid4(),
+                    "org": ids.org_id,
+                    "workspace": ids.workspace_id,
+                    "document": document_id,
+                    "version": version_id,
+                    "actor": ids.user_id,
+                    "now": datetime(2026, 7, 19, 1),
+                },
+            )
+
+    def request_marker(version_id: UUID, started: Event) -> None:
+        with engine.begin() as connection:
+            started.set()
+            connection.execute(
+                text(
+                    "UPDATE document_versions SET source_delete_requested_at=:now, "
+                    "source_delete_requested_by=:actor WHERE id=:id"
+                ),
+                {
+                    "id": version_id,
+                    "actor": ids.user_id,
+                    "now": datetime(2026, 7, 19, 1),
+                },
+            )
+
+    marker_connection = engine.connect()
+    marker_transaction = marker_connection.begin()
+    try:
+        marker_connection.execute(
+            text(
+                "UPDATE document_versions SET source_delete_requested_at=:now, "
+                "source_delete_requested_by=:actor WHERE id=:id"
+            ),
+            {
+                "id": marker_first_version,
+                "actor": ids.user_id,
+                "now": datetime(2026, 7, 19, 1),
+            },
+        )
+        started = Event()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                insert_approved_decision,
+                marker_first_version,
+                first_document,
+                started,
+            )
+            assert started.wait(timeout=5)
+            marker_transaction.commit()
+            with pytest.raises(sa.exc.DBAPIError, match="after deletion request"):
+                future.result(timeout=10)
+    finally:
+        if marker_transaction.is_active:
+            marker_transaction.rollback()
+        marker_connection.close()
+
+    decision_connection = engine.connect()
+    decision_transaction = decision_connection.begin()
+    try:
+        started = Event()
+        insert_approved_decision_sql = text(
+            "INSERT INTO document_version_decision_records "
+            "(id,org_id,workspace_id,document_id,document_version_id,"
+            "lifecycle_revision,decision,actor_id,reason,created_at) VALUES "
+            "(:id,:org,:workspace,:document,:version,1,'approved',:actor,NULL,:now)"
+        )
+        decision_connection.execute(
+            insert_approved_decision_sql,
+            {
+                "id": uuid4(),
+                "org": ids.org_id,
+                "workspace": ids.workspace_id,
+                "document": second_document,
+                "version": decision_first_version,
+                "actor": ids.user_id,
+                "now": datetime(2026, 7, 19, 1),
+            },
+        )
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                request_marker,
+                decision_first_version,
+                started,
+            )
+            assert started.wait(timeout=5)
+            decision_transaction.commit()
+            with pytest.raises(sa.exc.DBAPIError, match="governed history"):
+                future.result(timeout=10)
+    finally:
+        if decision_transaction.is_active:
+            decision_transaction.rollback()
+        decision_connection.close()
+
+    with engine.connect() as connection:
+        marker_first = connection.execute(
+            text(
+                "SELECT source_delete_requested_at FROM document_versions WHERE id=:id"
+            ),
+            {"id": marker_first_version},
+        ).scalar_one()
+        decision_first = connection.execute(
+            text(
+                "SELECT source_delete_requested_at FROM document_versions WHERE id=:id"
+            ),
+            {"id": decision_first_version},
+        ).scalar_one()
+        assert marker_first is not None
+        assert decision_first is None
+
+
+def test_deletion_downgrade_fences_inflight_marker_before_preflight(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, DELETION_REVISION)
+    failed_id = ids.document_ids["failed"]
+    marker_connection = engine.connect()
+    marker_transaction = marker_connection.begin()
+    try:
+        marker_connection.execute(
+            text(
+                "UPDATE document_versions SET source_delete_requested_at=:now, "
+                "source_delete_requested_by=:actor WHERE id=:id"
+            ),
+            {
+                "id": failed_id,
+                "actor": ids.user_id,
+                "now": datetime(2026, 7, 19, 1),
+            },
+        )
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                command.downgrade,
+                config,
+                AUTHORITY_REVISION,
+            )
+            deadline = monotonic() + 5
+            pending_lock = False
+            while monotonic() < deadline and not pending_lock:
+                with engine.connect() as observer:
+                    pending_lock = bool(
+                        observer.execute(
+                            text(
+                                "SELECT EXISTS (SELECT 1 FROM pg_locks locks "
+                                "JOIN pg_class tables ON tables.oid=locks.relation "
+                                "WHERE tables.relname='document_versions' "
+                                "AND locks.mode='AccessExclusiveLock' "
+                                "AND NOT locks.granted)"
+                            )
+                        ).scalar_one()
+                    )
+                if not pending_lock:
+                    sleep(0.01)
+            marker_transaction.commit()
+            assert pending_lock, "downgrade never waited for the marker writer"
+            with pytest.raises(RuntimeError, match="deletion history exists"):
+                future.result(timeout=10)
+    finally:
+        if marker_transaction.is_active:
+            marker_transaction.rollback()
+        marker_connection.close()
+
+    assert {
+        "source_delete_requested_at",
+        "source_delete_requested_by",
+        "source_deleted_at",
+    } <= {
+        column["name"] for column in inspect(engine).get_columns("document_versions")
+    }
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT source_delete_requested_at FROM document_versions WHERE id=:id"
+            ),
+            {"id": failed_id},
+        ).scalar_one() is not None
 
 
 def test_authority_upgrade_locks_all_compatibility_tables(
@@ -1005,7 +1670,7 @@ def test_authority_upgrade_aborts_before_mutation_for_orphan_citation(
 
     with pytest.raises(RuntimeError, match="orphan or invalid legacy citation"):
         command.upgrade(config, AUTHORITY_REVISION)
-    assert ScriptDirectory.from_config(config).get_current_head() == AUTHORITY_REVISION
+    assert ScriptDirectory.from_config(config).get_current_head() == DELETION_REVISION
     with engine.connect() as connection:
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
