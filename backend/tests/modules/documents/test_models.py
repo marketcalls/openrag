@@ -1,4 +1,5 @@
 import hashlib
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
@@ -6,6 +7,7 @@ from sqlalchemy import insert, inspect, select
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from openrag.core.db import naive_utc
 from openrag.modules.auth.models import User
 from openrag.modules.documents.models import (
     Document,
@@ -186,6 +188,117 @@ async def seed_document_version(
     session.add(version)
     await session.flush()
     return document, version
+
+
+def test_ingest_stage_attempt_has_fenced_resumable_shape() -> None:
+    columns = set(inspect(IngestStageAttempt).columns.keys())
+
+    assert {"lease_token", "available_at", "output_digest"} <= columns
+
+
+async def test_ingest_stage_attempt_defaults_to_claimable_unleased_state(
+    session: AsyncSession,
+) -> None:
+    organization, workspace, user = await seed_scope(session)
+    _, version = await seed_document_version(
+        session,
+        organization=organization,
+        workspace=workspace,
+        user=user,
+        document_hash="stage-defaults",
+        version_hash="stage-defaults-version",
+        state="processing",
+    )
+    attempt = IngestStageAttempt(
+        org_id=organization.id,
+        workspace_id=workspace.id,
+        document_version_id=version.id,
+        pipeline_kind="ingestion",
+        stage="parse",
+        checkpoint=f"parse:ingestion:1:{uuid4().hex}",
+    )
+    session.add(attempt)
+    await session.commit()
+
+    assert attempt.state == "queued"
+    assert attempt.available_at is not None
+    assert attempt.lease_owner is None
+    assert attempt.lease_token is None
+    assert attempt.lease_expires_at is None
+    assert attempt.output_digest is None
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"pipeline_kind": "unknown"},
+        {"stage": "unknown"},
+        {"state": "running"},
+        {"state": "queued", "lease_owner": "worker"},
+        {"attempts": 9},
+        {"output_digest": "not-a-sha256"},
+    ],
+)
+async def test_ingest_stage_attempt_rejects_unfenced_or_unbounded_rows(
+    session: AsyncSession,
+    values: dict[str, object],
+) -> None:
+    organization, workspace, user = await seed_scope(session)
+    _, version = await seed_document_version(
+        session,
+        organization=organization,
+        workspace=workspace,
+        user=user,
+        document_hash="stage-invalid",
+        version_hash="stage-invalid-version",
+        state="processing",
+    )
+    defaults: dict[str, object] = {
+        "org_id": organization.id,
+        "workspace_id": workspace.id,
+        "document_version_id": version.id,
+        "pipeline_kind": "ingestion",
+        "stage": "parse",
+        "state": "queued",
+        "checkpoint": f"parse:ingestion:1:{uuid4().hex}",
+        "attempts": 0,
+    }
+    session.add(IngestStageAttempt(**(defaults | values)))  # type: ignore[arg-type]
+
+    with pytest.raises(IntegrityError):
+        await session.commit()
+
+
+async def test_running_ingest_stage_requires_complete_fenced_lease(
+    session: AsyncSession,
+) -> None:
+    organization, workspace, user = await seed_scope(session)
+    _, version = await seed_document_version(
+        session,
+        organization=organization,
+        workspace=workspace,
+        user=user,
+        document_hash="stage-running",
+        version_hash="stage-running-version",
+        state="processing",
+    )
+    attempt = IngestStageAttempt(
+        org_id=organization.id,
+        workspace_id=workspace.id,
+        document_version_id=version.id,
+        pipeline_kind="ingestion",
+        stage="parse",
+        state="running",
+        checkpoint=f"parse:ingestion:1:{uuid4().hex}",
+        lease_owner="worker-a",
+        lease_token=uuid4(),
+        lease_expires_at=naive_utc() + timedelta(seconds=30),
+        attempts=1,
+    )
+    session.add(attempt)
+    await session.commit()
+
+    assert attempt.lease_token is not None
 
 
 async def test_version_content_identity_is_unique_per_logical_document(

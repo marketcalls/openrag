@@ -148,6 +148,7 @@ async def queue_first_ingest_stage(
             state="queued",
             checkpoint=checkpoint,
             attempts=0,
+            available_at=now,
         )
         .on_conflict_do_nothing(
             constraint="uq_ingest_stage_attempts_checkpoint"

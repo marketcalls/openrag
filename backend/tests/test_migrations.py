@@ -24,6 +24,7 @@ RBAC_REVISION = "6c4a2f8b9d10"
 AUTHORITY_REVISION = "9d2c7a4e1f60"
 DELETION_REVISION = "4b8e0f7a3c21"
 OUTBOX_REVISION = "a4f87e62b913"
+STAGE_REVISION = "d8a4f2c91e37"
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -758,14 +759,15 @@ def authority_db(
         get_settings.cache_clear()
 
 
-def test_outbox_revision_is_the_single_head(
+def test_durable_stage_revision_is_the_single_head(
     authority_db: tuple[Config, Engine, object],
 ) -> None:
     config, _engine, _ids = authority_db
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [OUTBOX_REVISION]
+    assert script.get_heads() == [STAGE_REVISION]
     assert script.get_revision(AUTHORITY_REVISION).down_revision == RBAC_REVISION
     assert script.get_revision(DELETION_REVISION).down_revision == AUTHORITY_REVISION
+    assert script.get_revision(STAGE_REVISION).down_revision == OUTBOX_REVISION
 
 
 def test_deletion_upgrade_adds_bounded_restartable_markers_and_closes_processing_delete(
@@ -1772,7 +1774,7 @@ def test_authority_upgrade_aborts_before_mutation_for_orphan_citation(
 
     with pytest.raises(RuntimeError, match="orphan or invalid legacy citation"):
         command.upgrade(config, AUTHORITY_REVISION)
-    assert ScriptDirectory.from_config(config).get_current_head() == OUTBOX_REVISION
+    assert ScriptDirectory.from_config(config).get_current_head() == STAGE_REVISION
     with engine.connect() as connection:
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
@@ -2023,17 +2025,88 @@ def test_outbox_hardening_normalizes_errors_and_leases_then_downgrades_safely(
     assert "SENTINEL" not in repr(row)
 
     command.downgrade(config, DELETION_REVISION)
-
     columns = {column["name"] for column in inspect(engine).get_columns("outbox_events")}
     assert "last_error" in columns
     assert "last_error_code" not in columns
     assert "dispatch_after" not in columns
     with engine.begin() as connection:
-        downgraded = connection.scalar(
+        downgraded_error = connection.scalar(
             text("SELECT last_error FROM outbox_events WHERE id=:id"), {"id": row_id}
         )
-    assert downgraded == "legacy_dispatch_failure"
+    assert downgraded_error == "legacy_dispatch_failure"
 
+
+def test_durable_stage_upgrade_fences_existing_queued_rows_and_downgrades(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, OUTBOX_REVISION)
+    attempt_id = uuid4()
+    version_id = ids.document_ids["indexed"]
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO ingest_stage_attempts "
+                "(id,org_id,workspace_id,document_version_id,pipeline_kind,stage,state,"
+                "checkpoint,attempts,created_at) VALUES "
+                "(:id,:org,:workspace,:version,'rebuild','parse','queued',"
+                ":checkpoint,0,:created_at)"
+            ),
+            {
+                "id": attempt_id,
+                "org": ids.org_id,
+                "workspace": ids.workspace_id,
+                "version": version_id,
+                "checkpoint": f"parse:rebuild:1:{uuid4().hex}",
+                "created_at": datetime(2026, 7, 20),
+            },
+        )
+
+    command.upgrade(config, STAGE_REVISION)
+
+    inspector = inspect(engine)
+    columns = {
+        column["name"] for column in inspector.get_columns("ingest_stage_attempts")
+    }
+    assert {"lease_token", "available_at", "output_digest"} <= columns
+    assert "ix_ingest_stage_attempts_claimable" in {
+        index["name"] for index in inspector.get_indexes("ingest_stage_attempts")
+    }
+    with engine.begin() as connection:
+        row = (
+            connection.execute(
+                text(
+                    "SELECT state,attempts,available_at,lease_owner,lease_token,"
+                    "lease_expires_at,output_digest FROM ingest_stage_attempts WHERE id=:id"
+                ),
+                {"id": attempt_id},
+            )
+            .mappings()
+            .one()
+        )
+    assert row["state"] == "queued"
+    assert row["attempts"] == 0
+    assert row["available_at"] is not None
+    assert row["lease_owner"] is None
+    assert row["lease_token"] is None
+    assert row["lease_expires_at"] is None
+    assert row["output_digest"] is None
+
+    with engine.begin() as connection, pytest.raises(sa.exc.DBAPIError):
+        connection.execute(
+            text(
+                "UPDATE ingest_stage_attempts SET state='running' WHERE id=:id"
+            ),
+            {"id": attempt_id},
+        )
+
+    command.downgrade(config, OUTBOX_REVISION)
+    downgraded = {
+        column["name"] for column in inspect(engine).get_columns("ingest_stage_attempts")
+    }
+    assert "lease_token" not in downgraded
+    assert "available_at" not in downgraded
+    assert "output_digest" not in downgraded
 
 def test_outbox_hardening_constraints_reject_untruthful_terminal_state(
     pre_outbox_database: tuple[Config, Engine],

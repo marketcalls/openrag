@@ -770,7 +770,43 @@ class IngestStageAttempt(UUIDPk, Base):
             "checkpoint",
             name="uq_ingest_stage_attempts_checkpoint",
         ),
-        CheckConstraint("attempts >= 0", name="ck_ingest_stage_attempts_attempts"),
+        CheckConstraint(
+            "pipeline_kind IN ('ingestion','rebuild')",
+            name="ck_ingest_stage_attempts_pipeline_kind",
+        ),
+        CheckConstraint(
+            "stage IN ('parse','chunk','embed','authority_upsert')",
+            name="ck_ingest_stage_attempts_stage",
+        ),
+        CheckConstraint(
+            "state IN ('queued','running','succeeded','failed','cancelled')",
+            name="ck_ingest_stage_attempts_state",
+        ),
+        CheckConstraint(
+            "attempts BETWEEN 0 AND 8",
+            name="ck_ingest_stage_attempts_attempts_bounded",
+        ),
+        CheckConstraint(
+            "(state = 'running' AND lease_owner IS NOT NULL "
+            "AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL) OR "
+            "(state <> 'running' AND lease_owner IS NULL "
+            "AND lease_token IS NULL AND lease_expires_at IS NULL)",
+            name="ck_ingest_stage_attempts_lease_fenced",
+        ),
+        CheckConstraint(
+            "output_digest IS NULL OR output_digest ~ '^[0-9a-f]{64}$'",
+            name="ck_ingest_stage_attempts_output_digest",
+        ),
+        CheckConstraint(
+            "error_code IS NULL OR char_length(error_code) BETWEEN 1 AND 100",
+            name="ck_ingest_stage_attempts_error_code_bounded",
+        ),
+        Index(
+            "ix_ingest_stage_attempts_claimable",
+            "available_at",
+            "created_at",
+            postgresql_where=text("state IN ('queued','running')"),
+        ),
         ForeignKeyConstraint(
             ["org_id", "workspace_id", "document_version_id"],
             [
@@ -791,9 +827,15 @@ class IngestStageAttempt(UUIDPk, Base):
     state: Mapped[str] = mapped_column(default="queued", index=True)
     checkpoint: Mapped[str] = mapped_column(String(128))
     lease_owner: Mapped[str | None] = mapped_column(String(200), default=None)
+    lease_token: Mapped[UUID | None] = mapped_column(default=None, index=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(default=None)
     attempts: Mapped[int] = mapped_column(default=0)
     error_code: Mapped[str | None] = mapped_column(String(100), default=None)
+    available_at: Mapped[datetime] = mapped_column(
+        default=naive_utc,
+        server_default=text("timezone('UTC', now())"),
+    )
+    output_digest: Mapped[str | None] = mapped_column(String(64), default=None)
     started_at: Mapped[datetime | None] = mapped_column(default=None)
     finished_at: Mapped[datetime | None] = mapped_column(default=None)
 
