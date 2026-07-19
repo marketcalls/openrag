@@ -608,6 +608,13 @@ git commit -m "feat: govern document lifecycle transitions"
 
 ### Task 4: Install event infrastructure without changing ingestion behavior
 
+> **Normative execution addendum:** Task 4 MUST be executed as the independently
+> reviewed Task 4A and Task 4B slices in
+> `2026-07-19-task4-event-transport-hardening.md`. That addendum resolves the
+> mixed-version, fsync durability, Inbox atomicity, legacy migration, exact API,
+> deployment-topology, and event-trust gaps found in preflight. Where the text
+> below is less specific, the addendum governs.
+
 **Files:**
 - Create: `backend/migrations/versions/<revision>_harden_transactional_outbox.py`
 - Modify: `backend/src/openrag/modules/events/models.py`
