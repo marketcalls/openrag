@@ -24,6 +24,9 @@ _MAX_CANDIDATES = 100
 _MAX_ATTEMPTS = 8
 
 AuthorityReady = Callable[[UUID], Awaitable[bool]]
+StageResultApplier = Callable[
+    [AsyncSession, IngestStageAttempt, "StageCheckpoint"], Awaitable[None]
+]
 CompleteResult = Literal["advanced", "completed", "lease_lost"]
 RetryResult = Literal["queued", "failed", "lease_lost"]
 
@@ -323,8 +326,9 @@ async def complete_stage(
     claim: StageClaim,
     *,
     output_digest: str,
+    apply_result: StageResultApplier | None = None,
 ) -> CompleteResult:
-    """Fence completion and atomically create the next queued stage."""
+    """Fence and atomically persist stage output plus the next queued stage."""
 
     if _DIGEST.fullmatch(output_digest) is None:
         raise ValueError("stage_output_digest_invalid")
@@ -343,6 +347,8 @@ async def complete_stage(
         if row is None or row.lease_expires_at is None or row.lease_expires_at <= now:
             return "lease_lost"
         checkpoint = parse_stage_checkpoint(row.checkpoint)
+        if apply_result is not None:
+            await apply_result(session, row, checkpoint)
         row.state = "succeeded"
         row.output_digest = output_digest
         row.error_code = None

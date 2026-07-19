@@ -2,12 +2,14 @@ import asyncio
 from datetime import timedelta
 from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from openrag.core.db import naive_utc
 from openrag.modules.documents.models import DocumentVersion, IngestStageAttempt
 from openrag.modules.documents.stages import (
+    StageCheckpoint,
     claim_stage,
     complete_stage,
     heartbeat_stage,
@@ -140,10 +142,22 @@ async def test_expired_reclaim_fences_old_completion_and_advances_once(
     assert new_claim.lease_token != old_claim.lease_token
     assert new_claim.attempt_number == 2
 
-    stale = await complete_stage(factory, old_claim, output_digest="a" * 64)
+    stale_callback_called = False
+
+    async def stale_callback(*_args: object) -> None:
+        nonlocal stale_callback_called
+        stale_callback_called = True
+
+    stale = await complete_stage(
+        factory,
+        old_claim,
+        output_digest="a" * 64,
+        apply_result=stale_callback,
+    )
     completed = await complete_stage(factory, new_claim, output_digest="b" * 64)
 
     assert stale == "lease_lost"
+    assert stale_callback_called is False
     assert completed == "advanced"
     async with factory() as verify:
         attempts = list(
@@ -161,6 +175,80 @@ async def test_expired_reclaim_fences_old_completion_and_advances_once(
     assert attempts[1].checkpoint == f"chunk:ingestion:1:{generation_id.hex}"
 
     assert await heartbeat_stage(factory, old_claim, lease_seconds=60) is False
+
+
+async def test_completion_applies_result_and_next_stage_in_one_transaction(
+    engine: AsyncEngine,
+    session: AsyncSession,
+) -> None:
+    attempt, generation_id = await _seed_attempt(session)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    claim = await claim_stage(factory, owner="worker-a", lease_seconds=30)
+    assert claim is not None
+
+    async def apply_result(
+        transaction: AsyncSession,
+        row: IngestStageAttempt,
+        checkpoint: StageCheckpoint,
+    ) -> None:
+        version = await transaction.get(DocumentVersion, row.document_version_id)
+        assert version is not None
+        version.source_page_count = 2
+        assert checkpoint.authority_generation_id == generation_id
+
+    result = await complete_stage(
+        factory,
+        claim,
+        output_digest="d" * 64,
+        apply_result=apply_result,
+    )
+
+    assert result == "advanced"
+    async with factory() as verify:
+        stored = await verify.get(IngestStageAttempt, attempt.id)
+        version = await verify.get(DocumentVersion, attempt.document_version_id)
+        attempts = list((await verify.scalars(select(IngestStageAttempt))).all())
+    assert stored is not None and stored.state == "succeeded"
+    assert version is not None and version.source_page_count == 2
+    assert len(attempts) == 2
+    assert {row.stage for row in attempts} == {"parse", "chunk"}
+
+
+async def test_completion_rolls_back_result_and_stage_advance_together(
+    engine: AsyncEngine,
+    session: AsyncSession,
+) -> None:
+    attempt, _ = await _seed_attempt(session)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    claim = await claim_stage(factory, owner="worker-a", lease_seconds=30)
+    assert claim is not None
+
+    async def reject_result(
+        transaction: AsyncSession,
+        row: IngestStageAttempt,
+        _checkpoint: StageCheckpoint,
+    ) -> None:
+        version = await transaction.get(DocumentVersion, row.document_version_id)
+        assert version is not None
+        version.source_page_count = 3
+        raise RuntimeError("result rejected")
+
+    with pytest.raises(RuntimeError, match="result rejected"):
+        await complete_stage(
+            factory,
+            claim,
+            output_digest="e" * 64,
+            apply_result=reject_result,
+        )
+
+    async with factory() as verify:
+        stored = await verify.get(IngestStageAttempt, attempt.id)
+        version = await verify.get(DocumentVersion, attempt.document_version_id)
+        count = await verify.scalar(select(func.count()).select_from(IngestStageAttempt))
+    assert stored is not None and stored.state == "running"
+    assert stored.output_digest is None
+    assert version is not None and version.source_page_count is None
+    assert count == 1
 
 
 async def test_authority_stage_is_deferred_until_exact_storage_is_ready(
