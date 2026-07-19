@@ -36,6 +36,7 @@ class Workspace(UUIDPk, Base):
     embedding_model: Mapped[str] = mapped_column(default="bge-m3")
     min_score: Mapped[float] = mapped_column(default=0.35)
     default_model_id: Mapped[UUID | None] = mapped_column(default=None)
+    document_authority_enabled: Mapped[bool] = mapped_column(default=False)
 
 
 class Role(UUIDPk, Base):

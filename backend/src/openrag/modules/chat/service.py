@@ -31,10 +31,19 @@ from openrag.modules.chat.prompting import (
 )
 from openrag.modules.chat.schemas import ChatTreeOut, CitationOut, MessageNode
 from openrag.modules.documents import service as documents_service
+from openrag.modules.documents.lifecycle import (
+    LEGACY_CITATION_CONTENT_HASH,
+    LEGACY_CITATION_SECTION,
+    LEGACY_CITATION_VERIFICATION_STATE,
+    LEGACY_VERSION_KEY,
+    LEGACY_VERSION_LABEL,
+)
+from openrag.modules.documents.models import Document, DocumentVersion
 from openrag.modules.models.models import Model
 from openrag.modules.retrieval.service import RetrievalResult
 from openrag.modules.tenancy import service as tenancy_service
 from openrag.modules.tenancy.context import TenantContext
+from openrag.modules.tenancy.models import Workspace
 
 ROLE_USER = "user"
 ROLE_ASSISTANT = "assistant"
@@ -234,6 +243,33 @@ async def add_message(
     prompt_tokens: int | None = None,
     completion_tokens: int | None = None,
 ) -> Message:
+    message = await _prepare_message(
+        session,
+        context,
+        chat,
+        role=role,
+        content=content,
+        parent=parent,
+        model_id=model_id,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
+    await session.commit()
+    return message
+
+
+async def _prepare_message(
+    session: AsyncSession,
+    context: TenantContext,
+    chat: Chat,
+    *,
+    role: str,
+    content: str,
+    parent: Message | None,
+    model_id: UUID | None = None,
+    prompt_tokens: int | None = None,
+    completion_tokens: int | None = None,
+) -> Message:
     if chat.org_id != context.org_id or chat.user_id != context.user_id:
         raise NotFoundError("chat not found")
     if role not in _ROLES:
@@ -258,6 +294,8 @@ async def add_message(
         )
     ).scalar_one()
     message = Message(
+        org_id=context.org_id,
+        workspace_id=chat.workspace_id,
         chat_id=chat.id,
         parent_message_id=parent.id if parent is not None else None,
         sibling_index=sibling_count,
@@ -269,7 +307,6 @@ async def add_message(
     )
     session.add(message)
     chat.updated_at = naive_utc()
-    await session.commit()
     return message
 
 
@@ -326,32 +363,104 @@ async def _persist_assistant(
     usage: LLMUsage | None,
     citations: list[CitationRef],
 ) -> Message:
-    message = await add_message(
+    await tenancy_service.get_workspace(
         session,
         context,
-        chat,
-        role=ROLE_ASSISTANT,
-        content=content,
-        parent=parent,
-        model_id=model_id,
-        prompt_tokens=usage.prompt_tokens if usage is not None else None,
-        completion_tokens=(
-            usage.completion_tokens if usage is not None else None
-        ),
+        chat.workspace_id,
+        "chat.use",
     )
-    for citation in citations:
-        session.add(
-            Citation(
-                message_id=message.id,
-                document_id=UUID(citation.document_id),
-                chunk_ref=citation.chunk_ref,
-                page=citation.page,
-                score=citation.score,
-                marker=citation.marker,
+    workspace = (
+        await session.execute(
+            select(Workspace)
+            .where(
+                Workspace.org_id == context.org_id,
+                Workspace.id == chat.workspace_id,
             )
+            .with_for_update()
         )
-    await session.commit()
-    return message
+    ).scalar_one()
+    if citations and workspace.document_authority_enabled:
+        raise ConflictError("legacy persistence is disabled for authority-enabled workspace")
+
+    legacy_sources: list[tuple[CitationRef, Document, DocumentVersion]] = []
+    for citation in citations:
+        document_id = UUID(citation.document_id)
+        row = (
+            await session.execute(
+                select(Document, DocumentVersion)
+                .join(
+                    DocumentVersion,
+                    DocumentVersion.document_id == Document.id,
+                )
+                .where(
+                    Document.org_id == context.org_id,
+                    Document.workspace_id == chat.workspace_id,
+                    Document.id == document_id,
+                    DocumentVersion.org_id == context.org_id,
+                    DocumentVersion.workspace_id == chat.workspace_id,
+                    DocumentVersion.sequence == 1,
+                    DocumentVersion.version_label == LEGACY_VERSION_LABEL,
+                    DocumentVersion.version_key == LEGACY_VERSION_KEY,
+                )
+            )
+        ).one_or_none()
+        if row is None:
+            raise ConflictError("legacy source is not migration-ready")
+        document, version = row
+        legacy_sources.append((citation, document, version))
+
+    try:
+        persisted_content = content if citations else NO_ANSWER_TEXT
+        message = await _prepare_message(
+            session,
+            context,
+            chat,
+            role=ROLE_ASSISTANT,
+            content=persisted_content,
+            parent=parent,
+            model_id=model_id,
+            prompt_tokens=usage.prompt_tokens if usage is not None else None,
+            completion_tokens=(
+                usage.completion_tokens if usage is not None else None
+            ),
+        )
+        if citations:
+            message.answer_status = None
+            message.refusal_reason = None
+        else:
+            message.answer_status = "refused"
+            message.refusal_reason = "below_threshold"
+        await session.flush()
+
+        for citation, document, version in legacy_sources:
+            session.add(
+                Citation(
+                    org_id=context.org_id,
+                    workspace_id=chat.workspace_id,
+                    message_id=message.id,
+                    document_id=document.id,
+                    document_version_id=version.id,
+                    evidence_span_id=None,
+                    chunk_ref=citation.chunk_ref,
+                    page=citation.page,
+                    score=citation.score,
+                    marker=citation.marker,
+                    document_name=document.name,
+                    version_label=LEGACY_VERSION_LABEL,
+                    section_label=LEGACY_CITATION_SECTION,
+                    section_path=[LEGACY_CITATION_SECTION],
+                    locator_kind="page",
+                    locator_label=str(citation.page),
+                    content_hash=LEGACY_CITATION_CONTENT_HASH,
+                    claim_ids=[],
+                    verification_state=LEGACY_CITATION_VERIFICATION_STATE,
+                )
+            )
+        await session.commit()
+        return message
+    except Exception:
+        await session.rollback()
+        raise
 
 
 async def stream_reply(

@@ -8,7 +8,16 @@ from openrag.core.config import get_settings
 from openrag.core.errors import ConflictError, NotFoundError
 from openrag.core.storage import build_storage
 from openrag.modules.audit.service import record_audit
-from openrag.modules.documents.models import Document
+from openrag.modules.documents.lifecycle import (
+    LEGACY_CHUNKING_PROFILE_VERSION,
+    LEGACY_EMBEDDING_PROFILE_VERSION,
+    LEGACY_INDEX_PROFILE_VERSION,
+    LEGACY_OCR_PROFILE_VERSION,
+    LEGACY_PARSER_PROFILE_VERSION,
+    LEGACY_VERSION_KEY,
+    LEGACY_VERSION_LABEL,
+)
+from openrag.modules.documents.models import Document, DocumentVersion
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.service import get_workspace_checked
 
@@ -57,6 +66,31 @@ async def create_from_upload(
     await session.flush()
     document.storage_key = (
         f"{context.org_id}/{workspace.id}/{document.id}/{filename}"
+    )
+    session.add(
+        DocumentVersion(
+            id=document.id,
+            org_id=context.org_id,
+            workspace_id=workspace.id,
+            document_id=document.id,
+            sequence=1,
+            version_label=LEGACY_VERSION_LABEL,
+            version_key=LEGACY_VERSION_KEY,
+            content_hash=content_hash,
+            source_filename=filename,
+            source_mime=mime,
+            source_size_bytes=len(data),
+            source_storage_key=document.storage_key,
+            source_page_count=None,
+            parser_profile_version=LEGACY_PARSER_PROFILE_VERSION,
+            ocr_profile_version=LEGACY_OCR_PROFILE_VERSION,
+            chunking_profile_version=LEGACY_CHUNKING_PROFILE_VERSION,
+            embedding_profile_version=LEGACY_EMBEDDING_PROFILE_VERSION,
+            index_profile_version=LEGACY_INDEX_PROFILE_VERSION,
+            state="processing",
+            provenance_state="none",
+            created_by=context.user_id,
+        )
     )
     storage = build_storage(get_settings())
     await storage.ensure_bucket()

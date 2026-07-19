@@ -13,7 +13,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from openrag.core.db import Base, UUIDPk, naive_utc
-from openrag.modules.documents.lifecycle import validate_section_path
+from openrag.modules.documents.lifecycle import (
+    LEGACY_CITATION_CONTENT_HASH,
+    LEGACY_CITATION_VERIFICATION_STATE,
+    validate_section_path,
+)
 
 
 class Chat(UUIDPk, Base):
@@ -73,10 +77,8 @@ class Message(UUIDPk, Base):
         ),
     )
 
-    # Nullable through the Task 1 expand model so existing rows remain writable;
-    # Task 2 backfills and makes both columns non-null at the database boundary.
-    org_id: Mapped[UUID | None] = mapped_column(default=None, index=True)
-    workspace_id: Mapped[UUID | None] = mapped_column(default=None, index=True)
+    org_id: Mapped[UUID] = mapped_column(index=True)
+    workspace_id: Mapped[UUID] = mapped_column(index=True)
     chat_id: Mapped[UUID] = mapped_column(
         ForeignKey("chats.id", ondelete="CASCADE"),
         index=True,
@@ -114,7 +116,7 @@ class Citation(UUIDPk, Base):
         ),
         CheckConstraint(
             "claim_ids IS NULL OR (jsonb_typeof(claim_ids) = 'array' "
-            "AND jsonb_array_length(claim_ids) BETWEEN 1 AND 64 "
+            "AND jsonb_array_length(claim_ids) BETWEEN 0 AND 64 "
             "AND pg_column_size(claim_ids) <= 8192 "
             "AND jsonb_array_length(jsonb_path_query_array(claim_ids, "
             "'$[*] ? (@.type() == \"string\" && @ like_regex \"^.{1,64}$\" flag \"s\")')) "
@@ -122,8 +124,38 @@ class Citation(UUIDPk, Base):
             name="ck_citations_claim_ids",
         ),
         CheckConstraint(
-            "content_hash IS NULL OR content_hash ~ '^[0-9a-f]{64}$'",
+            "content_hash IS NULL OR content_hash = 'legacy-unverified' "
+            "OR content_hash ~ '^[0-9a-f]{64}$'",
             name="ck_citations_content_hash_sha256",
+        ),
+        CheckConstraint(
+            "(verification_state = 'legacy_unverified' "
+            "AND document_version_id IS NOT NULL AND evidence_span_id IS NULL "
+            "AND document_name IS NOT NULL AND version_label = 'Legacy 1' "
+            "AND section_label = 'Legacy import' "
+            "AND section_path = '[\"Legacy import\"]'::jsonb "
+            "AND locator_kind IS NOT NULL AND locator_label IS NOT NULL "
+            "AND content_hash = 'legacy-unverified' AND claim_ids = '[]'::jsonb "
+            "AND claim_id IS NULL AND dense_score IS NULL AND sparse_score IS NULL "
+            "AND fused_score IS NULL AND rerank_score IS NULL "
+            "AND prompt_contract_version IS NULL AND grounding_policy_id IS NULL "
+            "AND grounding_policy_version IS NULL AND verifier_model_id IS NULL "
+            "AND provider_preset_version IS NULL AND binding_revision IS NULL "
+            "AND credential_fingerprint IS NULL) OR "
+            "(verification_state IS NOT NULL "
+            "AND verification_state <> 'legacy_unverified' "
+            "AND document_version_id IS NOT NULL AND evidence_span_id IS NOT NULL "
+            "AND document_name IS NOT NULL AND version_label IS NOT NULL "
+            "AND section_label IS NOT NULL AND section_path IS NOT NULL "
+            "AND locator_kind IS NOT NULL AND locator_label IS NOT NULL "
+            "AND content_hash ~ '^[0-9a-f]{64}$' "
+            "AND jsonb_array_length(claim_ids) BETWEEN 1 AND 64 "
+            "AND prompt_contract_version IS NOT NULL "
+            "AND grounding_policy_id IS NOT NULL "
+            "AND grounding_policy_version > 0 AND verifier_model_id IS NOT NULL "
+            "AND provider_preset_version IS NOT NULL AND binding_revision IS NOT NULL "
+            "AND credential_fingerprint IS NOT NULL)",
+            name="ck_citations_legacy_or_authority_snapshot",
         ),
         ForeignKeyConstraint(
             ["org_id", "workspace_id", "message_id"],
@@ -137,8 +169,13 @@ class Citation(UUIDPk, Base):
             name="fk_citations_org_workspace_document",
         ),
         ForeignKeyConstraint(
-            ["org_id", "document_id", "document_version_id"],
-            ["document_versions.org_id", "document_versions.document_id", "document_versions.id"],
+            ["org_id", "document_id", "document_version_id", "version_label"],
+            [
+                "document_versions.org_id",
+                "document_versions.document_id",
+                "document_versions.id",
+                "document_versions.version_label",
+            ],
             name="fk_citations_org_document_version",
         ),
         ForeignKeyConstraint(
@@ -152,15 +189,14 @@ class Citation(UUIDPk, Base):
         ),
     )
 
-    # Authority fields stay nullable until Task 2 backfills legacy citation rows.
-    org_id: Mapped[UUID | None] = mapped_column(default=None, index=True)
-    workspace_id: Mapped[UUID | None] = mapped_column(default=None, index=True)
+    org_id: Mapped[UUID] = mapped_column(index=True)
+    workspace_id: Mapped[UUID] = mapped_column(index=True)
     message_id: Mapped[UUID] = mapped_column(
         ForeignKey("messages.id", ondelete="CASCADE"),
         index=True,
     )
     document_id: Mapped[UUID]
-    document_version_id: Mapped[UUID | None] = mapped_column(default=None, index=True)
+    document_version_id: Mapped[UUID] = mapped_column(index=True)
     evidence_span_id: Mapped[UUID | None] = mapped_column(default=None, index=True)
     chunk_ref: Mapped[str]
     page: Mapped[int]
@@ -202,10 +238,30 @@ class Citation(UUIDPk, Base):
     ) -> list[str] | None:
         if value is None:
             return None
-        if not value or len(value) > 64:
-            raise ValueError("claim IDs must contain between 1 and 64 elements")
+        if len(value) > 64:
+            raise ValueError("claim IDs must contain at most 64 elements")
         if any(not isinstance(claim_id, str) for claim_id in value):
             raise ValueError("claim IDs must be strings")
         if any(not 1 <= len(claim_id) <= 64 for claim_id in value):
             raise ValueError("claim IDs must contain between 1 and 64 characters")
+        if not value and self.verification_state not in (
+            None,
+            LEGACY_CITATION_VERIFICATION_STATE,
+        ):
+            raise ValueError("authority citations require at least one claim ID")
+        if value and self.verification_state == LEGACY_CITATION_VERIFICATION_STATE:
+            raise ValueError("legacy citations must not contain claim IDs")
         return list(value)
+
+    @validates("verification_state")
+    def validate_verification_state(self, _key: str, value: str | None) -> str | None:
+        claim_ids = self.claim_ids
+        if value == LEGACY_CITATION_VERIFICATION_STATE and claim_ids not in (None, []):
+            raise ValueError("legacy citations must not contain claim IDs")
+        if value not in (None, LEGACY_CITATION_VERIFICATION_STATE) and claim_ids == []:
+            raise ValueError("authority citations require at least one claim ID")
+        if value == LEGACY_CITATION_VERIFICATION_STATE:
+            content_hash = self.content_hash
+            if content_hash not in (None, LEGACY_CITATION_CONTENT_HASH):
+                raise ValueError("legacy citations require the legacy content sentinel")
+        return value

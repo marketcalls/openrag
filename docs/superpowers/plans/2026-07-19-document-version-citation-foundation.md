@@ -29,7 +29,13 @@
 
 This is an expand/rebuild/cutover release, not an in-place flag day:
 
-1. Apply the expand migration while the existing application continues serving.
+1. Treat Task 2 as a coordinated schema/runtime compatibility boundary. Drain
+   pre-Task-2 chat writers (or remove them from the load balancer), apply the
+   expand migration, deploy the scope-aware atomic legacy writer, and only then
+   resume chat writes. Reads and legacy retrieval may continue throughout, but
+   no writer that omits message scope or citation snapshots may run against the
+   contracted schema. Do not describe the migration by itself as compatible
+   with the old writer.
 2. Create a new physical `openrag_authority_v1_<generation>` Qdrant collection and `openrag_authority_active_v1` alias. The existing `openrag_chunks` collection is legacy and read-only after this deployment.
 3. Provision the physical authority collection, dense/sparse vectors, and every exact payload index before any authority-upsert stage can be claimed.
 4. Deploy compatibility workers and a restart-safe paginated scanner that rebuild PostgreSQL page-local provenance and authority-collection points for every legacy indexed version.
@@ -250,15 +256,26 @@ git add backend/src/openrag/modules/documents/lifecycle.py \
 git commit -m "feat: model tenant safe document authority"
 ```
 
-### Task 2: Add the expand/backfill migration and database invariants
+### Task 2: Add the expand/backfill migration, compatibility writer, and database invariants
 
 **Files:**
 - Create: `backend/migrations/versions/9d2c7a4e1f60_document_authority_and_citations.py`
+- Modify: `backend/src/openrag/modules/chat/schemas.py`
+- Modify: `backend/src/openrag/modules/chat/service.py`
 - Modify: `backend/tests/test_migrations.py`
+- Modify: `backend/tests/modules/chat/test_tree_service.py`
+- Modify: `backend/tests/api/test_chat_history.py`
+- Create: `backend/tests/integration/test_document_authority_migration_boundary.py`
 
 **Interfaces:**
 - Migration revision `9d2c7a4e1f60`; `down_revision = "6c4a2f8b9d10"`.
 - Expands legacy tables without requiring MinIO, Qdrant, Redis, or a model provider.
+- Produces a post-upgrade compatibility writer that always supplies message
+  tenant scope and atomically persists an assistant plus any exact
+  `legacy_unverified` display snapshots while document authority is disabled.
+- Task 2 is a coordinated migration/runtime boundary, not a migration-only
+  deploy. Pre-Task-2 chat writers must be drained before the contracted
+  non-null scope and citation checks become reachable.
 
 - [ ] **Step 1: Write migration-head, backfill, trigger, and downgrade-preflight RED tests**
 
@@ -287,9 +304,72 @@ def test_upgrade_marks_legacy_index_for_rebuild_without_enabling_cutover(authori
 
 Also test: orphan citation abort; JSONB section-path checks; cross-version parent/member/citation failure; `document_versions UNIQUE(org_id,id)`; every cross-organization owner/creator/decision actor rejected; readiness generation tenant/signature fields; version identity update trigger; two approved rows rejected; and downgrade refusal when any workspace is enabled, document has multiple versions, verified citation/grounded message exists, provenance is non-legacy, readiness generation exists, or related outbox/inbox event exists.
 
-Exercise the complete deferred answer/citation trigger matrix in this migration task: assistant `Message INSERT` as grounded/conflict succeeds only when at least one valid citation exists by transaction end; `Message UPDATE` into or out of grounded/refused state revalidates the final state; `Citation INSERT` rejects user, legacy, or refused parents and tenant/version/span mismatch; `Citation UPDATE` rejects immutable snapshot mutation or moving a citation; direct `Citation DELETE` of the last citation from a surviving grounded/conflict message fails at constraint time; deleting the parent message or chat may cascade all citations because no grounded parent survives at constraint time. Add transaction-level tests for every branch here rather than deferring database-trigger coverage to a later service task.
+Use four pre-upgrade document fixtures (`indexed`, `failed`, `queued`, and
+`processing`) and assert the exact sequence-1 mapping after upgrade. For every
+fixture, assert `version_label='Legacy 1'`, `version_key='legacy 1'`, and that
+the legacy filename, MIME type, byte size, canonical content hash, and storage
+key were copied into the version-owned source fields. Assert an available
+positive page count is copied exactly and an unavailable page count remains
+null; do not fabricate a page count. Assert all five unknown legacy processing
+profile versions equal the bounded compatibility sentinels
+`legacy/parser-v1`, `legacy/ocr-unknown-v1`, `legacy/chunking-v1`,
+`legacy/embedding-v1`, and `legacy/index-v1`. Then null every compatibility source mirror on
+the indexed logical `Document` and prove a Task-6-style rebuild-source lookup
+still returns the object identity exclusively from `DocumentVersion`.
 
-Run: `cd backend && uv run pytest tests/test_migrations.py -k authority -q`
+Exercise the complete deferred answer/citation trigger matrix in this migration
+task. An authority citation may attach only to an assistant parent with
+`answer_status IN ('grounded','cited_conflict')`, and such a parent succeeds only
+when at least one valid authority citation exists by transaction end. A
+`legacy_unverified` citation is a mutually exclusive transition branch and is
+accepted only when all of these facts hold simultaneously:
+
+```text
+workspace.document_authority_enabled = false
+parent role = assistant
+parent answer_status IS NULL
+parent refusal_reason IS NULL
+org_id/workspace_id/message_id/document_id/document_version_id are populated and
+  resolve to that same tenant, parent, logical document, and version
+referenced version sequence = 1
+referenced version_label = "Legacy 1"
+referenced version_key = "legacy 1"
+verification_state = "legacy_unverified"
+section_path = ["Legacy import"]
+section_label = "Legacy import"
+content_hash = "legacy-unverified"
+claim_ids = []
+claim_id IS NULL
+evidence_span_id IS NULL
+document_name, version_label, page, locator_kind, and locator_label form a
+  complete bounded display snapshot; the snapshot version is "Legacy 1" and
+  the positive page/locator reproduce the old citation
+grounding policy/version, verifier model, prompt contract, provider preset,
+  binding revision, credential fingerprint, and authority component scores are
+  all null
+```
+
+Parameterize PostgreSQL tests that change each fact independently. Reject a
+legacy citation on a user parent, a refused parent, a grounded/cited-conflict
+authority parent, any other version, a partial display snapshot, a mismatched
+tenant/document/version, or any insert after authority activation. Existing
+legacy rows survive activation but remain immutable and display-only. They
+never satisfy grounded/cited-conflict citation cardinality, never become
+evidence, and are excluded from every retrieval, claim-verification, and memory
+seed path. Prove that updating a historical assistant from null status to
+grounded/cited-conflict while it has only legacy citations fails.
+
+Also test `Message UPDATE` into or out of grounded/refused state revalidates the
+final state; authority `Citation INSERT` rejects user, null-status legacy, or
+refused parents and tenant/version/span mismatch; `Citation UPDATE` rejects
+immutable snapshot mutation or moving a citation; direct `Citation DELETE` of
+the last authority citation from a surviving grounded/conflict message fails at
+constraint time; deleting the parent message or chat may cascade all citations
+because no grounded parent survives at constraint time. Add transaction-level
+tests for every branch here rather than deferring database-trigger coverage to
+a later service task.
+
+Run: `cd backend && uv run pytest tests/test_migrations.py -k authority -q && uv run pytest tests/integration/test_document_authority_migration_boundary.py tests/modules/chat/test_tree_service.py tests/api/test_chat_history.py -q`
 
 Expected: FAIL because the migration does not exist.
 
@@ -305,11 +385,37 @@ indexed -> state approved + provenance legacy_pending
 failed -> state failed + provenance none
 queued/processing -> state processing + provenance none
 version_label "Legacy 1", version_key "legacy 1", sequence 1
+copy legacy filename, MIME, size, canonical content hash, storage key, and
+  available positive page count into version-owned source fields
+legacy parser/OCR/chunking/embedding/index profile versions ->
+  "legacy/parser-v1", "legacy/ocr-unknown-v1", "legacy/chunking-v1",
+  "legacy/embedding-v1", "legacy/index-v1"
 legacy citation -> verification_state legacy_unverified, section ["Legacy import"],
-  exact old page, null evidence_span_id, content_hash "legacy-unverified", empty claim_ids
+  section label "Legacy import", exact old positive page/locator, null
+  evidence_span_id, content_hash "legacy-unverified", empty claim_ids, complete
+  document/version/section/page display snapshot
 legacy assistant message -> answer_status null (historical), not falsely grounded
 workspace.document_authority_enabled -> false
 ```
+
+The version provenance constraint has exactly two mutually exclusive shapes.
+New authority versions require complete source identity, a positive page count,
+and all five explicit processing profiles (`none/v1` is the native non-OCR
+sentinel). The bounded legacy shape still requires source filename, MIME, size,
+canonical content hash, storage key, and all five exact `legacy/...` profile
+sentinels above, but permits a null page count only for sequence 1 with
+`Legacy 1` / `legacy 1` and exactly one of:
+
+```text
+(state=approved,   provenance_state=legacy_pending)
+(state=failed,     provenance_state=none)
+(state=processing, provenance_state=none)
+```
+
+Never create a legacy version without rebuildable source identity. Do not use
+`Legacy import` as version identity; that string belongs only to the legacy
+citation display section. Use only the declared bounded legacy profile
+sentinels and do not invent page counts during backfill.
 
 Retain old document source columns and `ingest_jobs.document_id` as nullable compatibility mirrors. Drop the obsolete workspace-wide content-hash unique constraint; version-level uniqueness replaces it.
 
@@ -324,26 +430,59 @@ Create named PostgreSQL functions/triggers that:
 - reject updates to version org/document/sequence/label/key/source filename/MIME/size/hash/storage key/revision/effective/expiry fields;
 - reject updates to citation snapshots;
 - validate JSONB section/claim arrays by type, element count/length, and `pg_column_size`;
-- on `Message INSERT OR UPDATE`, require user messages to have null answer/refusal state, refused messages to have a refusal reason and zero citations, and grounded/conflict assistant messages to have at least one valid citation at transaction end;
-- on `Citation INSERT OR UPDATE`, require a real span/hash/name/version/section/page, reject attachment to user/legacy/refused messages, reject any org/workspace/document/version/span mismatch, and reject mutation or re-parenting of an existing immutable snapshot;
+- on `Message INSERT OR UPDATE`, require user messages to have null answer/refusal state, refused messages to have a refusal reason and zero citations, and grounded/conflict assistant messages to have at least one authority citation at transaction end; explicitly exclude `legacy_unverified` rows from this count;
+- on authority `Citation INSERT OR UPDATE`, require a real span, canonical SHA-256, nonempty claims, and complete name/version/section/page snapshot; reject attachment to user/null-status/refused messages, reject any org/workspace/document/version/span mismatch, and reject mutation or re-parenting of an existing immutable snapshot;
+- on legacy `Citation INSERT`, allow exactly the disabled-workspace, null-status assistant, exact `Legacy 1`, `Legacy import`, sentinel-hash, empty-claims, null-span, complete-display shape above; reject this branch after activation and reject every hybrid of legacy and authority fields;
 - on `Citation DELETE`, defer the parent-state check to transaction end: deleting the last citation while the grounded/conflict message survives fails, while a database cascade caused by deleting the parent message/chat passes because the checked parent no longer exists;
 - verify current eligibility at citation insert and recheck final message/citation cardinality after every affected insert/update/delete path.
 
 Source/provenance rebuild uses delete/reinsert only while a version is processing/building; triggers reject provenance mutation after `provenance_state='ready'`.
 
-- [ ] **Step 4: Implement fail-closed downgrade**
+- [ ] **Step 4: Make the post-upgrade legacy chat writer atomic and scope-aware**
+
+`add_message()` always copies `chat.org_id` and `chat.workspace_id` into the new
+message. Refactor assistant creation around an internal uncommitted message
+builder: public standalone message creation may commit normally, but
+`_persist_assistant()` must lock the workspace first, create/flush the assistant,
+resolve each citation's same-workspace exact `Legacy 1` version and authoritative
+display fields, insert the complete `legacy_unverified` snapshots, and commit
+the assistant plus citations once. A failed citation or an activation racing the
+write rolls back both the assistant and all citations; there is no intermediate
+assistant-only commit.
+
+While the locked workspace flag is false, history serializes legacy citations
+as unverified display sources with document name, `Legacy 1`, `Legacy import`,
+and the exact positive page/locator. It never exposes the sentinel hash or
+internal object key. When the flag is true, this compatibility writer rejects
+legacy citation persistence rather than silently downgrading an authority
+answer. Task 12 later replaces authority-answer persistence; Task 2 does not
+pretend that a legacy citation is grounded evidence.
+
+Add a migration-boundary integration test that upgrades a legacy database,
+calls the real message/assistant persistence path while authority is disabled,
+and proves message scope, exact snapshot values, unverified history display,
+and one-transaction rollback under forced citation failure. Activate the
+workspace and prove the same legacy insert fails with no partial assistant.
+Also prove a parent with only a legacy citation cannot be changed to grounded or
+cited-conflict and no retrieval/memory/authority-evidence selector consumes the
+legacy row.
+
+- [ ] **Step 5: Implement fail-closed downgrade**
 
 Before any downgrade mutation, abort if authority is enabled, multiple versions exist, any new verified citation or grounded/conflict message exists, any non-legacy provenance/span exists, or any `document.version.%` outbox/inbox record exists. This event preflight prevents dropping durable work that may already be in Redis/DLQ. When compatible, copy the sole version back into legacy columns and remove new objects in reverse dependency order.
 
-Run: `cd backend && uv run pytest tests/test_migrations.py -k authority -q && uv run alembic current --check-heads && uv run alembic check`
+Run: `cd backend && uv run pytest tests/test_migrations.py -k authority -q && uv run pytest tests/integration/test_document_authority_migration_boundary.py tests/modules/chat/test_tree_service.py tests/api/test_chat_history.py -q && uv run alembic current --check-heads && uv run alembic check`
 
 Expected: PASS; Alembic reports `9d2c7a4e1f60 (head)` and no model drift.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add backend/migrations/versions/9d2c7a4e1f60_document_authority_and_citations.py \
-  backend/tests/test_migrations.py
+  backend/src/openrag/modules/chat/schemas.py backend/src/openrag/modules/chat/service.py \
+  backend/tests/test_migrations.py backend/tests/modules/chat/test_tree_service.py \
+  backend/tests/api/test_chat_history.py \
+  backend/tests/integration/test_document_authority_migration_boundary.py
 git commit -m "feat: migrate authoritative document history"
 ```
 
@@ -1206,7 +1345,17 @@ Each of the 15 tasks is an independent commit/reviewer gate. The implementer wri
 ## Line-level self-review record
 
 - Task 1 names `document_versions UNIQUE(org_id,id)`, every parent unique/composite FK, and tenant actor FKs; same-version, citation-tenant, and cross-org actor RED tests are explicit.
-- Task 2 is migration-only, preserves `down_revision="6c4a2f8b9d10"`, tests a single Alembic head, adds bounded JSONB checks, source/citation immutability, the complete Message INSERT/UPDATE plus Citation INSERT/UPDATE/DELETE trigger matrix, direct-last-delete failure, parent cascade allowance, and event-aware downgrade refusal.
+- Task 2 is a coordinated migration/runtime compatibility boundary, preserves
+  `down_revision="6c4a2f8b9d10"`, tests a single Alembic head, copies complete
+  rebuild source identity into exact sequence-1 `Legacy 1` versions without
+fabricating page counts while assigning the declared bounded legacy profile
+sentinels, and deploys scope-aware atomic
+  legacy chat writes before traffic resumes. Its trigger matrix isolates exact
+  disabled-workspace `legacy_unverified` display rows from authority citations,
+  excludes them from grounding/retrieval/memory, rejects new legacy rows after
+  activation, and retains bounded JSONB checks, immutable snapshots,
+  direct-last-authority-citation delete failure, parent cascade allowance, and
+  event-aware downgrade refusal.
 - Task 4 installs and tests generic dispatcher/envelope/typed-stream infrastructure plus governance APIs while preserving direct ingestion; its regression proves one direct job and zero ingestion/rebuild commands, command-stream entries, or queued stages.
 - Tasks 5–7 separate pure provenance, pre-provisioned durable replayable stage work, and event projection. Task 6 adds the start consumer and runnable executor before atomically changing create/retry to emit commands and removing direct enqueue; its integration proves HTTP → Outbox → Redis → Inbox → queued/claimed/executed stages → review. It also gates authority-upsert claims on exact storage/index readiness and supplies restart-safe paginated legacy scanning through CLI and beat.
 - Task 7 only projects lifecycle state into the already provisioned physical collection; it neither creates schema nor performs cutover.

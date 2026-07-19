@@ -219,6 +219,41 @@ async def test_no_answer_path_is_honest(
     assert len(events[1][1]["sources"]) == 2
 
 
+async def test_uncited_llm_output_is_not_persisted_as_durable_history(
+    chat_client: httpx.AsyncClient,
+    chat_env: dict[str, Any],
+    session: AsyncSession,
+    seeded_user: User,
+    seeded_superadmin: User,
+    fake_streamer: FakeStreamer,
+) -> None:
+    fake_streamer.deltas = ["Unsupported generated prose without a source marker."]
+    headers = await auth(chat_client, seeded_user.email)
+    chat_id = await make_model_and_chat(
+        chat_client,
+        chat_env,
+        seeded_superadmin,
+        headers,
+    )
+
+    response = await chat_client.post(
+        f"/api/v1/chats/{chat_id}/messages",
+        json={"content": "give me an unsupported answer"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+
+    assistant = (
+        await session.execute(select(Message).where(Message.role == "assistant"))
+    ).scalar_one()
+    assert assistant.content == NO_ANSWER_TEXT
+    assert (assistant.answer_status, assistant.refusal_reason) == (
+        "refused",
+        "below_threshold",
+    )
+    assert list((await session.execute(select(Citation))).scalars()) == []
+
+
 async def test_edit_and_regenerate_create_siblings(
     chat_client: httpx.AsyncClient,
     chat_env: dict[str, Any],

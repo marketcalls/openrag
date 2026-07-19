@@ -26,6 +26,8 @@ async def run_env(
     session.add(chat)
     await session.flush()
     user_message = Message(
+        org_id=seeded_user.org_id,
+        workspace_id=workspace.id,
         chat_id=chat.id,
         parent_message_id=None,
         sibling_index=0,
@@ -66,6 +68,8 @@ async def test_agent_run_idempotency_is_enforced(
     run_env: dict[str, Any],
 ) -> None:
     assistant_message = Message(
+        org_id=run_env["user"].org_id,
+        workspace_id=run_env["workspace"].id,
         chat_id=run_env["chat"].id,
         parent_message_id=run_env["user_message"].id,
         sibling_index=0,
@@ -75,6 +79,8 @@ async def test_agent_run_idempotency_is_enforced(
     session.add(assistant_message)
     await session.flush()
     followup_message = Message(
+        org_id=run_env["user"].org_id,
+        workspace_id=run_env["workspace"].id,
         chat_id=run_env["chat"].id,
         parent_message_id=assistant_message.id,
         sibling_index=0,

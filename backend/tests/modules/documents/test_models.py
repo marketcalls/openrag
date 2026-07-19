@@ -490,8 +490,20 @@ async def test_non_ocr_profile_sentinel_is_valid_for_native_document(
     assert version.ocr_profile_version == "none/v1"
 
 
-async def test_explicit_legacy_backfill_shape_is_bounded_and_valid(
+@pytest.mark.parametrize(
+    ("legacy_status", "state", "provenance_state"),
+    [
+        ("indexed", "approved", "legacy_pending"),
+        ("failed", "failed", "none"),
+        ("queued", "processing", "none"),
+        ("processing", "processing", "none"),
+    ],
+)
+async def test_exact_legacy_backfill_mappings_retain_source_identity(
     session: AsyncSession,
+    legacy_status: str,
+    state: str,
+    provenance_state: str,
 ) -> None:
     organization, workspace, user = await seed_scope(session)
     document = Document(
@@ -501,7 +513,8 @@ async def test_explicit_legacy_backfill_shape_is_bounded_and_valid(
         filename="report.pdf",
         mime="application/pdf",
         size_bytes=10,
-        content_hash="legacy-document-hash",
+        content_hash="7" * 64,
+        status=legacy_status,
         storage_key="legacy/report.pdf",
         created_by=user.id,
     )
@@ -512,15 +525,82 @@ async def test_explicit_legacy_backfill_shape_is_bounded_and_valid(
         workspace_id=workspace.id,
         document_id=document.id,
         sequence=1,
-        version_label="Legacy import",
-        version_key="legacy import",
+        version_label="Legacy 1",
+        version_key="legacy 1",
         content_hash="7" * 64,
-        provenance_state="legacy_pending",
+        source_filename=document.filename,
+        source_mime=document.mime,
+        source_size_bytes=document.size_bytes,
+        source_storage_key=document.storage_key,
+        source_page_count=None,
+        parser_profile_version="legacy/parser-v1",
+        ocr_profile_version="legacy/ocr-unknown-v1",
+        chunking_profile_version="legacy/chunking-v1",
+        embedding_profile_version="legacy/embedding-v1",
+        index_profile_version="legacy/index-v1",
+        state=state,
+        provenance_state=provenance_state,
         created_by=user.id,
     )
     session.add(version)
     await session.commit()
-    assert version.source_storage_key is None
+    assert version.source_storage_key == "legacy/report.pdf"
+    assert version.source_filename == "report.pdf"
+
+    document.filename = None
+    document.mime = None
+    document.size_bytes = None
+    document.content_hash = None
+    document.storage_key = None
+    await session.commit()
+    source = (
+        await session.execute(
+            select(DocumentVersion).where(DocumentVersion.id == version.id)
+        )
+    ).scalar_one()
+    assert (
+        source.source_filename,
+        source.source_mime,
+        source.source_size_bytes,
+        source.content_hash,
+        source.source_storage_key,
+    ) == (
+        "report.pdf",
+        "application/pdf",
+        10,
+        "7" * 64,
+        "legacy/report.pdf",
+    )
+
+
+async def test_legacy_version_never_allows_missing_source_identity(
+    session: AsyncSession,
+) -> None:
+    organization, workspace, user = await seed_scope(session)
+    document = Document(
+        org_id=organization.id,
+        workspace_id=workspace.id,
+        name="Legacy missing source",
+        created_by=user.id,
+    )
+    session.add(document)
+    await session.flush()
+    session.add(
+        DocumentVersion(
+            org_id=organization.id,
+            workspace_id=workspace.id,
+            document_id=document.id,
+            sequence=1,
+            version_label="Legacy 1",
+            version_key="legacy 1",
+            content_hash="7" * 64,
+            state="approved",
+            provenance_state="legacy_pending",
+            created_by=user.id,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        await session.commit()
 
 
 async def test_incomplete_authority_version_is_rejected(

@@ -15,7 +15,8 @@ from openrag.core.config import get_settings
 from openrag.core.db import build_engine, build_session_factory, naive_utc
 from openrag.core.storage import ObjectStorage, build_storage
 from openrag.modules.audit.service import record_audit
-from openrag.modules.documents.models import Document, IngestJob
+from openrag.modules.documents.lifecycle import LEGACY_VERSION_KEY, LEGACY_VERSION_LABEL
+from openrag.modules.documents.models import Document, DocumentVersion, IngestJob
 from openrag.modules.documents.pipeline import (
     Chunk,
     IngestFailure,
@@ -103,6 +104,10 @@ async def _fail_jobs(
     for job in jobs:
         job.finished_at = naive_utc()
         job.error = reason[:1000]
+    legacy_version = await _legacy_version(session, document)
+    if legacy_version is not None:
+        legacy_version.state = "failed"
+        legacy_version.provenance_state = "none"
     await session.commit()
 
 
@@ -120,6 +125,24 @@ def _legacy_ingest_source(document: Document) -> tuple[str, str, str]:
     if document.mime is None:
         raise IngestFailure("document has no legacy source MIME type")
     return document.storage_key, document.filename, document.mime
+
+
+async def _legacy_version(
+    session: AsyncSession,
+    document: Document,
+) -> DocumentVersion | None:
+    return (
+        await session.execute(
+            select(DocumentVersion).where(
+                DocumentVersion.org_id == document.org_id,
+                DocumentVersion.workspace_id == document.workspace_id,
+                DocumentVersion.document_id == document.id,
+                DocumentVersion.sequence == 1,
+                DocumentVersion.version_label == LEGACY_VERSION_LABEL,
+                DocumentVersion.version_key == LEGACY_VERSION_KEY,
+            )
+        )
+    ).scalar_one_or_none()
 
 
 async def run_parse(document_id: UUID) -> None:
@@ -145,6 +168,9 @@ async def run_parse(document_id: UUID) -> None:
         )
         document.status = "processing"
         document.page_count = max(block.page for block in blocks)
+        legacy_version = await _legacy_version(session, document)
+        if legacy_version is not None:
+            legacy_version.source_page_count = document.page_count
         await _finish_stage(session, job)
 
 
@@ -210,6 +236,11 @@ async def run_embed_upsert(document_id: UUID) -> None:
             upsert_job.progress = progress
             await session.commit()
         document.status = "indexed"
+        legacy_version = await _legacy_version(session, document)
+        if legacy_version is not None:
+            legacy_version.state = "approved"
+            legacy_version.provenance_state = "legacy_pending"
+            legacy_version.source_page_count = document.page_count
         await _finish_stage(session, embed_job)
         await _finish_stage(session, upsert_job)
 
@@ -258,4 +289,8 @@ async def mark_failed(document_id: UUID, reason: str) -> None:
         if document is not None:
             document.status = "failed"
             document.error = reason[:1000]
+            legacy_version = await _legacy_version(session, document)
+            if legacy_version is not None:
+                legacy_version.state = "failed"
+                legacy_version.provenance_state = "none"
             await session.commit()

@@ -17,7 +17,7 @@ from openrag.core.storage import ObjectStorage
 from openrag.modules.auth.models import User
 from openrag.modules.auth.passwords import hash_password
 from openrag.modules.chat.llm import LLMDelta, LLMUsage
-from openrag.modules.documents.models import Document
+from openrag.modules.documents.models import Document, DocumentVersion
 from openrag.modules.retrieval.client import COLLECTION, get_qdrant
 from openrag.modules.retrieval.embeddings import get_dense_embedder
 from openrag.modules.retrieval.service import (
@@ -315,11 +315,37 @@ async def chat_env(
         filename="report.pdf",
         mime="application/pdf",
         size_bytes=10,
-        content_hash="chat-test-document",
+        content_hash="a" * 64,
         status="indexed",
         storage_key="chat-test/report.pdf",
         created_by=seeded_user.id,
     )
     session.add(document)
+    await session.flush()
+    session.add(
+        DocumentVersion(
+            id=document.id,
+            org_id=seeded_user.org_id,
+            workspace_id=workspace.id,
+            document_id=document.id,
+            sequence=1,
+            version_label="Legacy 1",
+            version_key="legacy 1",
+            content_hash="a" * 64,
+            source_filename="report.pdf",
+            source_mime="application/pdf",
+            source_size_bytes=10,
+            source_storage_key="chat-test/report.pdf",
+            source_page_count=None,
+            parser_profile_version="legacy/parser-v1",
+            ocr_profile_version="legacy/ocr-unknown-v1",
+            chunking_profile_version="legacy/chunking-v1",
+            embedding_profile_version="legacy/embedding-v1",
+            index_profile_version="legacy/index-v1",
+            state="approved",
+            provenance_state="legacy_pending",
+            created_by=seeded_user.id,
+        )
+    )
     await session.commit()
     return {"workspace": workspace, "document": document}

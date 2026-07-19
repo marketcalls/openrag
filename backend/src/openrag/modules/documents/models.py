@@ -89,6 +89,13 @@ class DocumentVersion(UUIDPk, Base):
         ),
         UniqueConstraint(
             "org_id",
+            "document_id",
+            "id",
+            "version_label",
+            name="uq_document_versions_org_document_id_label",
+        ),
+        UniqueConstraint(
+            "org_id",
             "workspace_id",
             "id",
             name="uq_document_versions_org_workspace_id",
@@ -121,22 +128,38 @@ class DocumentVersion(UUIDPk, Base):
             name="ck_document_versions_source_page_count",
         ),
         CheckConstraint(
-            "((source_filename IS NOT NULL AND source_mime IS NOT NULL "
-            "AND source_size_bytes IS NOT NULL AND source_storage_key IS NOT NULL "
-            "AND source_page_count IS NOT NULL "
-            "AND char_length(parser_profile_version) BETWEEN 1 AND 100 "
+            "source_filename IS NOT NULL AND source_mime IS NOT NULL "
+            "AND source_size_bytes IS NOT NULL AND source_storage_key IS NOT NULL",
+            name="ck_document_versions_source_identity_complete",
+        ),
+        CheckConstraint(
+            "char_length(parser_profile_version) BETWEEN 1 AND 100 "
             "AND char_length(ocr_profile_version) BETWEEN 1 AND 100 "
             "AND char_length(chunking_profile_version) BETWEEN 1 AND 100 "
             "AND char_length(embedding_profile_version) BETWEEN 1 AND 100 "
-            "AND char_length(index_profile_version) BETWEEN 1 AND 100) OR "
-            "(source_filename IS NULL AND source_mime IS NULL "
-            "AND source_size_bytes IS NULL AND source_storage_key IS NULL "
-            "AND source_page_count IS NULL AND parser_profile_version IS NULL "
-            "AND ocr_profile_version IS NULL AND chunking_profile_version IS NULL "
-            "AND embedding_profile_version IS NULL AND index_profile_version IS NULL "
-            "AND version_label = 'Legacy import' AND version_key = 'legacy import' "
-            "AND provenance_state = 'legacy_pending'))",
-            name="ck_document_versions_authority_or_legacy_provenance",
+            "AND char_length(index_profile_version) BETWEEN 1 AND 100",
+            name="ck_document_versions_profile_snapshot_complete",
+        ),
+        CheckConstraint(
+            "NOT (version_label = 'Legacy 1' OR version_key = 'legacy 1') OR "
+            "(sequence = 1 AND version_label = 'Legacy 1' AND version_key = 'legacy 1' "
+            "AND parser_profile_version = 'legacy/parser-v1' "
+            "AND ocr_profile_version = 'legacy/ocr-unknown-v1' "
+            "AND chunking_profile_version = 'legacy/chunking-v1' "
+            "AND embedding_profile_version = 'legacy/embedding-v1' "
+            "AND index_profile_version = 'legacy/index-v1' "
+            "AND ((state = 'approved' AND provenance_state = 'legacy_pending') "
+            "OR (state = 'failed' AND provenance_state = 'none') "
+            "OR (state = 'processing' AND provenance_state = 'none')))",
+            name="ck_document_versions_exact_legacy_contract",
+        ),
+        CheckConstraint(
+            "source_page_count IS NOT NULL OR "
+            "(sequence = 1 AND version_label = 'Legacy 1' AND version_key = 'legacy 1' "
+            "AND ((state = 'approved' AND provenance_state = 'legacy_pending') "
+            "OR (state = 'failed' AND provenance_state = 'none') "
+            "OR (state = 'processing' AND provenance_state = 'none')))",
+            name="ck_document_versions_page_count_or_exact_legacy",
         ),
         CheckConstraint(
             "state IN ('draft','processing','review','approved','rejected',"

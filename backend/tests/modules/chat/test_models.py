@@ -66,16 +66,50 @@ async def test_tree_rows_and_sibling_constraint(
     )
     session.add(document)
     await session.flush()
+    version = DocumentVersion(
+        org_id=seeded_user.org_id,
+        workspace_id=workspace.id,
+        document_id=document.id,
+        sequence=1,
+        version_label="Legacy 1",
+        version_key="legacy 1",
+        content_hash="1" * 64,
+        source_filename="source.pdf",
+        source_mime="application/pdf",
+        source_size_bytes=10,
+        source_storage_key="chat-model/source.pdf",
+        source_page_count=None,
+        parser_profile_version="legacy/parser-v1",
+        ocr_profile_version="legacy/ocr-unknown-v1",
+        chunking_profile_version="legacy/chunking-v1",
+        embedding_profile_version="legacy/embedding-v1",
+        index_profile_version="legacy/index-v1",
+        state="approved",
+        provenance_state="legacy_pending",
+        created_by=seeded_user.id,
+    )
+    session.add(version)
+    await session.flush()
     session.add(
         Citation(
             org_id=seeded_user.org_id,
             workspace_id=workspace.id,
             message_id=answer.id,
             document_id=document.id,
+            document_version_id=version.id,
             chunk_ref="document:1:0",
             page=1,
             score=0.9,
             marker=1,
+            document_name=document.name,
+            version_label="Legacy 1",
+            section_label="Legacy import",
+            section_path=["Legacy import"],
+            locator_kind="page",
+            locator_label="1",
+            verification_state="legacy_unverified",
+            content_hash="legacy-unverified",
+            claim_ids=[],
         )
     )
     await session.commit()
@@ -97,6 +131,113 @@ async def test_tree_rows_and_sibling_constraint(
     with pytest.raises(IntegrityError):
         await session.flush()
     await session.rollback()
+
+
+@pytest.mark.parametrize(
+    "invalid_snapshot",
+    [
+        {"content_hash": "a" * 64},
+        {"claim_ids": ["claim-1"]},
+        {"section_path": ["Other"]},
+        {"section_label": "Other"},
+        {"prompt_contract_version": "grounded-v1"},
+        {"verification_state": "verified"},
+    ],
+)
+async def test_legacy_citation_branch_rejects_hybrid_snapshots_in_postgresql(
+    session: AsyncSession,
+    seeded_user: User,
+    invalid_snapshot: dict[str, object],
+) -> None:
+    workspace = Workspace(org_id=seeded_user.org_id, name=f"Legacy branch {uuid4()}")
+    session.add(workspace)
+    await session.flush()
+    chat = Chat(
+        org_id=seeded_user.org_id,
+        workspace_id=workspace.id,
+        user_id=seeded_user.id,
+    )
+    session.add(chat)
+    await session.flush()
+    user_message = Message(
+        org_id=seeded_user.org_id,
+        workspace_id=workspace.id,
+        chat_id=chat.id,
+        role="user",
+        content="question",
+    )
+    session.add(user_message)
+    await session.flush()
+    answer = Message(
+        org_id=seeded_user.org_id,
+        workspace_id=workspace.id,
+        chat_id=chat.id,
+        parent_message_id=user_message.id,
+        role="assistant",
+        content="legacy answer",
+    )
+    session.add(answer)
+    document = Document(
+        org_id=seeded_user.org_id,
+        workspace_id=workspace.id,
+        name="Legacy source",
+        filename="legacy.pdf",
+        mime="application/pdf",
+        size_bytes=1,
+        content_hash="2" * 64,
+        storage_key="legacy/source.pdf",
+        created_by=seeded_user.id,
+    )
+    session.add(document)
+    await session.flush()
+    version = DocumentVersion(
+        org_id=seeded_user.org_id,
+        workspace_id=workspace.id,
+        document_id=document.id,
+        sequence=1,
+        version_label="Legacy 1",
+        version_key="legacy 1",
+        content_hash="2" * 64,
+        source_filename="legacy.pdf",
+        source_mime="application/pdf",
+        source_size_bytes=1,
+        source_storage_key="legacy/source.pdf",
+        source_page_count=None,
+        parser_profile_version="legacy/parser-v1",
+        ocr_profile_version="legacy/ocr-unknown-v1",
+        chunking_profile_version="legacy/chunking-v1",
+        embedding_profile_version="legacy/embedding-v1",
+        index_profile_version="legacy/index-v1",
+        state="approved",
+        provenance_state="legacy_pending",
+        created_by=seeded_user.id,
+    )
+    session.add(version)
+    await session.flush()
+    values: dict[str, object] = {
+        "org_id": seeded_user.org_id,
+        "workspace_id": workspace.id,
+        "message_id": answer.id,
+        "document_id": document.id,
+        "document_version_id": version.id,
+        "chunk_ref": "legacy:1",
+        "page": 1,
+        "score": 0.8,
+        "marker": 1,
+        "document_name": document.name,
+        "version_label": "Legacy 1",
+        "section_label": "Legacy import",
+        "section_path": ["Legacy import"],
+        "locator_kind": "page",
+        "locator_label": "1",
+        "content_hash": "legacy-unverified",
+        "claim_ids": [],
+        "verification_state": "legacy_unverified",
+    }
+    values.update(invalid_snapshot)
+    with pytest.raises(IntegrityError):
+        await session.execute(insert(Citation).values(**values))
+        await session.commit()
 
 
 async def test_cited_conflict_and_multi_claim_snapshot_shape(
@@ -235,10 +376,14 @@ async def test_cited_conflict_and_multi_claim_snapshot_shape(
         score=0.91,
         marker=1,
         section_path=["Emergency", "Applicability"],
+        section_label="Emergency / Applicability",
+        locator_kind="page",
+        locator_label="2",
         claim_ids=[str(conflict.id), str(user_message.id)],
         document_name=document.name,
         version_label=version.version_label,
         content_hash=spans[0].content_hash,
+        verification_state="verified",
         prompt_contract_version="grounded-v1",
         grounding_policy_id=conflict.grounding_policy_id,
         grounding_policy_version=3,
@@ -259,10 +404,14 @@ async def test_cited_conflict_and_multi_claim_snapshot_shape(
         score=0.89,
         marker=2,
         section_path=["Emergency", "Amendment"],
+        section_label="Emergency / Amendment",
+        locator_kind="page",
+        locator_label="4",
         claim_ids=[str(conflict.id)],
         document_name=document.name,
         version_label=version.version_label,
         content_hash=spans[1].content_hash,
+        verification_state="verified",
         prompt_contract_version="grounded-v1",
         grounding_policy_id=conflict.grounding_policy_id,
         grounding_policy_version=3,
