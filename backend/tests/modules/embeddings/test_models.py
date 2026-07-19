@@ -40,6 +40,11 @@ def test_embedding_deployment_model_tracks_atomic_generation_cutover() -> None:
         "completed_versions",
         "failed_versions",
         "scan_complete",
+        "scan_cursor_document_version_id",
+        "lease_owner",
+        "lease_token",
+        "lease_expires_at",
+        "attempts",
         "updated_at",
     } <= set(columns)
     assert columns["generation_id"].unique is True

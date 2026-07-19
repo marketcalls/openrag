@@ -66,6 +66,17 @@ class EmbeddingDeployment(UUIDPk, Base):
             "failure_code IS NULL OR char_length(failure_code) BETWEEN 1 AND 100",
             name="ck_embedding_deployments_failure_code",
         ),
+        CheckConstraint(
+            "attempts BETWEEN 0 AND 1000000",
+            name="ck_embedding_deployments_attempts",
+        ),
+        CheckConstraint(
+            "(lease_owner IS NULL AND lease_token IS NULL "
+            "AND lease_expires_at IS NULL) OR "
+            "(lease_owner IS NOT NULL AND lease_token IS NOT NULL "
+            "AND lease_expires_at IS NOT NULL)",
+            name="ck_embedding_deployments_lease",
+        ),
         Index(
             "uq_embedding_deployments_one_active",
             text("(true)"),
@@ -97,4 +108,9 @@ class EmbeddingDeployment(UUIDPk, Base):
     completed_versions: Mapped[int] = mapped_column(default=0)
     failed_versions: Mapped[int] = mapped_column(default=0)
     scan_complete: Mapped[bool] = mapped_column(default=False)
+    scan_cursor_document_version_id: Mapped[UUID | None] = mapped_column(default=None)
+    lease_owner: Mapped[str | None] = mapped_column(String(200), default=None)
+    lease_token: Mapped[UUID | None] = mapped_column(default=None, index=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(default=None)
+    attempts: Mapped[int] = mapped_column(default=0)
     updated_at: Mapped[datetime] = mapped_column(default=naive_utc, onupdate=naive_utc)
