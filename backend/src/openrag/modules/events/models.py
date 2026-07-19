@@ -17,6 +17,8 @@ class OutboxEvent(UUIDPk, Base):
     payload: Mapped[dict[str, object]] = mapped_column(JSON)
     dedupe_key: Mapped[str] = mapped_column(unique=True)
     attempts: Mapped[int] = mapped_column(default=0)
+    lease_owner: Mapped[str | None] = mapped_column(default=None, index=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(default=None, index=True)
     published_at: Mapped[datetime | None] = mapped_column(default=None, index=True)
     last_error: Mapped[str | None] = mapped_column(default=None)
 

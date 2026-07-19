@@ -12,4 +12,7 @@ class Model(UUIDPk, Base):
     base_url: Mapped[str | None] = mapped_column(default=None)
     enabled: Mapped[bool] = mapped_column(default=True)
     sync_status: Mapped[str] = mapped_column(default="pending")
-
+    supports_chat_completion: Mapped[bool] = mapped_column(default=False)
+    supports_structured_json: Mapped[bool] = mapped_column(default=False)
+    supports_verifier: Mapped[bool] = mapped_column(default=False)
+    provider_preset_version: Mapped[str | None] = mapped_column(default=None)
