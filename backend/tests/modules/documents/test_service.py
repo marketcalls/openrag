@@ -26,6 +26,7 @@ from openrag.modules.documents.service import (
     list_documents,
 )
 from openrag.modules.events.envelopes import (
+    INGESTION_REQUESTED_EVENT_TYPE,
     DocumentVersionLifecycleV1,
     build_envelope,
 )
@@ -146,6 +147,15 @@ async def test_upload_stores_row_object_and_audit(
     assert await storage.get(document.storage_key) == b"hello world"
     actions = [event.action for event in (await session.execute(select(AuditEvent))).scalars()]
     assert "document.uploaded" in actions
+    command = (
+        await session.scalars(
+            select(OutboxEvent).where(
+                OutboxEvent.event_type == INGESTION_REQUESTED_EVENT_TYPE
+            )
+        )
+    ).one()
+    assert command.aggregate_id == document.id
+    assert command.dedupe_key == f"document-version:{document.id}:ingestion:1"
 
 
 async def test_duplicate_content_conflicts(
@@ -336,43 +346,6 @@ async def test_governance_reason_validation_does_not_bypass_object_oracle(
         await command(session, foreign_context, candidate_id, reason=" ")
 
 
-async def test_dispatch_compensation_cannot_fail_an_active_ingest_attempt(
-    session: AsyncSession,
-    stack_env: None,
-) -> None:
-    context, workspace = await seed_workspace(session, "active-dispatch-compensation", role="admin")
-    document = await create_from_upload(
-        session,
-        context,
-        workspace.id,
-        filename="active.txt",
-        mime="text/plain",
-        data=b"active attempt",
-    )
-    version = await session.get(DocumentVersion, document.id)
-    assert version is not None
-    session.add(
-        IngestJob(
-            document_id=document.id,
-            stage="parse",
-            started_at=naive_utc(),
-        )
-    )
-    await session.commit()
-
-    with pytest.raises(ConflictError, match="ingest attempt is already active"):
-        await service.mark_retry_dispatch_failed(
-            session,
-            context,
-            version.id,
-            expected_revision=version.lifecycle_revision,
-        )
-
-    await session.refresh(document)
-    await session.refresh(version)
-    assert (version.state, document.status) == ("processing", "queued")
-
-
 async def test_retry_rejects_recent_processing_legacy_attempt(
     session: AsyncSession,
     stack_env: None,
@@ -405,7 +378,10 @@ async def test_retry_rejects_recent_processing_legacy_attempt(
     monkeypatch.setattr(
         service,
         "get_settings",
-        lambda: SimpleNamespace(stale_ingest_recovery_seconds=900),
+        lambda: SimpleNamespace(
+            stale_ingest_recovery_seconds=900,
+            authority_generation_id=get_settings().authority_generation_id,
+        ),
     )
 
     with pytest.raises(ConflictError, match="ingest attempt is still active"):
@@ -413,7 +389,7 @@ async def test_retry_rejects_recent_processing_legacy_attempt(
 
     await session.refresh(version)
     assert version.lifecycle_revision == 1
-    assert len(list((await session.execute(select(OutboxEvent))).scalars())) == 0
+    assert len(list((await session.execute(select(OutboxEvent))).scalars())) == 1
 
 
 async def test_retry_recovers_stale_processing_legacy_attempt_with_fence(
@@ -448,7 +424,10 @@ async def test_retry_recovers_stale_processing_legacy_attempt_with_fence(
     monkeypatch.setattr(
         service,
         "get_settings",
-        lambda: SimpleNamespace(stale_ingest_recovery_seconds=900),
+        lambda: SimpleNamespace(
+            stale_ingest_recovery_seconds=900,
+            authority_generation_id=get_settings().authority_generation_id,
+        ),
     )
 
     recovered = await service.retry_version(session, context, version.id)
@@ -458,9 +437,12 @@ async def test_retry_recovers_stale_processing_legacy_attempt_with_fence(
     assert job.finished_at is not None
     assert job.error == "superseded_by_v2_recovery"
     events = list((await session.execute(select(OutboxEvent))).scalars())
-    assert len(events) == 1
-    assert events[0].payload["payload"]["previous_state"] == "processing"
-    assert events[0].payload["payload"]["new_state"] == "processing"
+    assert len(events) == 3
+    lifecycle = next(
+        event for event in events if event.payload["event_type"] == "document.version.lifecycle.v1"
+    )
+    assert lifecycle.payload["payload"]["previous_state"] == "processing"
+    assert lifecycle.payload["payload"]["new_state"] == "processing"
     audits = list(
         (
             await session.execute(
@@ -824,7 +806,7 @@ def test_approval_validator_rejects_missing_or_nonpositive_page_count(
         service._validate_approval_candidate(candidate, naive_utc())
 
 
-async def test_retry_resets_only_processing_fields_and_emits_one_event(
+async def test_retry_resets_only_processing_fields_and_emits_atomic_events(
     session: AsyncSession,
 ) -> None:
     context, _document, version, _ = await seed_review_version(
@@ -856,7 +838,11 @@ async def test_retry_resets_only_processing_fields_and_emits_one_event(
         retried.embedding_profile_version,
         retried.index_profile_version,
     ) == profiles
-    assert len(list((await session.execute(select(OutboxEvent))).scalars())) == 1
+    events = list((await session.execute(select(OutboxEvent))).scalars())
+    assert {event.event_type for event in events} == {
+        "document.version.lifecycle.v1",
+        INGESTION_REQUESTED_EVENT_TYPE,
+    }
     assert list((await session.execute(select(DocumentVersionDecisionRecord))).scalars()) == []
 
 

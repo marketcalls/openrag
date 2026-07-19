@@ -12,22 +12,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.modules.auth.models import User
 from openrag.modules.documents.models import Document, DocumentVersion
+from openrag.modules.events.envelopes import INGESTION_REQUESTED_EVENT_TYPE
+from openrag.modules.events.models import OutboxEvent
 
 
 @pytest.fixture
 def captured_enqueues(
     monkeypatch: pytest.MonkeyPatch,
 ) -> dict[str, list[tuple[Any, ...]]]:
-    calls: dict[str, list[tuple[Any, ...]]] = {"ingest": [], "delete": []}
-    monkeypatch.setattr(
-        "openrag.api.routes.documents.enqueue_ingest",
-        lambda document_id, size, revision: calls["ingest"].append((document_id, size, revision)),
-    )
+    calls: dict[str, list[tuple[Any, ...]]] = {"delete": []}
     monkeypatch.setattr(
         "openrag.api.routes.documents.enqueue_delete",
         lambda document_id, actor_id: calls["delete"].append((document_id, actor_id)),
     )
     return calls
+
+
+async def ingestion_events(session: AsyncSession) -> list[OutboxEvent]:
+    return list(
+        (
+            await session.scalars(
+                select(OutboxEvent)
+                .where(OutboxEvent.event_type == INGESTION_REQUESTED_EVENT_TYPE)
+                .order_by(OutboxEvent.created_at, OutboxEvent.id)
+            )
+        ).all()
+    )
 
 
 async def auth(client: httpx.AsyncClient, email: str) -> dict[str, str]:
@@ -80,7 +90,10 @@ async def test_upload_list_delete_flow(
     assert body["error_code"] is None
     assert "storage_key" not in body
     assert "content_hash" not in body
-    assert len(captured_enqueues["ingest"]) == 1
+    events = await ingestion_events(session)
+    assert len(events) == 1
+    assert events[0].aggregate_id == UUID(body["id"])
+    assert events[0].dedupe_key == f"document-version:{body['id']}:ingestion:1"
 
     listing = await client.get(
         f"/api/v1/workspaces/{workspace_id}/documents",
@@ -130,7 +143,7 @@ async def test_upload_rejects_mime_magic_mismatch_before_record_or_enqueue(
 
     assert response.status_code == 415
     assert response.json()["title"] == "Unsupported media type"
-    assert captured_enqueues["ingest"] == []
+    assert await ingestion_events(session) == []
     assert list((await session.scalars(select(Document))).all()) == []
 
 
@@ -139,6 +152,7 @@ async def test_powerpoint_upload_is_supported_after_ooxml_validation(
     seeded_user: User,
     stack_env: None,
     captured_enqueues: dict[str, list[tuple[Any, ...]]],
+    session: AsyncSession,
 ) -> None:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -163,7 +177,7 @@ async def test_powerpoint_upload_is_supported_after_ooxml_validation(
     assert response.json()["mime"] == (
         "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     )
-    assert len(captured_enqueues["ingest"]) == 1
+    assert len(await ingestion_events(session)) == 1
 
 
 async def test_document_detail_patch_is_strict_bounded_and_safe(
@@ -276,6 +290,7 @@ async def test_document_list_has_deterministic_created_id_desc_order(
 async def test_legacy_upload_rejects_client_sequence_form_field(
     client: httpx.AsyncClient,
     seeded_user: User,
+    session: AsyncSession,
     stack_env: None,
     captured_enqueues: dict[str, list[tuple[Any, ...]]],
 ) -> None:
@@ -290,7 +305,7 @@ async def test_legacy_upload_rejects_client_sequence_form_field(
     )
 
     assert response.status_code == 422
-    assert captured_enqueues["ingest"] == []
+    assert await ingestion_events(session) == []
 
 
 async def test_delete_processing_document_conflicts_without_enqueue(
@@ -436,7 +451,7 @@ async def test_oversized_upload_returns_413(
     get_settings.cache_clear()
 
 
-async def test_legacy_retry_commits_transition_and_enqueues_once(
+async def test_legacy_retry_commits_transition_and_durable_command_once(
     client: httpx.AsyncClient,
     seeded_user: User,
     session: AsyncSession,
@@ -466,9 +481,10 @@ async def test_legacy_retry_commits_transition_and_enqueues_once(
 
     assert response.status_code == 202
     assert response.json() == {"status": "retry scheduled"}
-    assert captured_enqueues["ingest"] == [
-        (version_id, len(b"retry source"), 1),
-        (version_id, len(b"retry source"), initial_revision + 1),
+    events = await ingestion_events(session)
+    assert [event.payload["payload"]["attempt"] for event in events] == [
+        1,
+        initial_revision + 1,
     ]
     await session.refresh(version)
     assert (version.state, version.provenance_state) == ("processing", "none")
@@ -476,7 +492,7 @@ async def test_legacy_retry_commits_transition_and_enqueues_once(
     assert version.lifecycle_revision == initial_revision + 1
 
 
-async def test_retry_route_refuses_nonlegacy_version_without_enqueue(
+async def test_retry_route_schedules_nonlegacy_version_durably(
     client: httpx.AsyncClient,
     seeded_user: User,
     session: AsyncSession,
@@ -523,16 +539,19 @@ async def test_retry_route_refuses_nonlegacy_version_without_enqueue(
         headers=headers,
     )
 
-    assert response.status_code == 409
-    assert captured_enqueues["ingest"] == []
+    assert response.status_code == 202
+    events = await ingestion_events(session)
+    assert len(events) == 1
+    assert events[0].aggregate_id == version.id
+    assert events[0].payload["payload"]["attempt"] == initial_revision + 1
     await session.refresh(version)
     assert (version.state, version.lifecycle_revision) == (
-        "failed",
-        initial_revision,
+        "processing",
+        initial_revision + 1,
     )
 
 
-async def test_retry_dispatch_failure_is_compensated_and_can_be_retried(
+async def test_retry_never_calls_legacy_direct_dispatch(
     client: httpx.AsyncClient,
     seeded_user: User,
     session: AsyncSession,
@@ -555,25 +574,11 @@ async def test_retry_dispatch_failure_is_compensated_and_can_be_retried(
     await session.commit()
     initial_revision = version.lifecycle_revision
 
-    def fail_dispatch(_document_id: UUID, _size: int, _revision: int) -> None:
-        raise RuntimeError("queue unavailable")
-
-    monkeypatch.setattr("openrag.api.routes.documents.enqueue_ingest", fail_dispatch)
-    with pytest.raises(RuntimeError, match="queue unavailable"):
-        await client.post(
-            f"/api/v1/document-versions/{version_id}/retry",
-            headers=headers,
-        )
-
-    await session.refresh(version)
-    assert (version.state, version.provenance_state) == ("failed", "none")
-    assert version.processing_error_code == "dispatch_failed"
-    assert version.lifecycle_revision == initial_revision + 2
-
-    retry_calls: list[tuple[UUID, int, int]] = []
     monkeypatch.setattr(
-        "openrag.api.routes.documents.enqueue_ingest",
-        lambda document_id, size, revision: retry_calls.append((document_id, size, revision)),
+        "openrag.worker.tasks.enqueue_ingest",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("legacy dispatch must not be called")
+        ),
     )
     response = await client.post(
         f"/api/v1/document-versions/{version_id}/retry",
@@ -581,15 +586,19 @@ async def test_retry_dispatch_failure_is_compensated_and_can_be_retried(
     )
 
     assert response.status_code == 202
-    assert retry_calls == [(version_id, len(b"dispatch source"), initial_revision + 3)]
+    events = await ingestion_events(session)
+    assert [event.payload["payload"]["attempt"] for event in events] == [
+        1,
+        initial_revision + 1,
+    ]
     await session.refresh(version)
     assert (version.state, version.lifecycle_revision) == (
         "processing",
-        initial_revision + 3,
+        initial_revision + 1,
     )
 
 
-async def test_initial_upload_dispatch_failure_is_retryable_and_mirrored(
+async def test_initial_upload_never_calls_legacy_direct_dispatch(
     client: httpx.AsyncClient,
     seeded_user: User,
     session: AsyncSession,
@@ -600,41 +609,23 @@ async def test_initial_upload_dispatch_failure_is_retryable_and_mirrored(
     headers = await auth(client, seeded_user.email)
     workspace_id = await make_workspace(client, headers)
 
-    def fail_dispatch(_document_id: UUID, _size: int, _revision: int) -> None:
-        raise RuntimeError("initial queue unavailable")
+    monkeypatch.setattr(
+        "openrag.worker.tasks.enqueue_ingest",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("legacy dispatch must not be called")
+        ),
+    )
+    response = await client.post(
+        f"/api/v1/workspaces/{workspace_id}/documents",
+        headers=headers,
+        files={"file": ("initial.txt", b"initial source", "text/plain")},
+    )
 
-    monkeypatch.setattr("openrag.api.routes.documents.enqueue_ingest", fail_dispatch)
-    with pytest.raises(RuntimeError, match="initial queue unavailable"):
-        await client.post(
-            f"/api/v1/workspaces/{workspace_id}/documents",
-            headers=headers,
-            files={"file": ("initial.txt", b"initial source", "text/plain")},
-        )
-
+    assert response.status_code == 201
     document = (await session.execute(select(Document))).scalar_one()
     version = await session.get(DocumentVersion, document.id)
     assert version is not None
-    assert (version.state, version.provenance_state) == ("failed", "none")
-    assert version.processing_error_code == "dispatch_failed"
-    assert (document.status, document.error) == ("failed", "dispatch_failed")
-    failed_revision = version.lifecycle_revision
-
-    retry_calls: list[tuple[UUID, int, int]] = []
-    monkeypatch.setattr(
-        "openrag.api.routes.documents.enqueue_ingest",
-        lambda document_id, size, revision: retry_calls.append((document_id, size, revision)),
-    )
-    response = await client.post(
-        f"/api/v1/document-versions/{version.id}/retry",
-        headers=headers,
-    )
-
-    assert response.status_code == 202
-    assert retry_calls == [(document.id, len(b"initial source"), failed_revision + 1)]
-    await session.refresh(document)
-    await session.refresh(version)
-    assert (version.state, version.lifecycle_revision) == (
-        "processing",
-        failed_revision + 1,
-    )
-    assert (document.status, document.error) == ("processing", None)
+    assert (version.state, version.provenance_state) == ("processing", "none")
+    assert version.processing_error_code is None
+    assert (document.status, document.error) == ("queued", None)
+    assert len(await ingestion_events(session)) == 1

@@ -37,7 +37,10 @@ from openrag.modules.documents.models import (
     IngestJob,
 )
 from openrag.modules.documents.uploads import QuarantinedUpload
-from openrag.modules.events.envelopes import DocumentVersionLifecycleV1
+from openrag.modules.events.envelopes import (
+    DocumentVersionIngestionRequestedV1,
+    DocumentVersionLifecycleV1,
+)
 from openrag.modules.events.outbox import add_registered_event
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Workspace
@@ -464,7 +467,8 @@ async def _persist_prepared_upload(
         raise
     try:
         document = await create_document_record(session, context, prepared)
-        await create_version_record(session, context, prepared)
+        version = await create_version_record(session, context, prepared)
+        _persist_ingestion_request(session, version)
         await record_audit(
             session,
             org_id=context.org_id,
@@ -771,6 +775,26 @@ def _persist_lifecycle_event(
     )
 
 
+def _persist_ingestion_request(
+    session: AsyncSession,
+    version: DocumentVersion,
+) -> None:
+    settings = get_settings()
+    add_registered_event(
+        session,
+        payload=DocumentVersionIngestionRequestedV1(
+            document_id=version.document_id,
+            attempt=version.lifecycle_revision,
+            authority_generation_id=settings.authority_generation_id,
+        ),
+        org_id=version.org_id,
+        workspace_id=version.workspace_id,
+        aggregate_id=version.id,
+        lifecycle_revision=version.lifecycle_revision,
+        occurred_at=datetime.now(UTC),
+    )
+
+
 async def _record_lifecycle_audit(
     session: AsyncSession,
     context: TenantContext,
@@ -1010,55 +1034,7 @@ async def retry_version(
             document.status = "processing"
             document.error = None
         _persist_lifecycle_event(session, candidate, previous, now)
-        await _record_lifecycle_audit(session, context, candidate)
-        await session.commit()
-        return candidate
-    except Exception:
-        await session.rollback()
-        raise
-
-
-async def mark_retry_dispatch_failed(
-    session: AsyncSession,
-    context: TenantContext,
-    version_id: UUID,
-    *,
-    expected_revision: int,
-) -> DocumentVersion:
-    """CAS-compensate a committed legacy retry whose direct dispatch failed."""
-
-    try:
-        snapshot = await _capture_lifecycle_snapshot(
-            session, context, version_id, "document.upload"
-        )
-        if snapshot.candidate_revision != expected_revision:
-            raise ConflictError("document version changed after retry dispatch")
-        candidate, _incumbent = await _lock_lifecycle_snapshot(
-            session, context, version_id, snapshot
-        )
-        if candidate.state != DocumentVersionState.PROCESSING.value:
-            raise ConflictError("document version is no longer awaiting dispatch")
-        if not _is_exact_legacy(candidate):
-            raise ConflictError("nonlegacy direct dispatch is not available")
-        active_job = await session.scalar(
-            select(IngestJob.id)
-            .where(
-                IngestJob.document_id == candidate.document_id,
-                IngestJob.finished_at.is_(None),
-            )
-            .limit(1)
-        )
-        if active_job is not None:
-            raise ConflictError("ingest attempt is already active")
-        now = naive_utc()
-        previous = _apply_transition(candidate, DocumentVersionState.FAILED)
-        candidate.processing_error_code = "dispatch_failed"
-        document = await session.get(Document, candidate.document_id)
-        if document is None:
-            raise ConflictError("document changed while command was waiting")
-        document.status = "failed"
-        document.error = "dispatch_failed"
-        _persist_lifecycle_event(session, candidate, previous, now)
+        _persist_ingestion_request(session, candidate)
         await _record_lifecycle_audit(session, context, candidate)
         await session.commit()
         return candidate
