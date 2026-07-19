@@ -133,7 +133,12 @@ class DocumentVersion(UUIDPk, Base):
             name="ck_document_versions_source_identity_complete",
         ),
         CheckConstraint(
-            "char_length(parser_profile_version) BETWEEN 1 AND 100 "
+            "parser_profile_version IS NOT NULL "
+            "AND ocr_profile_version IS NOT NULL "
+            "AND chunking_profile_version IS NOT NULL "
+            "AND embedding_profile_version IS NOT NULL "
+            "AND index_profile_version IS NOT NULL "
+            "AND char_length(parser_profile_version) BETWEEN 1 AND 100 "
             "AND char_length(ocr_profile_version) BETWEEN 1 AND 100 "
             "AND char_length(chunking_profile_version) BETWEEN 1 AND 100 "
             "AND char_length(embedding_profile_version) BETWEEN 1 AND 100 "
@@ -222,11 +227,11 @@ class DocumentVersion(UUIDPk, Base):
     source_storage_key: Mapped[str | None] = mapped_column(String(1024), default=None)
     source_page_count: Mapped[int | None] = mapped_column(default=None)
     revision_date: Mapped[datetime | None] = mapped_column(default=None)
-    parser_profile_version: Mapped[str | None] = mapped_column(String(100), default=None)
-    ocr_profile_version: Mapped[str | None] = mapped_column(String(100), default=None)
-    chunking_profile_version: Mapped[str | None] = mapped_column(String(100), default=None)
-    embedding_profile_version: Mapped[str | None] = mapped_column(String(100), default=None)
-    index_profile_version: Mapped[str | None] = mapped_column(String(100), default=None)
+    parser_profile_version: Mapped[str] = mapped_column(String(100))
+    ocr_profile_version: Mapped[str] = mapped_column(String(100))
+    chunking_profile_version: Mapped[str] = mapped_column(String(100))
+    embedding_profile_version: Mapped[str] = mapped_column(String(100))
+    index_profile_version: Mapped[str] = mapped_column(String(100))
     state: Mapped[str] = mapped_column(default=DocumentVersionState.DRAFT.value, index=True)
     provenance_state: Mapped[str] = mapped_column(default=ProvenanceState.NONE.value, index=True)
     lifecycle_revision: Mapped[int] = mapped_column(default=1)

@@ -521,6 +521,79 @@ async def test_nonlegacy_version_rejects_every_legacy_only_provenance_value(
         await session.commit()
 
 
+@pytest.mark.parametrize("version_kind", ["legacy", "authority"])
+@pytest.mark.parametrize(
+    "profile_field",
+    [
+        "parser_profile_version",
+        "ocr_profile_version",
+        "chunking_profile_version",
+        "embedding_profile_version",
+        "index_profile_version",
+    ],
+)
+async def test_every_version_profile_is_required_in_postgresql(
+    session: AsyncSession,
+    version_kind: str,
+    profile_field: str,
+) -> None:
+    organization, workspace, user = await seed_scope(session)
+    document = Document(
+        org_id=organization.id,
+        workspace_id=workspace.id,
+        name=f"{version_kind} profile contract",
+        created_by=user.id,
+    )
+    session.add(document)
+    await session.flush()
+    values: dict[str, object] = {
+        "org_id": organization.id,
+        "workspace_id": workspace.id,
+        "document_id": document.id,
+        "sequence": 1,
+        "content_hash": "9" * 64,
+        "source_filename": "source.pdf",
+        "source_mime": "application/pdf",
+        "source_size_bytes": 10,
+        "source_storage_key": "versions/source.pdf",
+        "source_page_count": 1,
+        "created_by": user.id,
+    }
+    if version_kind == "legacy":
+        values.update(
+            {
+                "version_label": "Legacy 1",
+                "version_key": "legacy 1",
+                "parser_profile_version": "legacy/parser-v1",
+                "ocr_profile_version": "legacy/ocr-unknown-v1",
+                "chunking_profile_version": "legacy/chunking-v1",
+                "embedding_profile_version": "legacy/embedding-v1",
+                "index_profile_version": "legacy/index-v1",
+                "state": "approved",
+                "provenance_state": "legacy_pending",
+            }
+        )
+    else:
+        values.update(
+            {
+                "version_label": "Rev 1",
+                "version_key": "rev 1",
+                "parser_profile_version": "docling/v1",
+                "ocr_profile_version": "none/v1",
+                "chunking_profile_version": "semantic/v1",
+                "embedding_profile_version": "bge-m3/v1",
+                "index_profile_version": "hybrid/v1",
+                "state": "draft",
+                "provenance_state": "none",
+            }
+        )
+    values[profile_field] = None
+
+    with pytest.raises(IntegrityError):
+        await session.execute(insert(DocumentVersion).values(**values))
+        await session.commit()
+
+
 @pytest.mark.parametrize(
     ("legacy_status", "state", "provenance_state"),
     [
