@@ -18,6 +18,8 @@ from openrag.modules.documents.lifecycle import DocumentVersionState
 
 MAX_ENVELOPE_BYTES = 16 * 1024
 LIFECYCLE_EVENT_TYPE = "document.version.lifecycle.v1"
+INGESTION_REQUESTED_EVENT_TYPE = "document.version.ingestion_requested.v1"
+REBUILD_REQUESTED_EVENT_TYPE = "document.version.rebuild_requested.v1"
 
 
 class DocumentVersionLifecycleV1(BaseModel):
@@ -30,7 +32,30 @@ class DocumentVersionLifecycleV1(BaseModel):
     new_state: DocumentVersionState
 
 
-RegisteredPayload = DocumentVersionLifecycleV1
+class DocumentVersionIngestionRequestedV1(BaseModel):
+    """Content-free command that starts one numbered ingestion attempt."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    document_id: UUID
+    attempt: int = Field(gt=0)
+    authority_generation_id: UUID
+
+
+class DocumentVersionRebuildRequestedV1(BaseModel):
+    """Content-free command that rebuilds legacy provenance and projection."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    document_id: UUID
+    authority_generation_id: UUID
+
+
+RegisteredPayload = (
+    DocumentVersionLifecycleV1
+    | DocumentVersionIngestionRequestedV1
+    | DocumentVersionRebuildRequestedV1
+)
 
 
 class _DuplicateKeyError(ValueError):
@@ -95,6 +120,10 @@ class EventEnvelopeBase(BaseModel):
 def _registration(payload: object) -> tuple[str, str]:
     if type(payload) is DocumentVersionLifecycleV1:
         return LIFECYCLE_EVENT_TYPE, "document_version"
+    if type(payload) is DocumentVersionIngestionRequestedV1:
+        return INGESTION_REQUESTED_EVENT_TYPE, "document_version"
+    if type(payload) is DocumentVersionRebuildRequestedV1:
+        return REBUILD_REQUESTED_EVENT_TYPE, "document_version"
     raise ValueError("schema_not_registered")
 
 
@@ -172,12 +201,18 @@ def parse_base_envelope(encoded: bytes) -> EventEnvelopeBase:
 
 def parse_registered_envelope(encoded: bytes) -> EventEnvelopeV1:
     raw = _decode_envelope(encoded)
-    if raw.get("event_type") != LIFECYCLE_EVENT_TYPE:
+    if raw.get("event_type") not in {
+        LIFECYCLE_EVENT_TYPE,
+        INGESTION_REQUESTED_EVENT_TYPE,
+        REBUILD_REQUESTED_EVENT_TYPE,
+    }:
         raise ValueError("schema_not_registered")
     try:
         envelope = EventEnvelopeV1.model_validate(raw)
     except ValidationError as exc:
         raise ValueError("contract_invalid") from exc
+    if _registration(envelope.payload)[0] != envelope.event_type:
+        raise ValueError("contract_invalid")
     if canonical_envelope_bytes(envelope) != encoded:
         raise ValueError("contract_invalid")
     return envelope

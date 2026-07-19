@@ -7,7 +7,9 @@ from pydantic import ValidationError
 from openrag.modules.documents.lifecycle import DocumentVersionState
 from openrag.modules.events.envelopes import (
     MAX_ENVELOPE_BYTES,
+    DocumentVersionIngestionRequestedV1,
     DocumentVersionLifecycleV1,
+    DocumentVersionRebuildRequestedV1,
     EventEnvelopeBase,
     EventEnvelopeV1,
     build_envelope,
@@ -156,6 +158,91 @@ def test_base_envelope_accepts_attestable_future_schema() -> None:
     assert isinstance(base, EventEnvelopeBase)
     assert base.schema_version == 2
     assert base.event_type == "document.version.future.v2"
+
+
+@pytest.mark.parametrize(
+    ("payload", "event_type"),
+    [
+        (
+            DocumentVersionIngestionRequestedV1(
+                document_id=DOCUMENT_ID,
+                attempt=2,
+                authority_generation_id=EVENT_ID,
+            ),
+            "document.version.ingestion_requested.v1",
+        ),
+        (
+            DocumentVersionRebuildRequestedV1(
+                document_id=DOCUMENT_ID,
+                authority_generation_id=EVENT_ID,
+            ),
+            "document.version.rebuild_requested.v1",
+        ),
+    ],
+)
+def test_document_start_commands_are_registered_content_free_contracts(
+    payload: DocumentVersionIngestionRequestedV1 | DocumentVersionRebuildRequestedV1,
+    event_type: str,
+) -> None:
+    envelope = build_envelope(
+        payload=payload,
+        event_id=EVENT_ID,
+        org_id=ORG_ID,
+        workspace_id=WORKSPACE_ID,
+        aggregate_id=VERSION_ID,
+        lifecycle_revision=1,
+        correlation_id=CORRELATION_ID,
+        occurred_at=datetime(2026, 7, 19, 12, 30, tzinfo=UTC),
+    )
+
+    encoded = canonical_envelope_bytes(envelope)
+
+    assert envelope.event_type == event_type
+    assert parse_registered_envelope(encoded) == envelope
+    for forbidden in (b"document_text", b"storage_key", b"content_hash", b"credential"):
+        assert forbidden not in encoded
+
+
+def test_document_start_commands_reject_invalid_attempts_and_extra_data() -> None:
+    with pytest.raises(ValidationError):
+        DocumentVersionIngestionRequestedV1(
+            document_id=DOCUMENT_ID,
+            attempt=0,
+            authority_generation_id=EVENT_ID,
+        )
+
+
+def test_parser_rejects_event_type_and_payload_cross_wiring() -> None:
+    envelope = build_envelope(
+        payload=DocumentVersionRebuildRequestedV1(
+            document_id=DOCUMENT_ID,
+            authority_generation_id=EVENT_ID,
+        ),
+        event_id=EVENT_ID,
+        org_id=ORG_ID,
+        workspace_id=WORKSPACE_ID,
+        aggregate_id=VERSION_ID,
+        lifecycle_revision=1,
+        correlation_id=CORRELATION_ID,
+        occurred_at=datetime(2026, 7, 19, 12, 30, tzinfo=UTC),
+    ).model_dump(mode="json")
+    envelope["event_type"] = "document.version.ingestion_requested.v1"
+    encoded = __import__("json").dumps(
+        envelope,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+
+    with pytest.raises(ValueError, match="contract_invalid"):
+        parse_registered_envelope(encoded)
+    with pytest.raises(ValidationError):
+        DocumentVersionRebuildRequestedV1.model_validate(
+            {
+                "document_id": str(DOCUMENT_ID),
+                "authority_generation_id": str(EVENT_ID),
+                "document_text": "SENTINEL",
+            }
+        )
 
 
 @pytest.mark.parametrize(

@@ -5,7 +5,11 @@ from uuid import UUID
 import pytest
 
 from openrag.modules.documents.lifecycle import DocumentVersionState
-from openrag.modules.events.envelopes import DocumentVersionLifecycleV1
+from openrag.modules.events.envelopes import (
+    DocumentVersionIngestionRequestedV1,
+    DocumentVersionLifecycleV1,
+    DocumentVersionRebuildRequestedV1,
+)
 from openrag.modules.events.outbox import add_registered_event
 
 
@@ -72,3 +76,40 @@ def test_registered_factory_rejects_oversized_envelope_before_add(
         add_registered_event(session, **event_values())  # type: ignore[arg-type]
 
     assert session.added == []
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (
+            DocumentVersionIngestionRequestedV1(
+                document_id=UUID("10000000-0000-0000-0000-000000000001"),
+                attempt=3,
+                authority_generation_id=UUID(
+                    "60000000-0000-0000-0000-000000000006"
+                ),
+            ),
+            "document-version:40000000-0000-0000-0000-000000000004:ingestion:3",
+        ),
+        (
+            DocumentVersionRebuildRequestedV1(
+                document_id=UUID("10000000-0000-0000-0000-000000000001"),
+                authority_generation_id=UUID(
+                    "60000000-0000-0000-0000-000000000006"
+                ),
+            ),
+            "document-version:40000000-0000-0000-0000-000000000004:rebuild:1",
+        ),
+    ],
+)
+def test_registered_factory_derives_document_start_dedupe_keys(
+    payload: DocumentVersionIngestionRequestedV1 | DocumentVersionRebuildRequestedV1,
+    expected: str,
+) -> None:
+    session = RecordingSession()
+    values = event_values()
+    values["payload"] = payload
+
+    event = add_registered_event(session, **values)  # type: ignore[arg-type]
+
+    assert event.dedupe_key == expected
