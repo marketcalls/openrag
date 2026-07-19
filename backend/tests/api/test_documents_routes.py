@@ -629,3 +629,44 @@ async def test_initial_upload_never_calls_legacy_direct_dispatch(
     assert version.processing_error_code is None
     assert (document.status, document.error) == ("queued", None)
     assert len(await ingestion_events(session)) == 1
+
+
+async def test_upload_controlled_version_uses_server_profiles_and_durable_command(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    session: AsyncSession,
+    stack_env: None,
+    captured_enqueues: dict[str, list[tuple[Any, ...]]],
+) -> None:
+    headers = await auth(client, seeded_user.email)
+    workspace_id = await make_workspace(client, headers)
+    initial = await client.post(
+        f"/api/v1/workspaces/{workspace_id}/documents",
+        headers=headers,
+        files={"file": ("manual.txt", b"revision one", "text/plain")},
+    )
+    document_id = initial.json()["id"]
+
+    response = await client.post(
+        f"/api/v1/documents/{document_id}/versions",
+        headers=headers,
+        data={"version_label": "Rev 2"},
+        files={"file": ("manual-v2.txt", b"revision two", "text/plain")},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["document_id"] == document_id
+    assert body["sequence"] == 2
+    assert body["version_label"] == "Rev 2"
+    version = await session.get(DocumentVersion, UUID(body["id"]))
+    assert version is not None
+    assert version.parser_profile_version == "openrag-parser/v1"
+    assert version.chunking_profile_version == "openrag-page-local/v1"
+    assert version.embedding_profile_version.startswith("embedding/v1/")
+    assert version.index_profile_version == "openrag-authority-hybrid/v1"
+    events = await ingestion_events(session)
+    assert [event.aggregate_id for event in events] == [
+        UUID(document_id),
+        version.id,
+    ]

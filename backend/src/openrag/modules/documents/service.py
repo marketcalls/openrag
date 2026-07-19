@@ -36,6 +36,7 @@ from openrag.modules.documents.models import (
     DocumentVersionDecisionRecord,
     IngestJob,
 )
+from openrag.modules.documents.profiles import active_ingestion_profiles
 from openrag.modules.documents.uploads import QuarantinedUpload
 from openrag.modules.events.envelopes import (
     DocumentVersionIngestionRequestedV1,
@@ -405,12 +406,13 @@ async def create_from_upload(
             raise RuntimeError("in-memory upload source is missing")
         await storage.put(key, prepared.data, content_type=prepared.mime)
 
-    return await _persist_prepared_upload(
+    document, _version = await _persist_prepared_upload(
         session,
         context,
         prepared,
         write_source,
     )
+    return document
 
 
 async def create_from_quarantined_upload(
@@ -434,12 +436,54 @@ async def create_from_quarantined_upload(
     async def write_source(storage: ObjectStorage, key: str) -> None:
         await storage.put_file(key, upload.path, content_type=prepared.mime)
 
-    return await _persist_prepared_upload(
+    document, _version = await _persist_prepared_upload(
         session,
         context,
         prepared,
         write_source,
     )
+    return document
+
+
+async def create_version_from_quarantined_upload(
+    session: AsyncSession,
+    context: TenantContext,
+    document: Document,
+    upload: QuarantinedUpload,
+    *,
+    version_label: str,
+) -> DocumentVersion:
+    """Create one controlled version using server-authoritative profile identities."""
+
+    settings = get_settings()
+    profiles = active_ingestion_profiles(settings)
+    prepared = await authorize_upload_scope(
+        session,
+        context,
+        document.workspace_id,
+        document_id=document.id,
+        version_label=version_label,
+        filename=upload.filename,
+        mime=upload.mime,
+        size_bytes=upload.size_bytes,
+        content_hash=upload.content_hash,
+        parser_profile_version=profiles.parser_profile_version,
+        ocr_profile_version=profiles.ocr_profile_version,
+        chunking_profile_version=profiles.chunking_profile_version,
+        embedding_profile_version=profiles.embedding_profile_version,
+        index_profile_version=profiles.index_profile_version,
+    )
+
+    async def write_source(storage: ObjectStorage, key: str) -> None:
+        await storage.put_file(key, upload.path, content_type=prepared.mime)
+
+    _document, version = await _persist_prepared_upload(
+        session,
+        context,
+        prepared,
+        write_source,
+    )
+    return version
 
 
 async def _persist_prepared_upload(
@@ -447,7 +491,7 @@ async def _persist_prepared_upload(
     context: TenantContext,
     prepared: PreparedUpload,
     write_source: Callable[[ObjectStorage, str], Awaitable[None]],
-) -> Document:
+) -> tuple[Document, DocumentVersion]:
     """Perform object I/O outside SQL, then atomically record its authority."""
 
     storage = build_storage(get_settings())
@@ -478,7 +522,7 @@ async def _persist_prepared_upload(
             target_id=str(document.id),
         )
         await session.commit()
-        return document
+        return document, version
     except Exception:
         await session.rollback()
         await compensate()

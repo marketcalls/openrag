@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     minio_bucket: str = "openrag-documents"
     tei_url: str = "http://localhost:58080"
     embedding_backend: str = "tei"
+    embedding_model_id: str = Field(default="BAAI/bge-m3", min_length=1, max_length=200)
     embedding_dim: int = 1024
     authority_generation_id: UUID = UUID(
         "8a9848ab-6f79-5ec8-a906-a1f3c096cdb8"

@@ -50,6 +50,38 @@ async def upload_document(
     return DocumentOut.from_document(document)
 
 
+@router.post(
+    "/documents/{document_id}/versions",
+    status_code=201,
+    response_model=DocumentVersionOut,
+)
+async def upload_document_version(
+    document_id: UUID,
+    session: SessionDep,
+    context: ContextDep,
+    file: Annotated[UploadFile, File()],
+    version_label: Annotated[str, Form(min_length=1, max_length=200)],
+    sequence: Annotated[int | None, Form()] = None,
+) -> DocumentVersionOut:
+    if sequence is not None:
+        raise HTTPException(status_code=422, detail="sequence is server assigned")
+    document = await service.get_document_checked(
+        session,
+        context,
+        document_id,
+        permission="document.upload",
+    )
+    async with quarantine_upload(file, get_settings()) as quarantined:
+        version = await service.create_version_from_quarantined_upload(
+            session,
+            context,
+            document,
+            quarantined,
+            version_label=version_label,
+        )
+    return DocumentVersionOut.from_version(version)
+
+
 @router.get(
     "/workspaces/{workspace_id}/documents",
     response_model=list[DocumentOut],
