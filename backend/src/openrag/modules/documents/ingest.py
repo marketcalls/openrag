@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
@@ -16,7 +16,6 @@ from openrag.core.config import get_settings
 from openrag.core.db import build_engine, build_session_factory, naive_utc
 from openrag.core.storage import ObjectStorage, build_storage
 from openrag.modules.audit.service import record_audit
-from openrag.modules.documents.events import DocumentVersionEventV1
 from openrag.modules.documents.lifecycle import (
     LEGACY_VERSION_KEY,
     LEGACY_VERSION_LABEL,
@@ -43,7 +42,8 @@ from openrag.modules.documents.pipeline import (
     parse_bytes,
     upsert_points,
 )
-from openrag.modules.events.models import OutboxEvent
+from openrag.modules.events.envelopes import DocumentVersionLifecycleV1
+from openrag.modules.events.outbox import add_registered_event
 from openrag.modules.retrieval.embeddings import get_dense_embedder
 from openrag.modules.retrieval.service import (
     delete_document_points,
@@ -52,7 +52,6 @@ from openrag.modules.retrieval.service import (
 )
 
 _BATCH_SIZE = 32
-_LIFECYCLE_EVENT_TYPE = "document.version.lifecycle.v1"
 
 
 @dataclass(frozen=True)
@@ -132,26 +131,19 @@ async def _record_legacy_lifecycle_transition(
         if occurred_at.tzinfo is None
         else occurred_at.astimezone(UTC)
     )
-    event = DocumentVersionEventV1(
-        org_id=version.org_id,
-        workspace_id=version.workspace_id,
+    event = DocumentVersionLifecycleV1(
         document_id=version.document_id,
-        document_version_id=version.id,
         previous_state=DocumentVersionState(previous_state),
         new_state=DocumentVersionState(version.state),
-        lifecycle_revision=version.lifecycle_revision,
-        actor_id=document.created_by,
-        occurred_at=aware_occurred_at,
     )
-    session.add(
-        OutboxEvent(
-            event_id=uuid4(),
-            aggregate_type="document_version",
-            aggregate_id=version.id,
-            event_type=_LIFECYCLE_EVENT_TYPE,
-            payload=event.model_dump(mode="json"),
-            dedupe_key=event.dedupe_key,
-        )
+    add_registered_event(
+        session,
+        payload=event,
+        org_id=version.org_id,
+        workspace_id=version.workspace_id,
+        aggregate_id=version.id,
+        lifecycle_revision=version.lifecycle_revision,
+        occurred_at=aware_occurred_at,
     )
     await record_audit(
         session,
@@ -171,9 +163,7 @@ async def _fail_jobs(
     expected_revision: int,
 ) -> None:
     try:
-        legacy_version = await _lock_active_attempt(
-            session, document, expected_revision
-        )
+        legacy_version = await _lock_active_attempt(session, document, expected_revision)
     except IngestFailure:
         await session.rollback()
         return
@@ -216,15 +206,19 @@ async def _legacy_version(
     *,
     lock: bool = False,
 ) -> DocumentVersion | None:
-    statement = select(DocumentVersion).where(
-        DocumentVersion.id == document.id,
-        DocumentVersion.org_id == document.org_id,
-        DocumentVersion.workspace_id == document.workspace_id,
-        DocumentVersion.document_id == document.id,
-        DocumentVersion.sequence == 1,
-        DocumentVersion.version_label == LEGACY_VERSION_LABEL,
-        DocumentVersion.version_key == LEGACY_VERSION_KEY,
-    ).execution_options(populate_existing=True)
+    statement = (
+        select(DocumentVersion)
+        .where(
+            DocumentVersion.id == document.id,
+            DocumentVersion.org_id == document.org_id,
+            DocumentVersion.workspace_id == document.workspace_id,
+            DocumentVersion.document_id == document.id,
+            DocumentVersion.sequence == 1,
+            DocumentVersion.version_label == LEGACY_VERSION_LABEL,
+            DocumentVersion.version_key == LEGACY_VERSION_KEY,
+        )
+        .execution_options(populate_existing=True)
+    )
     if lock:
         statement = statement.with_for_update()
     return (await session.execute(statement)).scalar_one_or_none()
@@ -273,18 +267,14 @@ async def run_parse(document_id: UUID, expected_revision: int) -> None:
                 filename,
             )
         except IngestFailure as exc:
-            await _fail_jobs(
-                session, document, (job,), str(exc), expected_revision
-            )
+            await _fail_jobs(session, document, (job,), str(exc), expected_revision)
             raise
         await storage.put(
             storage_key + ".blocks.json",
             json.dumps([asdict(block) for block in blocks]).encode(),
             content_type="application/json",
         )
-        legacy_version = await _lock_active_attempt(
-            session, document, expected_revision
-        )
+        legacy_version = await _lock_active_attempt(session, document, expected_revision)
         document.page_count = max(block.page for block in blocks)
         legacy_version.source_page_count = document.page_count
         await _finish_stage(session, job)
@@ -298,18 +288,14 @@ async def run_chunk(document_id: UUID, expected_revision: int) -> None:
         try:
             storage_key, _filename, _mime = _legacy_ingest_source(document)
         except IngestFailure as exc:
-            await _fail_jobs(
-                session, document, (job,), str(exc), expected_revision
-            )
+            await _fail_jobs(session, document, (job,), str(exc), expected_revision)
             raise
         raw = await storage.get(storage_key + ".blocks.json")
         blocks = [PageBlock(**block) for block in json.loads(raw)]
         chunks = chunk_blocks(blocks)
         if not chunks:
             reason = "chunking produced no chunks"
-            await _fail_jobs(
-                session, document, (job,), reason, expected_revision
-            )
+            await _fail_jobs(session, document, (job,), reason, expected_revision)
             raise IngestFailure(reason)
         await storage.put(
             storage_key + ".chunks.json",
@@ -323,12 +309,8 @@ async def run_chunk(document_id: UUID, expected_revision: int) -> None:
 async def run_embed_upsert(document_id: UUID, expected_revision: int) -> None:
     async with _session() as session:
         document = await _get_document(session, document_id)
-        embed_job = await _start_stage(
-            session, document, "embed", expected_revision
-        )
-        upsert_job = await _start_stage(
-            session, document, "upsert", expected_revision
-        )
+        embed_job = await _start_stage(session, document, "embed", expected_revision)
+        upsert_job = await _start_stage(session, document, "upsert", expected_revision)
         try:
             storage_key, _filename, mime = _legacy_ingest_source(document)
         except IngestFailure as exc:
@@ -367,9 +349,7 @@ async def run_embed_upsert(document_id: UUID, expected_revision: int) -> None:
             upsert_job.progress = progress
             await _lock_active_attempt(session, document, expected_revision)
             await session.commit()
-        legacy_version = await _lock_active_attempt(
-            session, document, expected_revision
-        )
+        legacy_version = await _lock_active_attempt(session, document, expected_revision)
         now = naive_utc()
         document.status = "indexed"
         document.error = None
@@ -409,8 +389,7 @@ async def _load_deletion_plan(
 ) -> _DeletionPlan | None:
     identity = (
         await session.execute(
-            select(DocumentVersion)
-            .where(DocumentVersion.id == document_version_id)
+            select(DocumentVersion).where(DocumentVersion.id == document_version_id)
         )
     ).scalar_one_or_none()
     if identity is None:
@@ -456,9 +435,7 @@ async def _load_deletion_plan(
         .where(
             DocumentVersionDecisionRecord.org_id == version.org_id,
             DocumentVersionDecisionRecord.document_version_id == version.id,
-            DocumentVersionDecisionRecord.decision.in_(
-                ("approved", "superseded", "obsolete")
-            ),
+            DocumentVersionDecisionRecord.decision.in_(("approved", "superseded", "obsolete")),
         )
         .limit(1)
     )
@@ -518,11 +495,7 @@ async def _finalize_deletion(
         ).scalars()
     )
     version = next(
-        (
-            candidate
-            for candidate in locked_versions
-            if candidate.id == plan.document_version_id
-        ),
+        (candidate for candidate in locked_versions if candidate.id == plan.document_version_id),
         None,
     )
     if version is None or version.source_deleted_at is not None:
@@ -544,14 +517,8 @@ async def _finalize_deletion(
         DocumentVersionProjection,
         IngestStageAttempt,
     ):
-        await session.execute(
-            sa_delete(model).where(
-                model.document_version_id == version.id
-            )
-        )
-    await session.execute(
-        sa_delete(IngestJob).where(IngestJob.document_version_id == version.id)
-    )
+        await session.execute(sa_delete(model).where(model.document_version_id == version.id))
+    await session.execute(sa_delete(IngestJob).where(IngestJob.document_version_id == version.id))
     has_decision = bool(
         await session.scalar(
             select(func.count())
@@ -591,9 +558,7 @@ async def run_delete(document_version_id: UUID, actor_id: UUID | None) -> None:
         if plan.exact_legacy:
             await delete_document_points(plan.org_id, plan.document_id)
         else:
-            await delete_document_version_points(
-                plan.org_id, plan.document_version_id
-            )
+            await delete_document_version_points(plan.org_id, plan.document_version_id)
         storage = _storage()
         for key in (
             plan.source_storage_key,
@@ -611,15 +576,11 @@ async def mark_failed(
 ) -> None:
     async with _session() as session:
         document = (
-            await session.execute(
-                select(Document).where(Document.id == document_id)
-            )
+            await session.execute(select(Document).where(Document.id == document_id))
         ).scalar_one_or_none()
         if document is not None:
             try:
-                legacy_version = await _lock_active_attempt(
-                    session, document, expected_revision
-                )
+                legacy_version = await _lock_active_attempt(session, document, expected_revision)
             except IngestFailure:
                 await session.rollback()
                 return

@@ -25,6 +25,10 @@ from openrag.modules.documents.service import (
     get_document_checked,
     list_documents,
 )
+from openrag.modules.events.envelopes import (
+    DocumentVersionLifecycleV1,
+    build_envelope,
+)
 from openrag.modules.events.models import OutboxEvent
 from openrag.modules.tenancy.authorization import AuthorizationSnapshot
 from openrag.modules.tenancy.context import TenantContext
@@ -455,8 +459,8 @@ async def test_retry_recovers_stale_processing_legacy_attempt_with_fence(
     assert job.error == "superseded_by_v2_recovery"
     events = list((await session.execute(select(OutboxEvent))).scalars())
     assert len(events) == 1
-    assert events[0].payload["previous_state"] == "processing"
-    assert events[0].payload["new_state"] == "processing"
+    assert events[0].payload["payload"]["previous_state"] == "processing"
+    assert events[0].payload["payload"]["new_state"] == "processing"
     audits = list(
         (
             await session.execute(
@@ -545,56 +549,51 @@ async def test_approval_is_independent_of_candidate_incumbent_uuid_order(
 
 
 def test_lifecycle_event_contract_is_bounded_and_content_free() -> None:
-    event = service.DocumentVersionEventV1(
-        org_id=uuid4(),
-        workspace_id=uuid4(),
+    payload = DocumentVersionLifecycleV1(
         document_id=uuid4(),
-        document_version_id=uuid4(),
         previous_state="review",
         new_state="approved",
+    )
+    event = build_envelope(
+        payload=payload,
+        event_id=uuid4(),
+        org_id=uuid4(),
+        workspace_id=uuid4(),
+        aggregate_id=uuid4(),
         lifecycle_revision=2,
-        actor_id=uuid4(),
+        correlation_id=uuid4(),
         occurred_at=datetime.now(UTC),
     )
 
     assert set(event.model_dump()) == {
         "schema_version",
+        "event_id",
+        "event_type",
+        "aggregate_type",
+        "aggregate_id",
         "org_id",
         "workspace_id",
-        "document_id",
-        "document_version_id",
-        "previous_state",
-        "new_state",
         "lifecycle_revision",
-        "actor_id",
+        "correlation_id",
         "occurred_at",
+        "payload",
     }
-    assert event.dedupe_key == (
-        f"document-version:{event.document_version_id}:{event.lifecycle_revision}"
-    )
     with pytest.raises(ValidationError):
-        service.DocumentVersionEventV1(
+        build_envelope(
+            payload=payload,
+            event_id=uuid4(),
             org_id=uuid4(),
             workspace_id=uuid4(),
-            document_id=uuid4(),
-            document_version_id=uuid4(),
-            previous_state="review",
-            new_state="approved",
+            aggregate_id=uuid4(),
             lifecycle_revision=0,
-            actor_id=uuid4(),
+            correlation_id=uuid4(),
             occurred_at=datetime.now(UTC),
         )
     with pytest.raises(ValidationError):
-        service.DocumentVersionEventV1(
-            org_id=uuid4(),
-            workspace_id=uuid4(),
+        DocumentVersionLifecycleV1(
             document_id=uuid4(),
-            document_version_id=uuid4(),
             previous_state="review",
             new_state="approved",
-            lifecycle_revision=2,
-            actor_id=uuid4(),
-            occurred_at=datetime.now(UTC),
             filename="secret.pdf",
         )
 
@@ -920,44 +919,35 @@ async def test_lifecycle_command_permission_and_foreign_object_oracles(
     version_id = version.id
 
     allowed_except_required = frozenset(
-        {"document.read", "document.upload", "document.approve"}
-        - {required_permission}
+        {"document.read", "document.upload", "document.approve"} - {required_permission}
     )
     restricted = context_with_permissions(context, allowed_except_required)
-    kwargs = {"reason": None} if command in {
-        "approve_version",
-        "reject_version",
-        "obsolete_version",
-    } else {}
-    with pytest.raises(WorkspaceAccessDenied):
-        await getattr(service, command)(
-            session, restricted, version_id, **kwargs
-        )
-
-    foreign_context, _ = await seed_workspace(
-        session, f"foreign-{command}", role="admin"
+    kwargs = (
+        {"reason": None}
+        if command
+        in {
+            "approve_version",
+            "reject_version",
+            "obsolete_version",
+        }
+        else {}
     )
+    with pytest.raises(WorkspaceAccessDenied):
+        await getattr(service, command)(session, restricted, version_id, **kwargs)
+
+    foreign_context, _ = await seed_workspace(session, f"foreign-{command}", role="admin")
     with pytest.raises(NotFoundError):
-        await getattr(service, command)(
-            session, foreign_context, version_id, **kwargs
-        )
+        await getattr(service, command)(session, foreign_context, version_id, **kwargs)
 
 
 async def test_checked_version_read_and_list_preserve_oracles(
     session: AsyncSession,
 ) -> None:
-    context, document, version, _ = await seed_review_version(
-        session, "checked-version"
-    )
-    assert (
-        await service.get_version_checked(session, context, version.id)
-    ).id == version.id
-    assert [
-        item.id
-        for item in await service.list_versions(
-            session, context, document.id
-        )
-    ] == [version.id]
+    context, document, version, _ = await seed_review_version(session, "checked-version")
+    assert (await service.get_version_checked(session, context, version.id)).id == version.id
+    assert [item.id for item in await service.list_versions(session, context, document.id)] == [
+        version.id
+    ]
 
     restricted = context_with_permissions(context, frozenset({"document.upload"}))
     with pytest.raises(WorkspaceAccessDenied):
@@ -1149,25 +1139,26 @@ async def test_create_version_reauthorizes_prepared_scope(
     with pytest.raises(WorkspaceAccessDenied):
         await service.create_version_record(session, restricted, prepared)
 
-    assert list(
-        (
-            await session.execute(
-                select(DocumentVersion).where(
-                    DocumentVersion.document_id == document.id,
-                    DocumentVersion.version_key == "rev 2",
+    assert (
+        list(
+            (
+                await session.execute(
+                    select(DocumentVersion).where(
+                        DocumentVersion.document_id == document.id,
+                        DocumentVersion.version_key == "rev 2",
+                    )
                 )
-            )
-        ).scalars()
-    ) == []
+            ).scalars()
+        )
+        == []
+    )
 
 
 async def test_governance_rolls_back_decision_audit_and_state_when_outbox_write_fails(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    context, _document, candidate, _ = await seed_review_version(
-        session, "approve-outbox-rollback"
-    )
+    context, _document, candidate, _ = await seed_review_version(session, "approve-outbox-rollback")
 
     def fail_outbox(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise RuntimeError("forced outbox failure")

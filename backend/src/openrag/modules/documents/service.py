@@ -15,7 +15,6 @@ from openrag.core.db import naive_utc
 from openrag.core.errors import ConflictError, NotFoundError, WorkspaceAccessDenied
 from openrag.core.storage import build_storage
 from openrag.modules.audit.service import record_audit
-from openrag.modules.documents.events import DocumentVersionEventV1
 from openrag.modules.documents.lifecycle import (
     LEGACY_CHUNKING_PROFILE_VERSION,
     LEGACY_EMBEDDING_PROFILE_VERSION,
@@ -36,12 +35,12 @@ from openrag.modules.documents.models import (
     DocumentVersionDecisionRecord,
     IngestJob,
 )
-from openrag.modules.events.models import OutboxEvent
+from openrag.modules.events.envelopes import DocumentVersionLifecycleV1
+from openrag.modules.events.outbox import add_registered_event
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Workspace
 from openrag.modules.tenancy.service import get_workspace_checked
 
-_LIFECYCLE_EVENT_TYPE = "document.version.lifecycle.v1"
 _logger = logging.getLogger(__name__)
 _DELETABLE_STATES = frozenset(
     {
@@ -116,9 +115,7 @@ async def _authorize_object_workspace(
     ).scalar_one_or_none()
     authorization = context.authorization
     can_read_all = authorization.has("workspace.read_all", workspace_id)
-    if workspace is None or (
-        workspace_id not in authorization.workspace_ids and not can_read_all
-    ):
+    if workspace is None or (workspace_id not in authorization.workspace_ids and not can_read_all):
         raise NotFoundError("document not found")
     if not authorization.has(permission, workspace_id):
         raise WorkspaceAccessDenied(f"requires permission: {permission}")
@@ -169,13 +166,9 @@ async def authorize_upload_scope(
                 raise NotFoundError("document not found")
 
         workspace = (
-            await _authorize_object_workspace(
-                session, context, workspace_id, "document.upload"
-            )
+            await _authorize_object_workspace(session, context, workspace_id, "document.upload")
             if document is not None
-            else await get_workspace_checked(
-                session, context, workspace_id, "document.upload"
-            )
+            else await get_workspace_checked(session, context, workspace_id, "document.upload")
         )
         content_hash = hashlib.sha256(data).hexdigest()
         if document is None:
@@ -198,9 +191,7 @@ async def authorize_upload_scope(
                 )
             ).scalar_one_or_none()
             if duplicate is not None:
-                raise ConflictError(
-                    f"identical content already uploaded as document {duplicate}"
-                )
+                raise ConflictError(f"identical content already uploaded as document {duplicate}")
         else:
             if version_label is None:
                 raise ConflictError("version label is required")
@@ -246,9 +237,7 @@ async def authorize_upload_scope(
             data=data,
             size_bytes=len(data),
             content_hash=content_hash,
-            storage_key=(
-                f"{context.org_id}/{workspace.id}/{logical_id}/{version_id}/source"
-            ),
+            storage_key=(f"{context.org_id}/{workspace.id}/{logical_id}/{version_id}/source"),
             parser_profile_version=profiles[0],
             ocr_profile_version=profiles[1],
             chunking_profile_version=profiles[2],
@@ -306,9 +295,7 @@ async def create_version_record(
 ) -> DocumentVersion:
     if prepared.org_id != context.org_id:
         raise NotFoundError("document not found")
-    await _authorize_object_workspace(
-        session, context, prepared.workspace_id, "document.upload"
-    )
+    await _authorize_object_workspace(session, context, prepared.workspace_id, "document.upload")
     document = (
         await session.execute(
             select(Document)
@@ -336,9 +323,7 @@ async def create_version_record(
     if duplicate is not None:
         raise ConflictError("duplicate document version")
     maximum = await session.scalar(
-        select(func.max(DocumentVersion.sequence)).where(
-            DocumentVersion.document_id == document.id
-        )
+        select(func.max(DocumentVersion.sequence)).where(DocumentVersion.document_id == document.id)
     )
     sequence = int(maximum or 0) + 1
     if prepared.new_document and (
@@ -433,13 +418,11 @@ async def list_documents(
     context: TenantContext,
     workspace_id: UUID,
 ) -> list[Document]:
-    workspace = await get_workspace_checked(
-        session, context, workspace_id, "document.read"
-    )
+    workspace = await get_workspace_checked(session, context, workspace_id, "document.read")
     statement = (
         select(Document)
         .where(Document.workspace_id == workspace.id)
-        .order_by(Document.created_at.desc())
+        .order_by(Document.created_at.desc(), Document.id.desc())
     )
     return list((await session.execute(statement)).scalars())
 
@@ -461,10 +444,43 @@ async def get_document_checked(
     ).scalar_one_or_none()
     if document is None:
         raise NotFoundError("document not found")
-    await _authorize_object_workspace(
-        session, context, document.workspace_id, permission
-    )
+    await _authorize_object_workspace(session, context, document.workspace_id, permission)
     return document
+
+
+async def patch_document(
+    session: AsyncSession,
+    context: TenantContext,
+    document_id: UUID,
+    changes: dict[str, str | None],
+) -> Document:
+    """Apply the bounded logical metadata fields exposed by DocumentPatch."""
+
+    document = await get_document_checked(
+        session,
+        context,
+        document_id,
+        permission="document.upload",
+    )
+    try:
+        for field_name, value in changes.items():
+            normalized = value.strip() if isinstance(value, str) else value
+            if normalized == "":
+                raise ConflictError(f"{field_name} cannot be blank")
+            setattr(document, field_name, normalized)
+        await record_audit(
+            session,
+            org_id=context.org_id,
+            actor_id=context.user_id,
+            action="document.metadata.updated",
+            target_type="document",
+            target_id=str(document.id),
+        )
+        await session.commit()
+        return document
+    except Exception:
+        await session.rollback()
+        raise
 
 
 async def get_version_checked(
@@ -476,7 +492,8 @@ async def get_version_checked(
 ) -> DocumentVersion:
     version = (
         await session.execute(
-            select(DocumentVersion).where(
+            select(DocumentVersion)
+            .where(
                 DocumentVersion.id == version_id,
                 DocumentVersion.org_id == context.org_id,
             )
@@ -485,9 +502,7 @@ async def get_version_checked(
     ).scalar_one_or_none()
     if version is None:
         raise NotFoundError("document version not found")
-    await _authorize_object_workspace(
-        session, context, version.workspace_id, permission
-    )
+    await _authorize_object_workspace(session, context, version.workspace_id, permission)
     return version
 
 
@@ -508,15 +523,13 @@ async def list_versions(
     ).scalar_one_or_none()
     if document is None:
         raise NotFoundError("document not found")
-    await _authorize_object_workspace(
-        session, context, document.workspace_id, permission
-    )
+    await _authorize_object_workspace(session, context, document.workspace_id, permission)
     return list(
         (
             await session.execute(
                 select(DocumentVersion)
                 .where(DocumentVersion.document_id == document.id)
-                .order_by(DocumentVersion.sequence, DocumentVersion.id)
+                .order_by(DocumentVersion.sequence.desc(), DocumentVersion.id.desc())
             )
         ).scalars()
     )
@@ -558,7 +571,8 @@ async def _capture_lifecycle_snapshot(
 ) -> _LifecycleSnapshot:
     candidate = (
         await session.execute(
-            select(DocumentVersion).where(
+            select(DocumentVersion)
+            .where(
                 DocumentVersion.id == version_id,
                 DocumentVersion.org_id == context.org_id,
             )
@@ -567,9 +581,7 @@ async def _capture_lifecycle_snapshot(
     ).scalar_one_or_none()
     if candidate is None:
         raise NotFoundError("document version not found")
-    await _authorize_object_workspace(
-        session, context, candidate.workspace_id, permission
-    )
+    await _authorize_object_workspace(session, context, candidate.workspace_id, permission)
     incumbent = (
         await session.execute(
             select(DocumentVersion.id, DocumentVersion.lifecycle_revision).where(
@@ -668,34 +680,26 @@ def _persist_decision(
 def _persist_lifecycle_event(
     session: AsyncSession,
     version: DocumentVersion,
-    actor_id: UUID,
     previous_state: str,
     occurred_at: datetime,
 ) -> None:
-    event = DocumentVersionEventV1(
-        org_id=version.org_id,
-        workspace_id=version.workspace_id,
+    event = DocumentVersionLifecycleV1(
         document_id=version.document_id,
-        document_version_id=version.id,
         previous_state=DocumentVersionState(previous_state),
         new_state=DocumentVersionState(version.state),
+    )
+    add_registered_event(
+        session,
+        payload=event,
+        org_id=version.org_id,
+        workspace_id=version.workspace_id,
+        aggregate_id=version.id,
         lifecycle_revision=version.lifecycle_revision,
-        actor_id=actor_id,
         occurred_at=(
             occurred_at.replace(tzinfo=UTC)
             if occurred_at.tzinfo is None
             else occurred_at.astimezone(UTC)
         ),
-    )
-    session.add(
-        OutboxEvent(
-            event_id=uuid4(),
-            aggregate_type="document_version",
-            aggregate_id=version.id,
-            event_type=_LIFECYCLE_EVENT_TYPE,
-            payload=event.model_dump(mode="json"),
-            dedupe_key=event.dedupe_key,
-        )
     )
 
 
@@ -769,9 +773,7 @@ async def approve_version(
         if incumbent is not None and incumbent.id == candidate.id:
             raise ConflictError("document version is already approved")
         if incumbent is not None:
-            previous = _apply_transition(
-                incumbent, DocumentVersionState.SUPERSEDED
-            )
+            previous = _apply_transition(incumbent, DocumentVersionState.SUPERSEDED)
             incumbent.superseded_by_id = candidate.id
             incumbent.superseded_at = now
             incumbent.decision_at = now
@@ -782,9 +784,7 @@ async def approve_version(
                 DocumentVersionDecision.SUPERSEDED,
                 None,
             )
-            _persist_lifecycle_event(
-                session, incumbent, context.user_id, previous, now
-            )
+            _persist_lifecycle_event(session, incumbent, previous, now)
             await _record_lifecycle_audit(session, context, incumbent)
             # PostgreSQL's one-current-approved index is nondeferrable. Make
             # the incumbent ineligible before the candidate UPDATE is emitted.
@@ -800,7 +800,7 @@ async def approve_version(
             DocumentVersionDecision.APPROVED,
             normalized_reason,
         )
-        _persist_lifecycle_event(session, candidate, context.user_id, previous, now)
+        _persist_lifecycle_event(session, candidate, previous, now)
         await _record_lifecycle_audit(session, context, candidate)
         await session.commit()
         return candidate
@@ -836,7 +836,7 @@ async def reject_version(
             DocumentVersionDecision.REJECTED,
             normalized_reason,
         )
-        _persist_lifecycle_event(session, candidate, context.user_id, previous, now)
+        _persist_lifecycle_event(session, candidate, previous, now)
         await _record_lifecycle_audit(session, context, candidate)
         await session.commit()
         return candidate
@@ -872,7 +872,7 @@ async def obsolete_version(
             DocumentVersionDecision.OBSOLETE,
             normalized_reason,
         )
-        _persist_lifecycle_event(session, candidate, context.user_id, previous, now)
+        _persist_lifecycle_event(session, candidate, previous, now)
         await _record_lifecycle_audit(session, context, candidate)
         await session.commit()
         return candidate
@@ -895,9 +895,7 @@ async def retry_version(
         )
         if candidate.source_delete_requested_at is not None:
             raise ConflictError("document version deletion is already requested")
-        database_now = await session.scalar(
-            select(func.timezone("UTC", func.now()))
-        )
+        database_now = await session.scalar(select(func.timezone("UTC", func.now())))
         if not isinstance(database_now, datetime):
             raise RuntimeError("database clock is unavailable")
         now = database_now
@@ -922,9 +920,7 @@ async def retry_version(
                 ).scalars()
             )
             activity_times = [candidate.updated_at]
-            activity_times.extend(
-                job.started_at or job.created_at for job in unfinished
-            )
+            activity_times.extend(job.started_at or job.created_at for job in unfinished)
             stale_cutoff = now - timedelta(
                 seconds=max(1, get_settings().stale_ingest_recovery_seconds)
             )
@@ -936,9 +932,7 @@ async def retry_version(
                 job.finished_at = now
                 job.error = "superseded_by_v2_recovery"
         else:
-            previous = _apply_transition(
-                candidate, DocumentVersionState.PROCESSING
-            )
+            previous = _apply_transition(candidate, DocumentVersionState.PROCESSING)
         candidate.provenance_state = "none"
         candidate.processing_error_code = None
         if _is_exact_legacy(candidate):
@@ -947,7 +941,7 @@ async def retry_version(
                 raise ConflictError("document changed while command was waiting")
             document.status = "processing"
             document.error = None
-        _persist_lifecycle_event(session, candidate, context.user_id, previous, now)
+        _persist_lifecycle_event(session, candidate, previous, now)
         await _record_lifecycle_audit(session, context, candidate)
         await session.commit()
         return candidate
@@ -996,7 +990,7 @@ async def mark_retry_dispatch_failed(
             raise ConflictError("document changed while command was waiting")
         document.status = "failed"
         document.error = "dispatch_failed"
-        _persist_lifecycle_event(session, candidate, context.user_id, previous, now)
+        _persist_lifecycle_event(session, candidate, previous, now)
         await _record_lifecycle_audit(session, context, candidate)
         await session.commit()
         return candidate

@@ -1,3 +1,4 @@
+import json
 import runpy
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -22,7 +23,84 @@ PRE_RBAC_REVISION = "4f2e1c9a7b30"
 RBAC_REVISION = "6c4a2f8b9d10"
 AUTHORITY_REVISION = "9d2c7a4e1f60"
 DELETION_REVISION = "4b8e0f7a3c21"
+OUTBOX_REVISION = "a4f87e62b913"
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture
+def pre_outbox_database(
+    pg_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[tuple[Config, Engine]]:
+    monkeypatch.setenv("OPENRAG_DATABASE_URL", pg_url)
+    get_settings.cache_clear()
+    config = Config(str(BACKEND_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_ROOT / "migrations"))
+    engine = create_engine(pg_url.replace("+asyncpg", "+psycopg2"))
+    with engine.begin() as connection:
+        connection.execute(text("DROP SCHEMA public CASCADE"))
+        connection.execute(text("CREATE SCHEMA public"))
+        connection.execute(
+            text(
+                "DO $$ BEGIN "
+                "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'openrag') "
+                "THEN CREATE ROLE openrag; END IF; "
+                "END $$"
+            )
+        )
+    command.upgrade(config, DELETION_REVISION)
+    try:
+        yield config, engine
+    finally:
+        with engine.begin() as connection:
+            connection.execute(text("DROP SCHEMA public CASCADE"))
+            connection.execute(text("CREATE SCHEMA public"))
+        engine.dispose()
+        get_settings.cache_clear()
+
+
+def insert_legacy_outbox(
+    connection: sa.Connection,
+    *,
+    attempts: int = 2,
+    event_type: str = "document.version.lifecycle.v1",
+    aggregate_type: str = "document_version",
+    dedupe_key: str | None = None,
+    lease_owner: str | None = None,
+    lease_expires_at: datetime | None = None,
+    published_at: datetime | None = None,
+    last_error: str | None = None,
+    payload: object | None = None,
+) -> UUID:
+    row_id = uuid4()
+    event_id = uuid4()
+    connection.execute(
+        text(
+            "INSERT INTO outbox_events "
+            "(id,event_id,aggregate_type,aggregate_id,event_type,payload,dedupe_key,"
+            "attempts,lease_owner,lease_expires_at,published_at,last_error,created_at) "
+            "VALUES (:id,:event_id,:aggregate_type,:aggregate_id,:event_type,"
+            "CAST(:payload AS json),:dedupe_key,:attempts,:lease_owner,:lease_expires_at,"
+            ":published_at,:last_error,:created_at)"
+        ),
+        {
+            "id": row_id,
+            "event_id": event_id,
+            "aggregate_type": aggregate_type,
+            "aggregate_id": uuid4(),
+            "event_type": event_type,
+            "payload": json.dumps(payload if payload is not None else {"state": "review"}),
+            "dedupe_key": dedupe_key or f"legacy:{event_id}",
+            "attempts": attempts,
+            "lease_owner": lease_owner,
+            "lease_expires_at": lease_expires_at,
+            "published_at": published_at,
+            "last_error": last_error,
+            "created_at": datetime(2026, 7, 19),
+        },
+    )
+    return row_id
+
 
 EXPECTED_PERMISSIONS = {
     "administrator": {
@@ -680,10 +758,12 @@ def authority_db(
         get_settings.cache_clear()
 
 
-def test_authority_revision_is_the_single_head(authority_db: tuple[Config, Engine, object]) -> None:
+def test_outbox_revision_is_the_single_head(
+    authority_db: tuple[Config, Engine, object],
+) -> None:
     config, _engine, _ids = authority_db
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [DELETION_REVISION]
+    assert script.get_heads() == [OUTBOX_REVISION]
     assert script.get_revision(AUTHORITY_REVISION).down_revision == RBAC_REVISION
     assert script.get_revision(DELETION_REVISION).down_revision == AUTHORITY_REVISION
 
@@ -743,18 +823,17 @@ def test_deletion_upgrade_adds_bounded_restartable_markers_and_closes_processing
         )
     with engine.begin() as connection:
         connection.execute(
-            text(
-                "UPDATE document_versions SET source_deleted_at=:now WHERE id=:id"
-            ),
+            text("UPDATE document_versions SET source_deleted_at=:now WHERE id=:id"),
             {"id": failed_id, "now": datetime(2026, 7, 19, 2)},
         )
-        connection.execute(
-            text("DELETE FROM document_versions WHERE id=:id"), {"id": failed_id}
+        connection.execute(text("DELETE FROM document_versions WHERE id=:id"), {"id": failed_id})
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM document_versions WHERE id=:id"),
+                {"id": failed_id},
+            ).scalar_one()
+            == 0
         )
-        assert connection.execute(
-            text("SELECT count(*) FROM document_versions WHERE id=:id"),
-            {"id": failed_id},
-        ).scalar_one() == 0
 
 
 def test_deletion_upgrade_backfills_durable_legacy_approval_evidence(
@@ -889,17 +968,16 @@ def test_deletion_upgrade_requires_ordered_complete_marker_and_preserves_decisio
 
     with engine.begin() as connection:
         connection.execute(
-            text(
-                "UPDATE document_versions SET source_deleted_at=:now WHERE id=:id"
-            ),
+            text("UPDATE document_versions SET source_deleted_at=:now WHERE id=:id"),
             {"id": rejected_id, "now": datetime(2026, 7, 19, 2)},
         )
-        assert connection.execute(
-            text(
-                "SELECT state, source_deleted_at FROM document_versions WHERE id=:id"
-            ),
-            {"id": rejected_id},
-        ).one()[0] == "rejected"
+        assert (
+            connection.execute(
+                text("SELECT state, source_deleted_at FROM document_versions WHERE id=:id"),
+                {"id": rejected_id},
+            ).one()[0]
+            == "rejected"
+        )
         with pytest.raises(sa.exc.DBAPIError):
             with connection.begin_nested():
                 connection.execute(
@@ -1016,10 +1094,13 @@ def test_deletion_upgrade_admits_only_explicit_never_approved_states(
                         ),
                         {"now": now, "actor": ids.user_id, "id": version_ids[state]},
                     )
-            assert connection.execute(
-                text("SELECT source_delete_requested_at FROM document_versions WHERE id=:id"),
-                {"id": version_ids[state]},
-            ).scalar_one() is None
+            assert (
+                connection.execute(
+                    text("SELECT source_delete_requested_at FROM document_versions WHERE id=:id"),
+                    {"id": version_ids[state]},
+                ).scalar_one()
+                is None
+            )
 
 
 def test_deletion_marker_actor_pair_and_time_order_are_database_enforced(
@@ -1284,16 +1365,15 @@ def test_deletion_downgrade_fences_inflight_marker_before_preflight(
         "source_delete_requested_at",
         "source_delete_requested_by",
         "source_deleted_at",
-    } <= {
-        column["name"] for column in inspect(engine).get_columns("document_versions")
-    }
+    } <= {column["name"] for column in inspect(engine).get_columns("document_versions")}
     with engine.connect() as connection:
-        assert connection.execute(
-            text(
-                "SELECT source_delete_requested_at FROM document_versions WHERE id=:id"
-            ),
-            {"id": failed_id},
-        ).scalar_one() is not None
+        assert (
+            connection.execute(
+                text("SELECT source_delete_requested_at FROM document_versions WHERE id=:id"),
+                {"id": failed_id},
+            ).scalar_one()
+            is not None
+        )
 
 
 def test_authority_upgrade_locks_all_compatibility_tables(
@@ -1692,7 +1772,7 @@ def test_authority_upgrade_aborts_before_mutation_for_orphan_citation(
 
     with pytest.raises(RuntimeError, match="orphan or invalid legacy citation"):
         command.upgrade(config, AUTHORITY_REVISION)
-    assert ScriptDirectory.from_config(config).get_current_head() == DELETION_REVISION
+    assert ScriptDirectory.from_config(config).get_current_head() == OUTBOX_REVISION
     with engine.connect() as connection:
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
@@ -1845,3 +1925,134 @@ def test_authority_downgrade_round_trips_exact_legacy_source_state(
         "storage_key": "legacy/indexed.pdf",
         "page_count": 7,
     }
+
+
+def test_outbox_hardening_preflight_stops_before_ddl_on_unsafe_legacy_rows(
+    pre_outbox_database: tuple[Config, Engine],
+) -> None:
+    config, engine = pre_outbox_database
+    with engine.begin() as connection:
+        row_id = insert_legacy_outbox(
+            connection,
+            attempts=-1,
+            event_type="e" * 201,
+            aggregate_type="a" * 121,
+            dedupe_key="d" * 256,
+            lease_owner="l" * 129,
+            last_error="SENTINEL raw database exception with credentials",
+            payload={"document_text": "x" * 20_000},
+        )
+
+    with pytest.raises(sa.exc.DBAPIError, match="OPENRAG_OUTBOX_PREFLIGHT_FAILED"):
+        command.upgrade(config, OUTBOX_REVISION)
+
+    inspector = inspect(engine)
+    columns = {column["name"] for column in inspector.get_columns("outbox_events")}
+    assert "dispatch_after" not in columns
+    assert "last_error" in columns
+    assert "last_error_code" not in columns
+    with engine.begin() as connection:
+        attempts = connection.scalar(
+            text("SELECT attempts FROM outbox_events WHERE id=:id"), {"id": row_id}
+        )
+    assert attempts == -1
+
+
+def test_outbox_hardening_normalizes_errors_and_leases_then_downgrades_safely(
+    pre_outbox_database: tuple[Config, Engine],
+) -> None:
+    config, engine = pre_outbox_database
+    event_type = "document.version.lifecycle.v1"
+    aggregate_type = "document_version"
+    payload = {"previous_state": "review", "new_state": "approved"}
+    with engine.begin() as connection:
+        row_id = insert_legacy_outbox(
+            connection,
+            event_type=event_type,
+            aggregate_type=aggregate_type,
+            attempts=3,
+            lease_owner="legacy-worker",
+            lease_expires_at=datetime(2027, 7, 19),
+            last_error="SENTINEL psycopg password=do-not-leak",
+            payload=payload,
+        )
+
+    command.upgrade(config, OUTBOX_REVISION)
+
+    inspector = inspect(engine)
+    columns = {column["name"] for column in inspector.get_columns("outbox_events")}
+    assert {
+        "dispatch_after",
+        "dead_lettered_at",
+        "last_error_code",
+        "lease_token",
+        "envelope_digest",
+        "published_stream",
+        "published_message_id",
+    } <= columns
+    assert "last_error" not in columns
+    index = next(
+        item
+        for item in inspector.get_indexes("outbox_events")
+        if item["name"] == "ix_outbox_events_claimable"
+    )
+    assert "published_at IS NULL" in str(index["dialect_options"]["postgresql_where"])
+    assert "dead_lettered_at IS NULL" in str(index["dialect_options"]["postgresql_where"])
+    with engine.begin() as connection:
+        row = (
+            connection.execute(
+                text(
+                    "SELECT event_type,aggregate_type,payload,attempts,lease_owner,"
+                    "lease_expires_at,lease_token,last_error_code,envelope_digest "
+                    "FROM outbox_events WHERE id=:id"
+                ),
+                {"id": row_id},
+            )
+            .mappings()
+            .one()
+        )
+    assert row["event_type"] == event_type
+    assert row["aggregate_type"] == aggregate_type
+    assert row["payload"] == payload
+    assert row["attempts"] == 3
+    assert row["lease_owner"] is None
+    assert row["lease_expires_at"] is None
+    assert row["lease_token"] is None
+    assert row["last_error_code"] == "legacy_dispatch_failure"
+    assert row["envelope_digest"] is None
+    assert "SENTINEL" not in repr(row)
+
+    command.downgrade(config, DELETION_REVISION)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("outbox_events")}
+    assert "last_error" in columns
+    assert "last_error_code" not in columns
+    assert "dispatch_after" not in columns
+    with engine.begin() as connection:
+        downgraded = connection.scalar(
+            text("SELECT last_error FROM outbox_events WHERE id=:id"), {"id": row_id}
+        )
+    assert downgraded == "legacy_dispatch_failure"
+
+
+def test_outbox_hardening_constraints_reject_untruthful_terminal_state(
+    pre_outbox_database: tuple[Config, Engine],
+) -> None:
+    config, engine = pre_outbox_database
+    with engine.begin() as connection:
+        row_id = insert_legacy_outbox(connection)
+    command.upgrade(config, OUTBOX_REVISION)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE outbox_events SET dead_lettered_at=now(), "
+                "last_error_code='contract_invalid' WHERE id=:id"
+            ),
+            {"id": row_id},
+        )
+        with pytest.raises(sa.exc.DBAPIError):
+            connection.execute(
+                text("UPDATE outbox_events SET published_at=now() WHERE id=:id"),
+                {"id": row_id},
+            )

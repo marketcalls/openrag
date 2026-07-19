@@ -2,7 +2,7 @@ import logging
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.api.deps import get_session
@@ -10,7 +10,13 @@ from openrag.core.config import get_settings
 from openrag.core.errors import ConflictError, PayloadTooLarge
 from openrag.modules.documents import service
 from openrag.modules.documents.lifecycle import LEGACY_VERSION_KEY, LEGACY_VERSION_LABEL
-from openrag.modules.documents.schemas import DocumentOut
+from openrag.modules.documents.schemas import (
+    DocumentDetailOut,
+    DocumentOut,
+    DocumentPatch,
+    DocumentVersionDecision,
+    DocumentVersionOut,
+)
 from openrag.modules.tenancy.context import TenantContext, get_tenant_context
 from openrag.worker.tasks import enqueue_delete, enqueue_ingest
 
@@ -31,14 +37,15 @@ async def upload_document(
     session: SessionDep,
     context: ContextDep,
     file: Annotated[UploadFile, File()],
+    sequence: Annotated[int | None, Form()] = None,
 ) -> DocumentOut:
+    if sequence is not None:
+        raise HTTPException(status_code=422, detail="sequence is server assigned")
     data = await file.read()
     settings = get_settings()
     max_bytes = settings.max_upload_mb * 1024 * 1024
     if len(data) > max_bytes:
-        raise PayloadTooLarge(
-            f"file exceeds {settings.max_upload_mb} MB limit"
-        )
+        raise PayloadTooLarge(f"file exceeds {settings.max_upload_mb} MB limit")
     document = await service.create_from_upload(
         session,
         context,
@@ -66,7 +73,7 @@ async def upload_document(
         except Exception:
             _logger.error("legacy upload dispatch compensation failed")
         raise
-    return DocumentOut.model_validate(document)
+    return DocumentOut.from_document(document)
 
 
 @router.get(
@@ -83,7 +90,114 @@ async def list_workspace_documents(
         context,
         workspace_id,
     )
-    return [DocumentOut.model_validate(document) for document in documents]
+    return [DocumentOut.from_document(document) for document in documents]
+
+
+@router.get("/documents/{document_id}", response_model=DocumentDetailOut)
+async def get_document(
+    document_id: UUID,
+    session: SessionDep,
+    context: ContextDep,
+) -> DocumentDetailOut:
+    document = await service.get_document_checked(session, context, document_id)
+    return DocumentDetailOut.from_document(document)
+
+
+@router.patch("/documents/{document_id}", response_model=DocumentDetailOut)
+async def patch_document(
+    document_id: UUID,
+    patch: DocumentPatch,
+    session: SessionDep,
+    context: ContextDep,
+) -> DocumentDetailOut:
+    document = await service.patch_document(
+        session,
+        context,
+        document_id,
+        patch.model_dump(exclude_unset=True),
+    )
+    return DocumentDetailOut.from_document(document)
+
+
+@router.get(
+    "/documents/{document_id}/versions",
+    response_model=list[DocumentVersionOut],
+)
+async def list_document_versions(
+    document_id: UUID,
+    session: SessionDep,
+    context: ContextDep,
+) -> list[DocumentVersionOut]:
+    versions = await service.list_versions(session, context, document_id)
+    return [DocumentVersionOut.from_version(version) for version in versions]
+
+
+@router.get(
+    "/document-versions/{version_id}",
+    response_model=DocumentVersionOut,
+)
+async def get_document_version(
+    version_id: UUID,
+    session: SessionDep,
+    context: ContextDep,
+) -> DocumentVersionOut:
+    version = await service.get_version_checked(session, context, version_id)
+    return DocumentVersionOut.from_version(version)
+
+
+async def _decide_version(
+    action: str,
+    version_id: UUID,
+    decision: DocumentVersionDecision,
+    session: AsyncSession,
+    context: TenantContext,
+) -> DocumentVersionOut:
+    handler = {
+        "approve": service.approve_version,
+        "reject": service.reject_version,
+        "obsolete": service.obsolete_version,
+    }[action]
+    version = await handler(session, context, version_id, reason=decision.reason)
+    return DocumentVersionOut.from_version(version)
+
+
+@router.post(
+    "/document-versions/{version_id}/approve",
+    response_model=DocumentVersionOut,
+)
+async def approve_document_version(
+    version_id: UUID,
+    decision: DocumentVersionDecision,
+    session: SessionDep,
+    context: ContextDep,
+) -> DocumentVersionOut:
+    return await _decide_version("approve", version_id, decision, session, context)
+
+
+@router.post(
+    "/document-versions/{version_id}/reject",
+    response_model=DocumentVersionOut,
+)
+async def reject_document_version(
+    version_id: UUID,
+    decision: DocumentVersionDecision,
+    session: SessionDep,
+    context: ContextDep,
+) -> DocumentVersionOut:
+    return await _decide_version("reject", version_id, decision, session, context)
+
+
+@router.post(
+    "/document-versions/{version_id}/obsolete",
+    response_model=DocumentVersionOut,
+)
+async def obsolete_document_version(
+    version_id: UUID,
+    decision: DocumentVersionDecision,
+    session: SessionDep,
+    context: ContextDep,
+) -> DocumentVersionOut:
+    return await _decide_version("obsolete", version_id, decision, session, context)
 
 
 @router.delete("/documents/{document_id}", status_code=202)
@@ -112,9 +226,7 @@ async def delete_document(
         and version.version_key == LEGACY_VERSION_KEY
     ):
         raise ConflictError("legacy delete route cannot target versioned content")
-    requested = await service.request_document_deletion(
-        session, context, version.id
-    )
+    requested = await service.request_document_deletion(session, context, version.id)
     enqueue_delete(requested.id, context.user_id)
     return {"status": "deletion scheduled"}
 

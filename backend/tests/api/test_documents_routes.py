@@ -1,4 +1,5 @@
 import hashlib
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -18,15 +19,11 @@ def captured_enqueues(
     calls: dict[str, list[tuple[Any, ...]]] = {"ingest": [], "delete": []}
     monkeypatch.setattr(
         "openrag.api.routes.documents.enqueue_ingest",
-        lambda document_id, size, revision: calls["ingest"].append(
-            (document_id, size, revision)
-        ),
+        lambda document_id, size, revision: calls["ingest"].append((document_id, size, revision)),
     )
     monkeypatch.setattr(
         "openrag.api.routes.documents.enqueue_delete",
-        lambda document_id, actor_id: calls["delete"].append(
-            (document_id, actor_id)
-        ),
+        lambda document_id, actor_id: calls["delete"].append((document_id, actor_id)),
     )
     return calls
 
@@ -77,6 +74,10 @@ async def test_upload_list_delete_flow(
     body = upload.json()
     assert body["status"] == "queued"
     assert body["filename"] == "notes.txt"
+    assert "error" not in body
+    assert body["error_code"] is None
+    assert "storage_key" not in body
+    assert "content_hash" not in body
     assert len(captured_enqueues["ingest"]) == 1
 
     listing = await client.get(
@@ -93,9 +94,7 @@ async def test_upload_list_delete_flow(
     assert duplicate.status_code == 409
 
     version = (
-        await session.execute(
-            select(DocumentVersion).where(DocumentVersion.id == body["id"])
-        )
+        await session.execute(select(DocumentVersion).where(DocumentVersion.id == body["id"]))
     ).scalar_one()
     version.state = "failed"
     await session.commit()
@@ -109,6 +108,133 @@ async def test_upload_list_delete_flow(
     await session.refresh(version)
     assert version.source_delete_requested_at is not None
     assert version.source_deleted_at is None
+
+
+async def test_document_detail_patch_is_strict_bounded_and_safe(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    session: AsyncSession,
+    stack_env: None,
+    captured_enqueues: dict[str, list[tuple[Any, ...]]],
+) -> None:
+    headers = await auth(client, seeded_user.email)
+    workspace_id = await make_workspace(client, headers)
+    upload = await client.post(
+        f"/api/v1/workspaces/{workspace_id}/documents",
+        headers=headers,
+        files={"file": ("source.txt", b"safe source", "text/plain")},
+    )
+    document_id = upload.json()["id"]
+    document = await session.get(Document, UUID(document_id))
+    assert document is not None
+    document.status = "failed"
+    document.error = "SENTINEL parser traceback password=do-not-return"
+    await session.commit()
+
+    patched = await client.patch(
+        f"/api/v1/documents/{document_id}",
+        headers=headers,
+        json={
+            "name": "Controlled safety manual",
+            "department": "HSE",
+            "document_type": "Manual",
+            "external_identifier": "HSE-MAN-001",
+        },
+    )
+    detail = await client.get(f"/api/v1/documents/{document_id}", headers=headers)
+
+    assert patched.status_code == 200
+    assert detail.status_code == 200
+    assert patched.json() == detail.json()
+    assert patched.json()["name"] == "Controlled safety manual"
+    assert patched.json()["error_code"] == "processing_failed"
+    assert "SENTINEL" not in repr(patched.json())
+    assert {
+        "id",
+        "workspace_id",
+        "name",
+        "department",
+        "document_type",
+        "external_identifier",
+        "filename",
+        "mime",
+        "size_bytes",
+        "status",
+        "page_count",
+        "error_code",
+        "created_at",
+        "updated_at",
+    } == set(patched.json())
+    assert "storage_key" not in repr(patched.json())
+    assert "content_hash" not in repr(patched.json())
+    assert "created_by" not in repr(patched.json())
+
+    for payload in (
+        {"name": "   "},
+        {"name": "x" * 256},
+        {"department": "x" * 121},
+        {"document_type": "x" * 121},
+        {"external_identifier": "x" * 256},
+        {"workspace_id": workspace_id},
+        {"storage_key": "private/key"},
+        {"created_by": str(seeded_user.id)},
+        {"sequence": 9},
+    ):
+        rejected = await client.patch(
+            f"/api/v1/documents/{document_id}", headers=headers, json=payload
+        )
+        assert rejected.status_code == 422
+
+
+async def test_document_list_has_deterministic_created_id_desc_order(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    session: AsyncSession,
+    stack_env: None,
+    captured_enqueues: dict[str, list[tuple[Any, ...]]],
+) -> None:
+    headers = await auth(client, seeded_user.email)
+    workspace_id = await make_workspace(client, headers)
+    ids: list[UUID] = []
+    for filename, content in (("a.txt", b"a"), ("b.txt", b"b")):
+        response = await client.post(
+            f"/api/v1/workspaces/{workspace_id}/documents",
+            headers=headers,
+            files={"file": (filename, content, "text/plain")},
+        )
+        ids.append(UUID(response.json()["id"]))
+    documents = list(
+        (await session.execute(select(Document).where(Document.id.in_(ids)))).scalars()
+    )
+    tied = datetime(2026, 7, 19, 8, 30)
+    for document in documents:
+        document.created_at = tied
+    await session.commit()
+
+    listing = await client.get(f"/api/v1/workspaces/{workspace_id}/documents", headers=headers)
+
+    assert listing.status_code == 200
+    assert [UUID(row["id"]) for row in listing.json()] == sorted(ids, reverse=True)
+
+
+async def test_legacy_upload_rejects_client_sequence_form_field(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    stack_env: None,
+    captured_enqueues: dict[str, list[tuple[Any, ...]]],
+) -> None:
+    headers = await auth(client, seeded_user.email)
+    workspace_id = await make_workspace(client, headers)
+
+    response = await client.post(
+        f"/api/v1/workspaces/{workspace_id}/documents",
+        headers=headers,
+        files={"file": ("unsafe.txt", b"unsafe", "text/plain")},
+        data={"sequence": "99"},
+    )
+
+    assert response.status_code == 422
+    assert captured_enqueues["ingest"] == []
 
 
 async def test_delete_processing_document_conflicts_without_enqueue(
@@ -125,9 +251,7 @@ async def test_delete_processing_document_conflicts_without_enqueue(
         files={"file": ("live.txt", b"still processing", "text/plain")},
     )
 
-    response = await client.delete(
-        f"/api/v1/documents/{upload.json()['id']}", headers=headers
-    )
+    response = await client.delete(f"/api/v1/documents/{upload.json()['id']}", headers=headers)
 
     assert response.status_code == 409
     assert captured_enqueues["delete"] == []
@@ -175,9 +299,7 @@ async def test_legacy_delete_route_refuses_ambiguous_nonlegacy_version_identity(
     await session.commit()
     assert version.id != document.id
 
-    response = await client.delete(
-        f"/api/v1/documents/{document.id}", headers=headers
-    )
+    response = await client.delete(f"/api/v1/documents/{document.id}", headers=headers)
 
     assert response.status_code == 409
     assert captured_enqueues["delete"] == []
@@ -185,7 +307,7 @@ async def test_legacy_delete_route_refuses_ambiguous_nonlegacy_version_identity(
     assert version.source_delete_requested_at is None
 
 
-async def test_non_member_user_gets_403(
+async def test_non_member_user_gets_403_for_workspace_collection(
     client: httpx.AsyncClient,
     seeded_user: User,
     session: AsyncSession,
@@ -377,14 +499,10 @@ async def test_retry_dispatch_failure_is_compensated_and_can_be_retried(
     await session.commit()
     initial_revision = version.lifecycle_revision
 
-    def fail_dispatch(
-        _document_id: UUID, _size: int, _revision: int
-    ) -> None:
+    def fail_dispatch(_document_id: UUID, _size: int, _revision: int) -> None:
         raise RuntimeError("queue unavailable")
 
-    monkeypatch.setattr(
-        "openrag.api.routes.documents.enqueue_ingest", fail_dispatch
-    )
+    monkeypatch.setattr("openrag.api.routes.documents.enqueue_ingest", fail_dispatch)
     with pytest.raises(RuntimeError, match="queue unavailable"):
         await client.post(
             f"/api/v1/document-versions/{version_id}/retry",
@@ -399,9 +517,7 @@ async def test_retry_dispatch_failure_is_compensated_and_can_be_retried(
     retry_calls: list[tuple[UUID, int, int]] = []
     monkeypatch.setattr(
         "openrag.api.routes.documents.enqueue_ingest",
-        lambda document_id, size, revision: retry_calls.append(
-            (document_id, size, revision)
-        ),
+        lambda document_id, size, revision: retry_calls.append((document_id, size, revision)),
     )
     response = await client.post(
         f"/api/v1/document-versions/{version_id}/retry",
@@ -409,9 +525,7 @@ async def test_retry_dispatch_failure_is_compensated_and_can_be_retried(
     )
 
     assert response.status_code == 202
-    assert retry_calls == [
-        (version_id, len(b"dispatch source"), initial_revision + 3)
-    ]
+    assert retry_calls == [(version_id, len(b"dispatch source"), initial_revision + 3)]
     await session.refresh(version)
     assert (version.state, version.lifecycle_revision) == (
         "processing",
@@ -430,14 +544,10 @@ async def test_initial_upload_dispatch_failure_is_retryable_and_mirrored(
     headers = await auth(client, seeded_user.email)
     workspace_id = await make_workspace(client, headers)
 
-    def fail_dispatch(
-        _document_id: UUID, _size: int, _revision: int
-    ) -> None:
+    def fail_dispatch(_document_id: UUID, _size: int, _revision: int) -> None:
         raise RuntimeError("initial queue unavailable")
 
-    monkeypatch.setattr(
-        "openrag.api.routes.documents.enqueue_ingest", fail_dispatch
-    )
+    monkeypatch.setattr("openrag.api.routes.documents.enqueue_ingest", fail_dispatch)
     with pytest.raises(RuntimeError, match="initial queue unavailable"):
         await client.post(
             f"/api/v1/workspaces/{workspace_id}/documents",
@@ -456,9 +566,7 @@ async def test_initial_upload_dispatch_failure_is_retryable_and_mirrored(
     retry_calls: list[tuple[UUID, int, int]] = []
     monkeypatch.setattr(
         "openrag.api.routes.documents.enqueue_ingest",
-        lambda document_id, size, revision: retry_calls.append(
-            (document_id, size, revision)
-        ),
+        lambda document_id, size, revision: retry_calls.append((document_id, size, revision)),
     )
     response = await client.post(
         f"/api/v1/document-versions/{version.id}/retry",
@@ -466,9 +574,7 @@ async def test_initial_upload_dispatch_failure_is_retryable_and_mirrored(
     )
 
     assert response.status_code == 202
-    assert retry_calls == [
-        (document.id, len(b"initial source"), failed_revision + 1)
-    ]
+    assert retry_calls == [(document.id, len(b"initial source"), failed_revision + 1)]
     await session.refresh(document)
     await session.refresh(version)
     assert (version.state, version.lifecycle_revision) == (
