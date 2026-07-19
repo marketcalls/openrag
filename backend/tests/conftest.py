@@ -12,7 +12,7 @@ from testcontainers.redis import RedisContainer
 
 from openrag.api.app import create_app
 from openrag.core.config import Settings, get_settings
-from openrag.core.db import Base, build_engine, build_session_factory
+from openrag.core.db import Base, build_engine, build_session_factory, naive_utc
 from openrag.core.storage import ObjectStorage
 from openrag.modules.auth.models import User
 from openrag.modules.auth.passwords import hash_password
@@ -322,30 +322,34 @@ async def chat_env(
     )
     session.add(document)
     await session.flush()
-    session.add(
-        DocumentVersion(
-            id=document.id,
-            org_id=seeded_user.org_id,
-            workspace_id=workspace.id,
-            document_id=document.id,
-            sequence=1,
-            version_label="Legacy 1",
-            version_key="legacy 1",
-            content_hash="a" * 64,
-            source_filename="report.pdf",
-            source_mime="application/pdf",
-            source_size_bytes=10,
-            source_storage_key="chat-test/report.pdf",
-            source_page_count=None,
-            parser_profile_version="legacy/parser-v1",
-            ocr_profile_version="legacy/ocr-unknown-v1",
-            chunking_profile_version="legacy/chunking-v1",
-            embedding_profile_version="legacy/embedding-v1",
-            index_profile_version="legacy/index-v1",
-            state="approved",
-            provenance_state="legacy_pending",
-            created_by=seeded_user.id,
-        )
+    approved_at = naive_utc()
+    version = DocumentVersion(
+        id=document.id,
+        org_id=seeded_user.org_id,
+        workspace_id=workspace.id,
+        document_id=document.id,
+        sequence=1,
+        version_label="Legacy 1",
+        version_key="legacy 1",
+        content_hash="a" * 64,
+        source_filename="report.pdf",
+        source_mime="application/pdf",
+        source_size_bytes=10,
+        source_storage_key="chat-test/report.pdf",
+        source_page_count=None,
+        parser_profile_version="legacy/parser-v1",
+        ocr_profile_version="legacy/ocr-unknown-v1",
+        chunking_profile_version="legacy/chunking-v1",
+        embedding_profile_version="legacy/embedding-v1",
+        index_profile_version="legacy/index-v1",
+        state="approved",
+        provenance_state="legacy_pending",
+        created_by=seeded_user.id,
+        approved_by=seeded_user.id,
+        approved_at=approved_at,
+        decision_at=approved_at,
+        legacy_approval_backfilled=True,
     )
+    session.add(version)
     await session.commit()
     return {"workspace": workspace, "document": document}

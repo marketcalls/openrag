@@ -53,6 +53,7 @@ async def test_search_returns_seeded_chunk(
         ),
     )
     await upsert_texts(
+        session,
         context,
         workspace,
         ["invoice 0231 covers the plutonium delivery"],
