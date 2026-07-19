@@ -1,11 +1,12 @@
-"""Persisted immutable embedding configuration identities."""
+"""Persisted immutable embedding configurations and generation cutovers."""
 
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, Index, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from openrag.core.db import Base, UUIDPk
+from openrag.core.db import Base, UUIDPk, naive_utc
 
 
 class EmbeddingProfile(UUIDPk, Base):
@@ -44,3 +45,56 @@ class EmbeddingProfile(UUIDPk, Base):
     config_digest: Mapped[str] = mapped_column(String(64), unique=True)
     enabled: Mapped[bool] = mapped_column(default=True, index=True)
     created_by: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
+
+
+class EmbeddingDeployment(UUIDPk, Base):
+    """A globally governed, immutable-profile authority generation."""
+
+    __tablename__ = "embedding_deployments"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('building','ready','active','failed','retired')",
+            name="ck_embedding_deployments_status",
+        ),
+        CheckConstraint(
+            "total_versions >= 0 AND completed_versions >= 0 "
+            "AND failed_versions >= 0 "
+            "AND completed_versions + failed_versions <= total_versions",
+            name="ck_embedding_deployments_counts",
+        ),
+        CheckConstraint(
+            "failure_code IS NULL OR char_length(failure_code) BETWEEN 1 AND 100",
+            name="ck_embedding_deployments_failure_code",
+        ),
+        Index(
+            "uq_embedding_deployments_one_active",
+            text("(true)"),
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+        Index(
+            "uq_embedding_deployments_one_pending",
+            text("(true)"),
+            unique=True,
+            postgresql_where=text("status IN ('building','ready')"),
+        ),
+    )
+
+    profile_id: Mapped[UUID] = mapped_column(
+        ForeignKey("embedding_profiles.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    generation_id: Mapped[UUID] = mapped_column(unique=True)
+    status: Mapped[str] = mapped_column(String(32), default="building", index=True)
+    requested_by: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
+    activated_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id"),
+        default=None,
+    )
+    activated_at: Mapped[datetime | None] = mapped_column(default=None)
+    failure_code: Mapped[str | None] = mapped_column(String(100), default=None)
+    total_versions: Mapped[int] = mapped_column(default=0)
+    completed_versions: Mapped[int] = mapped_column(default=0)
+    failed_versions: Mapped[int] = mapped_column(default=0)
+    scan_complete: Mapped[bool] = mapped_column(default=False)
+    updated_at: Mapped[datetime] = mapped_column(default=naive_utc, onupdate=naive_utc)

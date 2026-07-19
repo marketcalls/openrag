@@ -3,12 +3,20 @@
 import hashlib
 import json
 import re
-from typing import Literal
+from datetime import datetime
+from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 EmbeddingProviderKind = Literal["litellm", "tei", "hash"]
+EmbeddingDeploymentStatus = Literal[
+    "building",
+    "ready",
+    "active",
+    "failed",
+    "retired",
+]
 _WHITESPACE = re.compile(r"\s+")
 
 
@@ -60,6 +68,35 @@ class EmbeddingProfileOut(BaseModel):
     enabled: bool
 
     model_config = ConfigDict(from_attributes=True, frozen=True)
+
+
+class EmbeddingDeploymentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    profile_id: UUID
+
+
+class EmbeddingDeploymentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True, frozen=True)
+
+    id: UUID
+    profile_id: UUID
+    generation_id: UUID
+    status: EmbeddingDeploymentStatus
+    total_versions: int = Field(ge=0)
+    completed_versions: int = Field(ge=0)
+    failed_versions: int = Field(ge=0)
+    scan_complete: bool
+    created_at: datetime
+    updated_at: datetime
+    activated_at: datetime | None
+    failure_code: str | None
+
+    @model_validator(mode="after")
+    def validate_progress(self) -> Self:
+        if self.completed_versions + self.failed_versions > self.total_versions:
+            raise ValueError("deployment progress exceeds total versions")
+        return self
 
 
 def embedding_config_digest(profile: EmbeddingProfileCreate) -> str:

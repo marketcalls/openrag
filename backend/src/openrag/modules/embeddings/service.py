@@ -1,14 +1,15 @@
-"""Transactional management of immutable embedding profiles."""
+"""Transactional management of immutable profiles and safe deployments."""
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import Settings
 from openrag.core.errors import ConflictError, NotFoundError
 from openrag.modules.audit.service import record_audit
-from openrag.modules.embeddings.models import EmbeddingProfile
+from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
 from openrag.modules.embeddings.schemas import (
     EmbeddingProfileCreate,
     embedding_config_digest,
@@ -23,6 +24,19 @@ async def list_profiles(session: AsyncSession) -> list[EmbeddingProfile]:
                 select(EmbeddingProfile).order_by(
                     EmbeddingProfile.created_at,
                     EmbeddingProfile.id,
+                )
+            )
+        ).all()
+    )
+
+
+async def list_deployments(session: AsyncSession) -> list[EmbeddingDeployment]:
+    return list(
+        (
+            await session.scalars(
+                select(EmbeddingDeployment).order_by(
+                    EmbeddingDeployment.created_at.desc(),
+                    EmbeddingDeployment.id.desc(),
                 )
             )
         ).all()
@@ -96,6 +110,19 @@ async def update_profile(
             profile.name = name
             profile.name_key = name.casefold()
         if enabled is not None:
+            if not enabled:
+                governed = await session.scalar(
+                    select(EmbeddingDeployment.id).where(
+                        EmbeddingDeployment.profile_id == profile.id,
+                        EmbeddingDeployment.status.in_(
+                            ("building", "ready", "active")
+                        ),
+                    )
+                )
+                if governed is not None:
+                    raise ConflictError(
+                        "an active or pending embedding profile cannot be disabled"
+                    )
             profile.enabled = enabled
         await record_audit(
             session,
@@ -107,6 +134,65 @@ async def update_profile(
         )
         await session.commit()
         return profile
+    except Exception:
+        await session.rollback()
+        raise
+
+
+async def request_deployment(
+    session: AsyncSession,
+    context: TenantContext,
+    profile_id: UUID,
+) -> EmbeddingDeployment:
+    """Create one pending generation without mutating the active generation."""
+
+    try:
+        profile = await get_profile(session, profile_id, lock=True)
+        if not profile.enabled:
+            raise ConflictError("disabled embedding profile cannot be deployed")
+        existing_pending = await session.scalar(
+            select(EmbeddingDeployment.id).where(
+                EmbeddingDeployment.status.in_(("building", "ready"))
+            )
+        )
+        if existing_pending is not None:
+            raise ConflictError("another embedding deployment is already pending")
+        already_active = await session.scalar(
+            select(EmbeddingDeployment.id).where(
+                EmbeddingDeployment.profile_id == profile.id,
+                EmbeddingDeployment.status == "active",
+            )
+        )
+        if already_active is not None:
+            raise ConflictError("embedding profile is already active")
+
+        deployment = EmbeddingDeployment(
+            profile_id=profile.id,
+            generation_id=uuid4(),
+            status="building",
+            requested_by=context.user_id,
+            total_versions=0,
+            completed_versions=0,
+            failed_versions=0,
+            scan_complete=False,
+        )
+        session.add(deployment)
+        await session.flush()
+        await record_audit(
+            session,
+            org_id=None,
+            actor_id=context.user_id,
+            action="embedding_deployment.requested",
+            target_type="embedding_deployment",
+            target_id=str(deployment.id),
+        )
+        await session.commit()
+        return deployment
+    except IntegrityError as exc:
+        await session.rollback()
+        raise ConflictError(
+            "another embedding deployment is already pending"
+        ) from exc
     except Exception:
         await session.rollback()
         raise
