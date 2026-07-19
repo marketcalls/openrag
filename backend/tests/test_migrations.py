@@ -786,6 +786,21 @@ def test_authority_upgrade_installs_scoped_version_and_signed_readiness_schema(
         "fk_document_authority_readiness_policy_snapshot",
         "fk_document_authority_readiness_org_activator",
     } <= readiness_foreign_keys
+    with engine.connect() as connection:
+        immutable_artifact_triggers = set(
+            connection.execute(
+                text(
+                    "SELECT trigger_name FROM information_schema.triggers "
+                    "WHERE trigger_name LIKE 'trg_document_%_immutable'"
+                )
+            ).scalars()
+        )
+    assert {
+        "trg_document_blocks_immutable",
+        "trg_document_chunks_immutable",
+        "trg_document_chunk_blocks_immutable",
+        "trg_document_evidence_spans_immutable",
+    } <= immutable_artifact_triggers
 
 
 def test_authority_upgrade_aborts_before_mutation_for_orphan_citation(
@@ -834,6 +849,59 @@ def test_authority_upgrade_aborts_before_mutation_for_orphan_citation(
             == RBAC_REVISION
         )
         assert not inspect(engine).has_table("document_versions")
+
+
+@pytest.mark.parametrize("parent_role", ["user", "system"])
+def test_authority_upgrade_aborts_before_mutation_for_invalid_legacy_parent(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+    parent_role: str,
+) -> None:
+    config, engine, ids = authority_db
+    chat_id = uuid4()
+    message_id = uuid4()
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO chats "
+                "(id, org_id, workspace_id, user_id, title, updated_at, created_at) "
+                "VALUES (:id, :org, :workspace, :user, 'Invalid parent', now(), now())"
+            ),
+            {
+                "id": chat_id,
+                "org": ids.org_id,
+                "workspace": ids.workspace_id,
+                "user": ids.user_id,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO messages "
+                "(id, chat_id, parent_message_id, sibling_index, role, content, created_at) "
+                "VALUES (:id, :chat, NULL, 0, :role, 'invalid parent', now())"
+            ),
+            {"id": message_id, "chat": chat_id, "role": parent_role},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO citations "
+                "(id, message_id, document_id, chunk_ref, page, score, marker, created_at) "
+                "VALUES (:id, :message, :document, 'legacy:1', 1, 0.5, 1, now())"
+            ),
+            {
+                "id": uuid4(),
+                "message": message_id,
+                "document": ids.document_ids["indexed"],
+            },
+        )
+
+    with pytest.raises(RuntimeError, match="invalid legacy citation"):
+        command.upgrade(config, AUTHORITY_REVISION)
+    with engine.connect() as connection:
+        assert (
+            connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            == RBAC_REVISION
+        )
+    assert not inspect(engine).has_table("document_versions")
 
 
 @pytest.mark.parametrize(

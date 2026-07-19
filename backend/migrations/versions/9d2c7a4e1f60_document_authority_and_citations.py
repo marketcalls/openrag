@@ -38,6 +38,7 @@ def _reject_invalid_legacy_citations(connection: sa.Connection) -> None:
             "LEFT JOIN chats ch ON ch.id=m.chat_id "
             "LEFT JOIN documents d ON d.id=c.document_id "
             "WHERE m.id IS NULL OR ch.id IS NULL OR d.id IS NULL OR c.page <= 0 "
+            "OR m.role IS DISTINCT FROM 'assistant' "
             "OR d.org_id <> ch.org_id OR d.workspace_id <> ch.workspace_id"
         )
     ).scalar_one()
@@ -664,14 +665,22 @@ def _install_authority_triggers() -> None:
     )
     op.execute(
         """
-        CREATE FUNCTION openrag_protect_terminal_rows() RETURNS trigger
+        CREATE FUNCTION openrag_protect_terminal_readiness() RETURNS trigger
         LANGUAGE plpgsql AS $$
         BEGIN
-          IF TG_TABLE_NAME='document_authority_readiness'
-             AND OLD.status IN ('failed','activated') THEN
+          IF OLD.status IN ('stale','failed','activated') THEN
             RAISE EXCEPTION 'terminal readiness generation is immutable';
-          ELSIF TG_TABLE_NAME='grounding_calibration_runs'
-             AND OLD.state IN ('passed','failed') THEN
+          END IF;
+          RETURN NEW;
+        END $$;
+        """
+    )
+    op.execute(
+        """
+        CREATE FUNCTION openrag_protect_terminal_calibration() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          IF OLD.state IN ('passed','failed') THEN
             RAISE EXCEPTION 'terminal calibration run is immutable';
           END IF;
           RETURN NEW;
@@ -682,19 +691,46 @@ def _install_authority_triggers() -> None:
         """
         CREATE TRIGGER trg_readiness_terminal_immutable
         BEFORE UPDATE ON document_authority_readiness FOR EACH ROW
-        EXECUTE FUNCTION openrag_protect_terminal_rows();
+        EXECUTE FUNCTION openrag_protect_terminal_readiness();
         """
     )
     op.execute(
         """
         CREATE TRIGGER trg_calibration_terminal_immutable
         BEFORE UPDATE ON grounding_calibration_runs FOR EACH ROW
-        EXECUTE FUNCTION openrag_protect_terminal_rows();
+        EXECUTE FUNCTION openrag_protect_terminal_calibration();
         """
     )
+    op.execute(
+        """
+        CREATE FUNCTION openrag_protect_evidence_artifact() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          RAISE EXCEPTION 'immutable evidence artifact cannot be updated';
+        END $$;
+        """
+    )
+    for table in (
+        "document_blocks",
+        "document_chunks",
+        "document_chunk_blocks",
+        "document_evidence_spans",
+    ):
+        op.execute(
+            f"CREATE TRIGGER trg_{table}_immutable "
+            f"BEFORE UPDATE ON {table} FOR EACH ROW "
+            "EXECUTE FUNCTION openrag_protect_evidence_artifact();"
+        )
 
 
 def _drop_authority_triggers() -> None:
+    for table in (
+        "document_evidence_spans",
+        "document_chunk_blocks",
+        "document_chunks",
+        "document_blocks",
+    ):
+        op.execute(f"DROP TRIGGER IF EXISTS trg_{table}_immutable ON {table}")
     op.execute(
         "DROP TRIGGER IF EXISTS trg_calibration_terminal_immutable ON grounding_calibration_runs"
     )
@@ -705,7 +741,9 @@ def _drop_authority_triggers() -> None:
     op.execute("DROP TRIGGER IF EXISTS trg_messages_final_state ON messages")
     op.execute("DROP TRIGGER IF EXISTS trg_citations_validate_write ON citations")
     op.execute("DROP TRIGGER IF EXISTS trg_document_versions_immutable ON document_versions")
-    op.execute("DROP FUNCTION IF EXISTS openrag_protect_terminal_rows()")
+    op.execute("DROP FUNCTION IF EXISTS openrag_protect_evidence_artifact()")
+    op.execute("DROP FUNCTION IF EXISTS openrag_protect_terminal_calibration()")
+    op.execute("DROP FUNCTION IF EXISTS openrag_protect_terminal_readiness()")
     op.execute("DROP FUNCTION IF EXISTS openrag_validate_message_final_state()")
     op.execute("DROP FUNCTION IF EXISTS openrag_validate_citation_write()")
     op.execute("DROP FUNCTION IF EXISTS openrag_validate_document_version_update()")
@@ -746,7 +784,16 @@ def _downgrade_preflight(connection: sa.Connection) -> None:
             "OR (state='processing' AND provenance_state='none'))))",
             "sole version is not exact legacy",
         ),
-        ("SELECT EXISTS(SELECT 1 FROM document_evidence_spans)", "evidence span"),
+        (
+            "SELECT EXISTS(SELECT 1 FROM document_blocks "
+            "UNION ALL SELECT 1 FROM document_chunks "
+            "UNION ALL SELECT 1 FROM document_chunk_blocks "
+            "UNION ALL SELECT 1 FROM document_evidence_spans "
+            "UNION ALL SELECT 1 FROM document_version_projections "
+            "UNION ALL SELECT 1 FROM ingest_stage_attempts "
+            "UNION ALL SELECT 1 FROM legacy_rebuild_scan_checkpoints)",
+            "derived artifact",
+        ),
         ("SELECT EXISTS(SELECT 1 FROM document_authority_readiness)", "readiness generation"),
         ("SELECT EXISTS(SELECT 1 FROM grounding_policies)", "grounding policy"),
         ("SELECT EXISTS(SELECT 1 FROM grounding_calibration_runs)", "calibration run"),

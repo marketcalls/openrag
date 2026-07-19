@@ -753,6 +753,195 @@ def test_readiness_generation_preserves_signed_tenant_snapshot_and_is_terminal(
 
 
 @pytest.mark.parametrize(
+    ("readiness_terminal", "calibration_terminal"),
+    [("stale", "passed"), ("activated", "failed")],
+)
+def test_readiness_and_calibration_allow_normal_transitions_then_freeze_terminals(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+    readiness_terminal: str,
+    calibration_terminal: str,
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    readiness_id = uuid4()
+    calibration_id = uuid4()
+    with engine.begin() as connection:
+        evidence = _seed_authority_evidence(connection, ids)
+        connection.execute(
+            text(
+                "INSERT INTO document_authority_readiness "
+                "(id, generation_id, org_id, workspace_id, request_digest, "
+                "physical_collection, collection_alias, schema_version, "
+                "current_version_count, ready_version_count, projected_version_count, "
+                "point_count, grounding_policy_id, grounding_policy_version, "
+                "calibration_hash, verifier_model_id, provider_preset_version, "
+                "binding_revision, credential_fingerprint, blocker_codes, status, "
+                "attempts, expires_at, created_at) VALUES "
+                "(:id, :generation, :org, :workspace, :digest, 'authority-v2', "
+                "'authority-current', 1, 0, 0, 0, 0, :policy, 1, :calibration, "
+                ":model, 'preset/v1', 'binding/v1', 'credential-v1', "
+                "ARRAY[]::varchar[], 'building', 0, now() + interval '1 hour', now())"
+            ),
+            {
+                "id": readiness_id,
+                "generation": uuid4(),
+                "org": ids.org_id,
+                "workspace": ids.workspace_id,
+                "digest": "1" * 64,
+                "policy": evidence["policy_id"],
+                "calibration": "a" * 64,
+                "model": evidence["model_id"],
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO grounding_calibration_runs "
+                "(id, generation_id, org_id, workspace_id, policy_id, "
+                "idempotency_digest, requested_binding_revision, "
+                "requested_preset_version, requested_credential_fingerprint, state, "
+                "attempts, sample_count, supported_count, refused_count, updated_at, "
+                "created_at) VALUES (:id, :generation, :org, :workspace, :policy, "
+                ":digest, 'binding/v1', 'preset/v1', 'credential-v1', 'queued', "
+                "0, 0, 0, 0, now(), now())"
+            ),
+            {
+                "id": calibration_id,
+                "generation": uuid4(),
+                "org": ids.org_id,
+                "workspace": ids.workspace_id,
+                "policy": evidence["policy_id"],
+                "digest": "2" * 64,
+            },
+        )
+
+    with engine.begin() as connection:
+        connection.execute(
+            text("UPDATE document_authority_readiness SET status='passed' WHERE id=:id"),
+            {"id": readiness_id},
+        )
+        connection.execute(
+            text("UPDATE document_authority_readiness SET status=:status WHERE id=:id"),
+            {"id": readiness_id, "status": readiness_terminal},
+        )
+        connection.execute(
+            text("UPDATE grounding_calibration_runs SET state='running' WHERE id=:id"),
+            {"id": calibration_id},
+        )
+        connection.execute(
+            text("UPDATE grounding_calibration_runs SET state=:state WHERE id=:id"),
+            {"id": calibration_id, "state": calibration_terminal},
+        )
+
+    with pytest.raises(sa.exc.DBAPIError, match="terminal readiness"):
+        with engine.begin() as connection:
+            connection.execute(
+                text("UPDATE document_authority_readiness SET attempts=1 WHERE id=:id"),
+                {"id": readiness_id},
+            )
+    with pytest.raises(sa.exc.DBAPIError, match="terminal calibration"):
+        with engine.begin() as connection:
+            connection.execute(
+                text("UPDATE grounding_calibration_runs SET attempts=1 WHERE id=:id"),
+                {"id": calibration_id},
+            )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "UPDATE document_evidence_spans SET content_hash=repeat('3',64) WHERE id=:span",
+        "UPDATE document_evidence_spans SET page_number=2 WHERE id=:span",
+        "UPDATE document_evidence_spans SET locator_kind='section' WHERE id=:span",
+        "UPDATE document_evidence_spans SET locator_label='Safety.1' WHERE id=:span",
+        "UPDATE document_evidence_spans SET section_path='[\"Other\"]'::jsonb WHERE id=:span",
+        "UPDATE document_evidence_spans SET ordinal=1 WHERE id=:span",
+        "UPDATE document_evidence_spans SET token_count=3 WHERE id=:span",
+        "UPDATE document_evidence_spans SET artifact_byte_start=1 WHERE id=:span",
+        "UPDATE document_evidence_spans SET artifact_byte_end=16 WHERE id=:span",
+        "UPDATE document_evidence_spans SET document_version_id=:other WHERE id=:span",
+        "UPDATE document_evidence_spans SET chunk_id=:other WHERE id=:span",
+        "UPDATE document_chunks SET text='mutated' WHERE document_version_id=:version",
+    ],
+)
+def test_referenced_evidence_artifacts_are_immutable(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+    mutation: str,
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    _chat, _user, assistant = _seed_legacy_parent(engine, ids)
+    with engine.begin() as connection:
+        evidence = _seed_authority_evidence(connection, ids)
+        connection.execute(
+            text("UPDATE messages SET answer_status='grounded' WHERE id=:id"),
+            {"id": assistant},
+        )
+        _insert_authority_citation(connection, ids, evidence, assistant)
+
+    with pytest.raises(sa.exc.DBAPIError, match="evidence artifact"):
+        with engine.begin() as connection:
+            connection.execute(
+                text(mutation),
+                {
+                    "span": evidence["span_id"],
+                    "version": evidence["version_id"],
+                    "other": ids.document_ids["indexed"],
+                },
+            )
+
+
+@pytest.mark.parametrize("artifact_kind", ["block", "chunk"])
+def test_downgrade_rejects_block_or_chunk_only_derived_artifact(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+    artifact_kind: str,
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    version_id = ids.document_ids["indexed"]
+    with engine.begin() as connection:
+        if artifact_kind == "chunk":
+            connection.execute(
+                text(
+                    "INSERT INTO document_chunks "
+                    "(id, org_id, document_version_id, ordinal, text, token_count, "
+                    "page_start, page_end, section_path, content_hash, "
+                    "chunking_profile_version, embedding_profile_version, created_at) "
+                    "VALUES (:id, :org, :version, 0, 'legacy derived chunk', 3, 1, 1, "
+                    "'[\"Legacy import\"]'::jsonb, :hash, 'legacy/chunking-v1', "
+                    "'legacy/embedding-v1', now())"
+                ),
+                {
+                    "id": uuid4(),
+                    "org": ids.org_id,
+                    "version": version_id,
+                    "hash": "5" * 64,
+                },
+            )
+        else:
+            connection.execute(
+                text(
+                    "INSERT INTO document_blocks "
+                    "(id, org_id, document_version_id, parent_block_id, ordinal, text, "
+                    "page_number, locator_kind, locator_label, block_type, section_path, "
+                    "source_coordinates, extraction_method, ocr_profile_version, "
+                    "ocr_confidence, content_hash, created_at) VALUES "
+                    "(:id, :org, :version, NULL, 0, 'legacy derived block', 1, 'page', "
+                    "'1', 'paragraph', '[\"Legacy import\"]'::jsonb, NULL, 'legacy', "
+                    "'legacy/ocr-unknown-v1', NULL, :hash, now())"
+                ),
+                {
+                    "id": uuid4(),
+                    "org": ids.org_id,
+                    "version": version_id,
+                    "hash": "6" * 64,
+                },
+            )
+
+    with pytest.raises(RuntimeError, match="derived artifact"):
+        command.downgrade(config, "6c4a2f8b9d10")
+
+
+@pytest.mark.parametrize(
     "scope_override",
     [
         {"org_id": uuid4()},
