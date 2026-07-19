@@ -1,13 +1,16 @@
 """External-I/O adapters for replay-safe document parse and chunk stages."""
 
 import asyncio
+import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
 from qdrant_client import models
 
+from openrag.modules.documents.authority_storage import AuthorityCollectionSpec
 from openrag.modules.documents.pipeline import (
     Chunk,
     EvidenceSpan,
@@ -24,6 +27,7 @@ from openrag.modules.documents.stage_artifacts import (
     artifact_key,
     decode_chunk_artifact,
     decode_parsed_artifact,
+    decode_vector_artifact,
     encode_chunk_artifact,
     encode_parsed_artifact,
     encode_vector_artifact,
@@ -36,6 +40,7 @@ from openrag.modules.documents.stages import (
 from openrag.modules.retrieval.embeddings import DenseEmbedder, embed_sparse
 
 SparseEmbedder = Callable[[list[str]], Awaitable[list[models.SparseVector]]]
+AuthorityReady = Callable[[UUID], Awaitable[bool]]
 
 
 class StageObjectStorage(Protocol):
@@ -47,6 +52,16 @@ class StageObjectStorage(Protocol):
         data: bytes,
         content_type: str = "application/octet-stream",
     ) -> None: ...
+
+
+class AuthorityPointWriter(Protocol):
+    async def upsert(
+        self,
+        collection_name: str,
+        *,
+        points: list[models.PointStruct],
+        wait: bool,
+    ) -> object: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +115,49 @@ class EmbeddedStageResult:
     identity: ArtifactIdentity
     artifact: StageArtifact
     vectors: list[EvidenceVector]
+
+
+@dataclass(frozen=True, slots=True)
+class PersistedEvidence:
+    id: UUID
+    ordinal: int
+    page_number: int
+    locator_kind: str
+    locator_label: str
+    section_path: tuple[str, ...]
+    content_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorityPlan:
+    source: StageSourcePlan
+    document_id: UUID
+    document_name: str
+    version_label: str
+    revision_date: datetime | None
+    projection_revision: int
+    evidence: list[PersistedEvidence]
+
+    def __post_init__(self) -> None:
+        if (
+            not 1 <= len(self.document_name.strip()) <= 500
+            or not 1 <= len(self.version_label.strip()) <= 200
+            or self.projection_revision < 0
+            or not self.evidence
+            or [row.ordinal for row in self.evidence] != list(range(len(self.evidence)))
+        ):
+            raise ValueError("authority plan is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorityStageResult:
+    physical_collection: str
+    output_digest: str
+    point_count: int
+
+
+class AuthorityStorageUnavailable(RuntimeError):
+    """The exact authority generation failed its immediate readiness probe."""
 
 
 def _identity(
@@ -294,4 +352,145 @@ async def embed_stage_external(
         identity=identity,
         artifact=artifact,
         vectors=vectors,
+    )
+
+
+def _validate_authority_evidence(
+    evidence: list[PersistedEvidence],
+    spans: list[EvidenceSpan],
+) -> None:
+    if len(evidence) != len(spans):
+        raise IngestFailure("persisted evidence cardinality mismatch")
+    for row, span in zip(evidence, spans, strict=True):
+        if (
+            row.ordinal != span.span_index
+            or row.page_number != span.page_number
+            or row.locator_kind != span.locator_kind
+            or row.locator_label != span.locator_label
+            or row.section_path != span.section_path
+            or row.content_hash != hashlib.sha256(span.text.encode()).hexdigest()
+        ):
+            raise IngestFailure("persisted evidence identity mismatch")
+
+
+async def authority_upsert_external(
+    claim: StageClaim,
+    plan: AuthorityPlan,
+    storage: StageObjectStorage,
+    *,
+    chunks_digest: str,
+    vectors_digest: str,
+    authority_ready: AuthorityReady,
+    qdrant: AuthorityPointWriter,
+    batch_size: int = 128,
+) -> AuthorityStageResult:
+    """Upsert exact evidence IDs only into the probed physical generation."""
+
+    if not 1 <= batch_size <= 256:
+        raise ValueError("authority batch size is invalid")
+    _identity(
+        claim,
+        plan.source,
+        expected_stage="authority_upsert",
+    )
+    chunk_identity = _identity(
+        claim,
+        plan.source,
+        expected_stage="authority_upsert",
+        artifact_stage="chunk",
+    )
+    vector_identity = _identity(
+        claim,
+        plan.source,
+        expected_stage="authority_upsert",
+        artifact_stage="embed",
+    )
+    try:
+        chunk_raw = await storage.get(
+            artifact_key(chunk_identity, "chunks", chunks_digest)
+        )
+        _chunks, spans = decode_chunk_artifact(
+            chunk_raw,
+            expected=chunk_identity,
+            expected_digest=chunks_digest,
+        )
+        vector_raw = await storage.get(
+            artifact_key(vector_identity, "vectors", vectors_digest)
+        )
+        vector_artifact = decode_vector_artifact(
+            vector_raw,
+            expected=vector_identity,
+            expected_digest=vectors_digest,
+            expected_parent_digest=chunks_digest,
+            expected_embedding_profile=plan.source.embedding_profile_version,
+            expected_dense_dimension=plan.source.dense_dimension,
+        )
+    except (KeyError, ValueError) as exc:
+        raise IngestFailure("authority input artifact is invalid") from exc
+    _validate_authority_evidence(plan.evidence, spans)
+    if len(vector_artifact.vectors) != len(spans):
+        raise IngestFailure("authority vector cardinality mismatch")
+
+    spec = AuthorityCollectionSpec(
+        generation_id=claim.authority_generation_id,
+        dense_dimension=plan.source.dense_dimension,
+    )
+    points = [
+        models.PointStruct(
+            id=str(row.id),
+            vector={
+                "dense": list(vector.dense),
+                "sparse": models.SparseVector(
+                    indices=list(vector.sparse_indices),
+                    values=list(vector.sparse_values),
+                ),
+            },
+            payload={
+                "tenant_id": str(plan.source.org_id),
+                "workspace_id": str(plan.source.workspace_id),
+                "document_id": str(plan.document_id),
+                "document_version_id": str(plan.source.document_version_id),
+                "evidence_span_id": str(row.id),
+                "is_current_approved": False,
+                "projection_revision": plan.projection_revision,
+                "page_number": row.page_number,
+                "document_name": plan.document_name,
+                "version_label": plan.version_label,
+                "revision_date": (
+                    plan.revision_date.isoformat()
+                    if plan.revision_date is not None
+                    else None
+                ),
+                "section_path": list(row.section_path),
+                "section": " > ".join(row.section_path),
+                "locator_kind": row.locator_kind,
+                "locator_label": row.locator_label,
+                "content_hash": row.content_hash,
+                "text": span.text,
+                "source_mime": plan.source.source_mime,
+            },
+        )
+        for row, span, vector in zip(
+            plan.evidence,
+            spans,
+            vector_artifact.vectors,
+            strict=True,
+        )
+    ]
+    for start in range(0, len(points), batch_size):
+        if not await authority_ready(claim.authority_generation_id):
+            raise AuthorityStorageUnavailable("authority storage is not ready")
+        await qdrant.upsert(
+            spec.physical_collection,
+            points=points[start : start + batch_size],
+            wait=True,
+        )
+    receipt = (
+        f"openrag.authority.v1:{spec.physical_collection}:"
+        f"{vectors_digest}:{len(points)}"
+    ).encode()
+    return AuthorityStageResult(
+        physical_collection=spec.physical_collection,
+        output_digest=hashlib.sha256(receipt).hexdigest(),
+        point_count=len(points),
     )

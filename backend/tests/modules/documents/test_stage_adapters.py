@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime
 from uuid import UUID, uuid4
 
@@ -6,7 +7,13 @@ from qdrant_client import models
 
 from openrag.modules.documents.pipeline import IngestFailure, ParseProfile
 from openrag.modules.documents.stage_adapters import (
+    AuthorityPlan,
+    AuthorityStorageUnavailable,
+    ChunkStageResult,
+    EmbeddedStageResult,
+    PersistedEvidence,
     StageSourcePlan,
+    authority_upsert_external,
     chunk_stage_external,
     embed_stage_external,
     parse_stage_external,
@@ -261,3 +268,148 @@ async def test_embed_stage_rejects_provider_dimension_drift_before_write() -> No
         )
 
     assert len(storage.puts) == prior_puts
+
+
+class RecordingQdrant:
+    def __init__(self) -> None:
+        self.upserts: list[tuple[str, list[models.PointStruct], bool]] = []
+
+    async def upsert(
+        self,
+        collection_name: str,
+        *,
+        points: list[models.PointStruct],
+        wait: bool,
+    ) -> None:
+        self.upserts.append((collection_name, points, wait))
+
+
+async def _authority_fixture() -> tuple[
+    StageSourcePlan,
+    MemoryStorage,
+    UUID,
+    ChunkStageResult,
+    EmbeddedStageResult,
+]:
+    plan = _plan()
+    storage = MemoryStorage({plan.source_storage_key: b"Invoice total is INR 4200."})
+    generation_id = uuid4()
+    parsed = await parse_stage_external(
+        _claim(plan, "parse", generation_id=generation_id),
+        plan,
+        storage,
+        ParseProfile(),
+    )
+    chunked = await chunk_stage_external(
+        _claim(plan, "chunk", generation_id=generation_id),
+        plan,
+        storage,
+        parsed_digest=parsed.artifact.digest,
+    )
+    embedded = await embed_stage_external(
+        _claim(plan, "embed", generation_id=generation_id),
+        plan,
+        storage,
+        chunks_digest=chunked.artifact.digest,
+        dense_embedder=RecordingDenseEmbedder(plan.dense_dimension),
+        sparse_embedder=_sparse,
+    )
+    return plan, storage, generation_id, chunked, embedded
+
+
+async def test_authority_upsert_uses_postgres_evidence_ids_and_physical_generation() -> None:
+    plan, storage, generation_id, chunked, embedded = await _authority_fixture()
+    persisted = [
+        PersistedEvidence(
+            id=uuid4(),
+            ordinal=span.span_index,
+            page_number=span.page_number,
+            locator_kind=span.locator_kind,
+            locator_label=span.locator_label,
+            section_path=span.section_path,
+            content_hash=hashlib.sha256(span.text.encode()).hexdigest(),
+        )
+        for span in chunked.evidence_spans
+    ]
+    authority = AuthorityPlan(
+        source=plan,
+        document_id=uuid4(),
+        document_name="Vendor Invoice",
+        version_label="Rev 3",
+        revision_date=datetime(2026, 7, 19),
+        projection_revision=0,
+        evidence=persisted,
+    )
+    readiness: list[UUID] = []
+
+    async def ready(candidate: UUID) -> bool:
+        readiness.append(candidate)
+        return True
+
+    qdrant = RecordingQdrant()
+    result = await authority_upsert_external(
+        _claim(plan, "authority_upsert", generation_id=generation_id),
+        authority,
+        storage,
+        chunks_digest=chunked.artifact.digest,
+        vectors_digest=embedded.artifact.digest,
+        authority_ready=ready,
+        qdrant=qdrant,
+    )
+
+    assert readiness == [generation_id]
+    assert len(result.output_digest) == 64
+    assert len(qdrant.upserts) == 1
+    collection, points, wait = qdrant.upserts[0]
+    assert collection == f"openrag_authority_v1_{generation_id.hex}"
+    assert wait is True
+    assert [point.id for point in points] == [str(row.id) for row in persisted]
+    payload = points[0].payload
+    assert payload is not None
+    assert payload["document_name"] == "Vendor Invoice"
+    assert payload["version_label"] == "Rev 3"
+    assert payload["page_number"] == 1
+    assert payload["section_path"] == ["Document"]
+    assert payload["is_current_approved"] is False
+    assert payload["projection_revision"] == 0
+
+
+async def test_authority_upsert_fails_closed_when_immediate_probe_is_unready() -> None:
+    plan, storage, generation_id, chunked, embedded = await _authority_fixture()
+    span = chunked.evidence_spans[0]
+    authority = AuthorityPlan(
+        source=plan,
+        document_id=uuid4(),
+        document_name="Invoice",
+        version_label="Rev 1",
+        revision_date=None,
+        projection_revision=0,
+        evidence=[
+            PersistedEvidence(
+                id=uuid4(),
+                ordinal=0,
+                page_number=span.page_number,
+                locator_kind=span.locator_kind,
+                locator_label=span.locator_label,
+                section_path=span.section_path,
+                content_hash=hashlib.sha256(span.text.encode()).hexdigest(),
+            )
+        ],
+    )
+
+    async def unready(_candidate: UUID) -> bool:
+        return False
+
+    qdrant = RecordingQdrant()
+    with pytest.raises(AuthorityStorageUnavailable):
+        await authority_upsert_external(
+            _claim(plan, "authority_upsert", generation_id=generation_id),
+            authority,
+            storage,
+            chunks_digest=chunked.artifact.digest,
+            vectors_digest=embedded.artifact.digest,
+            authority_ready=unready,
+            qdrant=qdrant,
+        )
+
+    assert qdrant.upserts == []
