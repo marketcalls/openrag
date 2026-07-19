@@ -406,7 +406,10 @@ class DocumentBlock(UUIDPk, Base):
     locator_label: Mapped[str] = mapped_column(String(200))
     block_type: Mapped[str] = mapped_column(String(50))
     section_path: Mapped[list[str]] = mapped_column(JSONB)
-    source_coordinates: Mapped[dict[str, object] | None] = mapped_column(JSONB, default=None)
+    source_coordinates: Mapped[dict[str, object] | None] = mapped_column(
+        JSONB(none_as_null=True),
+        default=None,
+    )
     extraction_method: Mapped[str] = mapped_column(String(50))
     ocr_profile_version: Mapped[str] = mapped_column(String(100))
     ocr_confidence: Mapped[float | None] = mapped_column(default=None)

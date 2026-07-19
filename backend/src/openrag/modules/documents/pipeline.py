@@ -28,6 +28,9 @@ class PageBlock:
     section_path: tuple[str, ...] = ("Document",)
     locator_kind: str = "page"
     locator_label: str | None = None
+    source_coordinates: dict[str, object] | None = None
+    extraction_method: str = "parser"
+    ocr_confidence: float | None = None
 
     def __post_init__(self) -> None:
         if self.page < 1:
@@ -39,6 +42,10 @@ class PageBlock:
         )
         if self.locator_label is None:
             object.__setattr__(self, "locator_label", str(self.page))
+        if self.extraction_method not in {"parser", "ocr", "mixed"}:
+            raise ValueError("extraction method is unsupported")
+        if self.ocr_confidence is not None and not 0 <= self.ocr_confidence <= 1:
+            raise ValueError("OCR confidence must be between zero and one")
 
 
 @dataclass(frozen=True)
