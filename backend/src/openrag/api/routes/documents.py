@@ -43,6 +43,8 @@ async def upload_document(
         mime=file.content_type or "application/octet-stream",
         data=data,
     )
+    if document.size_bytes is None:
+        raise RuntimeError("new upload is missing its compatibility size mirror")
     enqueue_ingest(document.id, document.size_bytes)
     return DocumentOut.model_validate(document)
 

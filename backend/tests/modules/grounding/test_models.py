@@ -109,6 +109,157 @@ async def make_policy(
     return policy
 
 
+def readiness_values(
+    *,
+    organization: Organization,
+    workspace: Workspace,
+    policy: GroundingPolicy,
+) -> dict[str, object]:
+    return {
+        "generation_id": uuid4(),
+        "org_id": organization.id,
+        "workspace_id": workspace.id,
+        "request_digest": "c" * 64,
+        "physical_collection": "authority-v1",
+        "collection_alias": "authority-current",
+        "schema_version": 1,
+        "grounding_policy_id": policy.id,
+        "grounding_policy_version": policy.policy_version,
+        "verifier_model_id": policy.verifier_model_id,
+        "calibration_hash": policy.calibration_dataset_hash,
+        "provider_preset_version": policy.provider_preset_version,
+        "binding_revision": policy.binding_revision,
+        "credential_fingerprint": policy.credential_fingerprint,
+        "blocker_codes": [],
+        "expires_at": naive_utc() + timedelta(hours=1),
+    }
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        {"grounding_policy_version": 999},
+        {"calibration_hash": "b" * 64},
+        {"provider_preset_version": "other-preset"},
+        {"binding_revision": "other-binding"},
+        {"credential_fingerprint": "sha256:other"},
+    ],
+)
+async def test_readiness_rejects_mismatched_immutable_policy_snapshot(
+    session: AsyncSession,
+    mismatch: dict[str, object],
+) -> None:
+    organization, workspace, user, model = await seed_grounding_scope(
+        session, suffix=f"policy-snapshot-{uuid4()}"
+    )
+    policy = await make_policy(
+        session,
+        organization=organization,
+        workspace=workspace,
+        user=user,
+        model=model,
+    )
+    values = readiness_values(
+        organization=organization,
+        workspace=workspace,
+        policy=policy,
+    )
+    values.update(mismatch)
+    session.add(DocumentAuthorityReadiness(**values))
+    with pytest.raises(IntegrityError):
+        await session.commit()
+
+
+async def test_readiness_rejects_wrong_existing_policy_model(
+    session: AsyncSession,
+) -> None:
+    organization, workspace, user, model = await seed_grounding_scope(
+        session, suffix="wrong-existing-model"
+    )
+    policy = await make_policy(
+        session,
+        organization=organization,
+        workspace=workspace,
+        user=user,
+        model=model,
+    )
+    other_model = Model(
+        litellm_model_name=f"openai/other-{uuid4()}",
+        display_name="Other verifier",
+        provider_kind="openai",
+    )
+    session.add(other_model)
+    await session.flush()
+    values = readiness_values(
+        organization=organization,
+        workspace=workspace,
+        policy=policy,
+    )
+    values["verifier_model_id"] = other_model.id
+    session.add(DocumentAuthorityReadiness(**values))
+    with pytest.raises(IntegrityError):
+        await session.commit()
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "grounding_policy_version",
+        "verifier_model_id",
+        "calibration_hash",
+        "provider_preset_version",
+        "binding_revision",
+        "credential_fingerprint",
+    ],
+)
+async def test_readiness_rejects_partial_policy_snapshot(
+    session: AsyncSession,
+    missing_field: str,
+) -> None:
+    organization, workspace, user, model = await seed_grounding_scope(
+        session, suffix=f"partial-{missing_field}"
+    )
+    policy = await make_policy(
+        session,
+        organization=organization,
+        workspace=workspace,
+        user=user,
+        model=model,
+    )
+    values = readiness_values(
+        organization=organization,
+        workspace=workspace,
+        policy=policy,
+    )
+    values[missing_field] = None
+    session.add(DocumentAuthorityReadiness(**values))
+    with pytest.raises(IntegrityError):
+        await session.commit()
+
+
+async def test_readiness_rejects_policy_free_snapshot(
+    session: AsyncSession,
+) -> None:
+    organization, workspace, _, _ = await seed_grounding_scope(
+        session, suffix="policy-free"
+    )
+    session.add(
+        DocumentAuthorityReadiness(
+            generation_id=uuid4(),
+            org_id=organization.id,
+            workspace_id=workspace.id,
+            request_digest="a" * 64,
+            physical_collection="authority-v1",
+            collection_alias="authority-current",
+            schema_version=1,
+            blocker_codes=[],
+            expires_at=naive_utc() + timedelta(hours=1),
+        )
+    )
+    with pytest.raises(IntegrityError):
+        await session.commit()
+
+
 async def test_readiness_rejects_peer_workspace_policy(
     session: AsyncSession,
 ) -> None:
@@ -125,26 +276,9 @@ async def test_readiness_rejects_peer_workspace_policy(
         user=user,
         model=model,
     )
-    session.add(
-        DocumentAuthorityReadiness(
-            generation_id=uuid4(),
-            org_id=organization.id,
-            workspace_id=peer.id,
-            request_digest="b" * 64,
-            physical_collection="authority-v1",
-            collection_alias="authority-current",
-            schema_version=1,
-            grounding_policy_id=policy.id,
-            grounding_policy_version=policy.policy_version,
-            verifier_model_id=model.id,
-            calibration_hash="e" * 64,
-            provider_preset_version="preset-v1",
-            binding_revision="binding-v1",
-            credential_fingerprint="sha256:fingerprint",
-            blocker_codes=[],
-            expires_at=naive_utc() + timedelta(hours=1),
-        )
-    )
+    values = readiness_values(organization=organization, workspace=workspace, policy=policy)
+    values["workspace_id"] = peer.id
+    session.add(DocumentAuthorityReadiness(**values))
     with pytest.raises(IntegrityError):
         await session.commit()
 
@@ -162,26 +296,9 @@ async def test_readiness_rejects_unknown_verifier_model(
         user=user,
         model=model,
     )
-    session.add(
-        DocumentAuthorityReadiness(
-            generation_id=uuid4(),
-            org_id=organization.id,
-            workspace_id=workspace.id,
-            request_digest="f" * 64,
-            physical_collection="authority-v1",
-            collection_alias="authority-current",
-            schema_version=1,
-            grounding_policy_id=policy.id,
-            grounding_policy_version=policy.policy_version,
-            verifier_model_id=uuid4(),
-            calibration_hash="e" * 64,
-            provider_preset_version="preset-v1",
-            binding_revision="binding-v1",
-            credential_fingerprint="sha256:fingerprint",
-            blocker_codes=[],
-            expires_at=naive_utc() + timedelta(hours=1),
-        )
-    )
+    values = readiness_values(organization=organization, workspace=workspace, policy=policy)
+    values["verifier_model_id"] = uuid4()
+    session.add(DocumentAuthorityReadiness(**values))
     with pytest.raises(IntegrityError):
         await session.commit()
 
@@ -190,9 +307,15 @@ async def test_readiness_rejects_unknown_verifier_model(
     "invalid_values",
     [
         {"request_digest": "short"},
+        {"request_digest": "g" * 64},
         {"schema_version": 0},
         {"blocker_codes": ["x"] * 33},
         {"status": "unknown"},
+        {"payload_index_digest": "g" * 64},
+        {"provenance_digest": "g" * 64},
+        {"lifecycle_revision_digest": "g" * 64},
+        {"readiness_digest": "g" * 64},
+        {"signature": "g" * 64},
     ],
 )
 async def test_readiness_bounds_are_enforced_by_postgresql(
@@ -209,24 +332,7 @@ async def test_readiness_bounds_are_enforced_by_postgresql(
         user=user,
         model=model,
     )
-    values: dict[str, object] = {
-        "generation_id": uuid4(),
-        "org_id": organization.id,
-        "workspace_id": workspace.id,
-        "request_digest": "c" * 64,
-        "physical_collection": "authority-v1",
-        "collection_alias": "authority-current",
-        "schema_version": 1,
-        "grounding_policy_id": policy.id,
-        "grounding_policy_version": policy.policy_version,
-        "verifier_model_id": model.id,
-        "calibration_hash": "e" * 64,
-        "provider_preset_version": "preset-v1",
-        "binding_revision": "binding-v1",
-        "credential_fingerprint": "sha256:fingerprint",
-        "blocker_codes": [],
-        "expires_at": naive_utc() + timedelta(hours=1),
-    }
+    values = readiness_values(organization=organization, workspace=workspace, policy=policy)
     values.update(invalid_values)
     session.add(DocumentAuthorityReadiness(**values))
     with pytest.raises(DBAPIError):
@@ -265,8 +371,10 @@ async def test_calibration_aggregate_counts_are_coherent(
         await session.commit()
 
 
+@pytest.mark.parametrize("invalid_digest", ["short", "g" * 64])
 async def test_calibration_digest_is_enforced_by_postgresql(
     session: AsyncSession,
+    invalid_digest: str,
 ) -> None:
     organization, workspace, user, model = await seed_grounding_scope(
         session, suffix="calibration-digest"
@@ -284,7 +392,7 @@ async def test_calibration_digest_is_enforced_by_postgresql(
             org_id=organization.id,
             workspace_id=workspace.id,
             policy_id=policy.id,
-            idempotency_digest="short",
+            idempotency_digest=invalid_digest,
             requested_binding_revision="binding-v1",
             requested_preset_version="preset-v1",
             requested_credential_fingerprint="sha256:fingerprint",
@@ -314,6 +422,7 @@ async def test_model_preset_version_bound_is_enforced_by_postgresql(
     [
         {"entailment_threshold": 1.1},
         {"calibration_dataset_hash": "short"},
+        {"calibration_dataset_hash": "g" * 64},
         {"status": "unknown"},
         {"provider_preset_version": "x" * 101},
     ],

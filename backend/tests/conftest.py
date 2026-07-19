@@ -311,6 +311,7 @@ async def chat_env(
     document = Document(
         org_id=seeded_user.org_id,
         workspace_id=workspace.id,
+        name="report.pdf",
         filename="report.pdf",
         mime="application/pdf",
         size_bytes=10,

@@ -89,13 +89,37 @@ async def _fail(
     job: IngestJob,
     reason: str,
 ) -> None:
+    await _fail_jobs(session, document, (job,), reason)
+
+
+async def _fail_jobs(
+    session: AsyncSession,
+    document: Document,
+    jobs: tuple[IngestJob, ...],
+    reason: str,
+) -> None:
     document.status = "failed"
     document.error = reason[:1000]
-    await _finish_stage(session, job, error=reason[:1000])
+    for job in jobs:
+        job.finished_at = naive_utc()
+        job.error = reason[:1000]
+    await session.commit()
 
 
 def _storage() -> ObjectStorage:
     return build_storage(get_settings())
+
+
+def _legacy_ingest_source(document: Document) -> tuple[str, str, str]:
+    """Return compatibility source fields required by the legacy ingest path."""
+
+    if document.storage_key is None:
+        raise IngestFailure("document has no legacy storage key")
+    if document.filename is None:
+        raise IngestFailure("document has no legacy source filename")
+    if document.mime is None:
+        raise IngestFailure("document has no legacy source MIME type")
+    return document.storage_key, document.filename, document.mime
 
 
 async def run_parse(document_id: UUID) -> None:
@@ -104,17 +128,18 @@ async def run_parse(document_id: UUID) -> None:
         job = await _start_stage(session, document_id, "parse")
         storage = _storage()
         try:
-            data = await storage.get(document.storage_key)
+            storage_key, filename, _mime = _legacy_ingest_source(document)
+            data = await storage.get(storage_key)
             blocks = await asyncio.to_thread(
                 parse_bytes,
                 data,
-                document.filename,
+                filename,
             )
         except IngestFailure as exc:
             await _fail(session, document, job, str(exc))
             raise
         await storage.put(
-            document.storage_key + ".blocks.json",
+            storage_key + ".blocks.json",
             json.dumps([asdict(block) for block in blocks]).encode(),
             content_type="application/json",
         )
@@ -128,7 +153,12 @@ async def run_chunk(document_id: UUID) -> None:
         document = await _get_document(session, document_id)
         job = await _start_stage(session, document_id, "chunk")
         storage = _storage()
-        raw = await storage.get(document.storage_key + ".blocks.json")
+        try:
+            storage_key, _filename, _mime = _legacy_ingest_source(document)
+        except IngestFailure as exc:
+            await _fail(session, document, job, str(exc))
+            raise
+        raw = await storage.get(storage_key + ".blocks.json")
         blocks = [PageBlock(**block) for block in json.loads(raw)]
         chunks = chunk_blocks(blocks)
         if not chunks:
@@ -136,7 +166,7 @@ async def run_chunk(document_id: UUID) -> None:
             await _fail(session, document, job, reason)
             raise IngestFailure(reason)
         await storage.put(
-            document.storage_key + ".chunks.json",
+            storage_key + ".chunks.json",
             json.dumps([asdict(chunk) for chunk in chunks]).encode(),
             content_type="application/json",
         )
@@ -148,7 +178,12 @@ async def run_embed_upsert(document_id: UUID) -> None:
         document = await _get_document(session, document_id)
         embed_job = await _start_stage(session, document_id, "embed")
         upsert_job = await _start_stage(session, document_id, "upsert")
-        raw = await _storage().get(document.storage_key + ".chunks.json")
+        try:
+            storage_key, _filename, mime = _legacy_ingest_source(document)
+        except IngestFailure as exc:
+            await _fail_jobs(session, document, (embed_job, upsert_job), str(exc))
+            raise
+        raw = await _storage().get(storage_key + ".chunks.json")
         chunks = [Chunk(**chunk) for chunk in json.loads(raw)]
         await ensure_collection()
         dense_embedder = get_dense_embedder()
@@ -163,7 +198,7 @@ async def run_embed_upsert(document_id: UUID) -> None:
                 org_id=document.org_id,
                 workspace_id=document.workspace_id,
                 document_id=document.id,
-                mime=document.mime,
+                mime=mime,
                 created_at=document.created_at,
                 chunks=batch,
                 dense=dense,
@@ -191,12 +226,13 @@ async def run_delete(document_id: UUID, actor_id: UUID | None) -> None:
 
         await delete_document_points(document.org_id, document_id)
         storage = _storage()
-        for key in (
-            document.storage_key,
-            document.storage_key + ".blocks.json",
-            document.storage_key + ".chunks.json",
-        ):
-            await storage.delete(key)
+        if document.storage_key is not None:
+            for key in (
+                document.storage_key,
+                document.storage_key + ".blocks.json",
+                document.storage_key + ".chunks.json",
+            ):
+                await storage.delete(key)
         await session.execute(
             sa_delete(IngestJob).where(IngestJob.document_id == document_id)
         )

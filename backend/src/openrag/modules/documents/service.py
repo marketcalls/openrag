@@ -45,6 +45,7 @@ async def create_from_upload(
     document = Document(
         org_id=context.org_id,
         workspace_id=workspace.id,
+        name=filename,
         filename=filename,
         mime=mime,
         size_bytes=len(data),

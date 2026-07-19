@@ -116,6 +116,34 @@ async def test_mark_failed_records_reason(
     assert document.error == "boom after retries"
 
 
+@pytest.mark.parametrize("stage", ["chunk", "embed"])
+async def test_missing_legacy_source_terminalizes_started_jobs(
+    session: AsyncSession,
+    stack_env: None,
+    stage: str,
+) -> None:
+    _context, _workspace, document = await upload(session, f"missing-source-{stage}")
+    document.storage_key = None
+    await session.commit()
+
+    runner = run_chunk if stage == "chunk" else run_embed_upsert
+    with pytest.raises(IngestFailure, match="legacy storage key"):
+        await runner(document.id)
+
+    await session.refresh(document)
+    jobs = list(
+        (
+            await session.execute(
+                select(IngestJob).where(IngestJob.document_id == document.id)
+            )
+        ).scalars()
+    )
+    expected_stages = {"chunk"} if stage == "chunk" else {"embed", "upsert"}
+    assert {job.stage for job in jobs} == expected_stages
+    assert all(job.finished_at is not None and job.error for job in jobs)
+    assert document.status == "failed"
+
+
 async def test_delete_propagates_everywhere(
     session: AsyncSession,
     qdrant_collection: None,

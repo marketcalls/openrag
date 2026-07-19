@@ -9,6 +9,10 @@ _MAX_SECTION_DEPTH = 8
 _MAX_SECTION_ELEMENT_LENGTH = 200
 _WHITESPACE = re.compile(r"\s+")
 
+LEGACY_VERSION_LABEL = "Legacy import"
+LEGACY_VERSION_KEY = "legacy import"
+NO_OCR_PROFILE_VERSION = "none/v1"
+
 
 class DocumentVersionState(StrEnum):
     DRAFT = "draft"
@@ -91,6 +95,8 @@ def validate_section_path(values: list[str] | tuple[str, ...]) -> tuple[str, ...
         raise ValueError(f"section path may contain at most {_MAX_SECTION_DEPTH} elements")
     normalized: list[str] = []
     for value in values:
+        if not isinstance(value, str):
+            raise ValueError("section path elements must be strings")
         section = _WHITESPACE.sub(" ", unicodedata.normalize("NFKC", value)).strip()
         if not section:
             raise ValueError("section path elements must not be empty")

@@ -10,9 +10,10 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from openrag.core.db import Base, UUIDPk, naive_utc
+from openrag.modules.documents.lifecycle import validate_section_path
 
 
 class Chat(UUIDPk, Base):
@@ -103,18 +104,26 @@ class Citation(UUIDPk, Base):
     __table_args__ = (
         CheckConstraint("page > 0", name="ck_citations_page_positive"),
         CheckConstraint(
-            "section_path IS NULL OR "
-            "(jsonb_typeof(section_path) = 'array' "
+            "section_path IS NULL OR (jsonb_typeof(section_path) = 'array' "
             "AND jsonb_array_length(section_path) BETWEEN 1 AND 8 "
-            "AND pg_column_size(section_path) <= 4096)",
+            "AND pg_column_size(section_path) <= 4096 "
+            "AND jsonb_array_length(jsonb_path_query_array(section_path, "
+            "'$[*] ? (@.type() == \"string\" && @ like_regex \"^.{1,200}$\" flag \"s\")')) "
+            "= jsonb_array_length(section_path))",
             name="ck_citations_section_path",
         ),
         CheckConstraint(
-            "claim_ids IS NULL OR "
-            "(jsonb_typeof(claim_ids) = 'array' "
+            "claim_ids IS NULL OR (jsonb_typeof(claim_ids) = 'array' "
             "AND jsonb_array_length(claim_ids) BETWEEN 1 AND 64 "
-            "AND pg_column_size(claim_ids) <= 8192)",
+            "AND pg_column_size(claim_ids) <= 8192 "
+            "AND jsonb_array_length(jsonb_path_query_array(claim_ids, "
+            "'$[*] ? (@.type() == \"string\" && @ like_regex \"^.{1,64}$\" flag \"s\")')) "
+            "= jsonb_array_length(claim_ids))",
             name="ck_citations_claim_ids",
+        ),
+        CheckConstraint(
+            "content_hash IS NULL OR content_hash ~ '^[0-9a-f]{64}$'",
+            name="ck_citations_content_hash_sha256",
         ),
         ForeignKeyConstraint(
             ["org_id", "workspace_id", "message_id"],
@@ -178,3 +187,25 @@ class Citation(UUIDPk, Base):
     provider_preset_version: Mapped[str | None] = mapped_column(String(100), default=None)
     binding_revision: Mapped[str | None] = mapped_column(String(100), default=None)
     credential_fingerprint: Mapped[str | None] = mapped_column(String(128), default=None)
+
+    @validates("section_path")
+    def normalize_section_path(
+        self, _key: str, value: list[str] | None
+    ) -> list[str] | None:
+        if value is None:
+            return None
+        return list(validate_section_path(value))
+
+    @validates("claim_ids")
+    def validate_claim_ids(
+        self, _key: str, value: list[str] | None
+    ) -> list[str] | None:
+        if value is None:
+            return None
+        if not value or len(value) > 64:
+            raise ValueError("claim IDs must contain between 1 and 64 elements")
+        if any(not isinstance(claim_id, str) for claim_id in value):
+            raise ValueError("claim IDs must be strings")
+        if any(not 1 <= len(claim_id) <= 64 for claim_id in value):
+            raise ValueError("claim IDs must contain between 1 and 64 characters")
+        return list(value)

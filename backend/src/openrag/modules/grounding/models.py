@@ -27,6 +27,18 @@ class GroundingPolicy(UUIDPk, Base):
             "policy_version",
             name="uq_grounding_policies_scope_version",
         ),
+        UniqueConstraint(
+            "org_id",
+            "workspace_id",
+            "id",
+            "policy_version",
+            "verifier_model_id",
+            "calibration_dataset_hash",
+            "provider_preset_version",
+            "binding_revision",
+            "credential_fingerprint",
+            name="uq_grounding_policies_immutable_snapshot",
+        ),
         Index(
             "uq_grounding_policies_active_workspace",
             "org_id",
@@ -41,7 +53,7 @@ class GroundingPolicy(UUIDPk, Base):
         ),
         CheckConstraint("calibration_sample_count >= 0", name="ck_grounding_policies_sample_count"),
         CheckConstraint(
-            "char_length(calibration_dataset_hash) = 64",
+            "calibration_dataset_hash ~ '^[0-9a-f]{64}$'",
             name="ck_grounding_policies_dataset_hash",
         ),
         CheckConstraint(
@@ -133,11 +145,11 @@ class GroundingCalibrationRun(UUIDPk, Base):
             name="ck_grounding_calibration_runs_counts",
         ),
         CheckConstraint(
-            "char_length(idempotency_digest) = 64",
+            "idempotency_digest ~ '^[0-9a-f]{64}$'",
             name="ck_grounding_calibration_runs_idempotency_digest",
         ),
         CheckConstraint(
-            "result_digest IS NULL OR char_length(result_digest) = 64",
+            "result_digest IS NULL OR result_digest ~ '^[0-9a-f]{64}$'",
             name="ck_grounding_calibration_runs_result_digest",
         ),
         CheckConstraint(

@@ -300,7 +300,7 @@ async def _source_refs(
                 context,
                 chunk.document_id,
             )
-            filenames[chunk.document_id] = document.filename
+            filenames[chunk.document_id] = document.filename or document.name
         references.append(
             SourceRef(
                 marker=marker,
