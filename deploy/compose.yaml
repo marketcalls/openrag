@@ -247,6 +247,36 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  ingestion-worker:
+    <<: *openrag-backend
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - worker
+      - -Q
+      - ingestion
+      - -l
+      - info
+      - --concurrency=${OPENRAG_INGESTION_CONCURRENCY:-2}
+      - --hostname=ingestion@%h
+    mem_limit: ${OPENRAG_INGESTION_MEMORY_LIMIT:-8g}
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=4g,noexec,nosuid,nodev
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
   event-scheduler:
     image: openrag-backend:local
     build:

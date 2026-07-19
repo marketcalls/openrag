@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     event_redis_password_file: str | None = None
     event_dispatch_batch_size: int = Field(default=100, ge=1, le=100)
     event_dispatch_lease_seconds: int = Field(default=30, ge=5, le=300)
+    document_stage_lease_seconds: int = Field(default=120, ge=30, le=600)
+    document_stage_soft_time_limit_seconds: int = Field(
+        default=900,
+        ge=60,
+        le=7200,
+    )
     event_waitaof_timeout_ms: int = Field(default=5000, ge=100, le=30_000)
     environment: str = "dev"
     kek_file: str = "./data/openrag_kek"

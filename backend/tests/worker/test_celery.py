@@ -22,6 +22,7 @@ def test_celery_config() -> None:
     assert {queue.name for queue in celery_app.conf.task_queues} == {
         "default",
         "events",
+        "ingestion",
         "interactive",
     }
     dispatch_schedule = celery_app.conf.beat_schedule["dispatch-outbox"]
@@ -32,9 +33,16 @@ def test_celery_config() -> None:
     assert starts_schedule["task"] == "events.consume_document_starts"
     assert starts_schedule["options"]["queue"] == "events"
     assert starts_schedule["options"]["expires"] <= 10
+    stage_schedule = celery_app.conf.beat_schedule["run-durable-document-stage"]
+    assert stage_schedule["task"] == "documents.run_durable_stage"
+    assert stage_schedule["options"]["queue"] == "ingestion"
+    assert stage_schedule["options"]["expires"] <= 10
     parse_limits = celery_app.conf.task_annotations["documents.parse"]
     assert parse_limits["soft_time_limit"] == 305
     assert parse_limits["time_limit"] == 330
+    stage_limits = celery_app.conf.task_annotations["documents.run_durable_stage"]
+    assert stage_limits["soft_time_limit"] == 900
+    assert stage_limits["time_limit"] == 930
     assert celery_app.conf.worker_max_tasks_per_child == 25
     assert celery_app.conf.worker_max_memory_per_child == 3 * 1024 * 1024
 
@@ -45,6 +53,7 @@ def test_event_tasks_are_isolated_to_the_events_queue() -> None:
     assert route == {"queue": "events"}
     assert "events.dispatch_outbox" in celery_app.tasks
     assert "events.consume_document_starts" in celery_app.tasks
+    assert "documents.run_durable_stage" in celery_app.tasks
 
 
 def test_queue_selection_by_size() -> None:
