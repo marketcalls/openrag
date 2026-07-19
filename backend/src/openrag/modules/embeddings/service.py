@@ -2,13 +2,19 @@
 
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import Settings
+from openrag.core.db import naive_utc
 from openrag.core.errors import ConflictError, NotFoundError
 from openrag.modules.audit.service import record_audit
+from openrag.modules.documents.models import (
+    DocumentVersion,
+    DocumentVersionProjection,
+    IngestStageAttempt,
+)
 from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
 from openrag.modules.embeddings.schemas import (
     EmbeddingProfileCreate,
@@ -56,6 +62,23 @@ async def get_profile(
     if profile is None:
         raise NotFoundError("embedding profile not found")
     return profile
+
+
+async def get_deployment(
+    session: AsyncSession,
+    deployment_id: UUID,
+    *,
+    lock: bool = False,
+) -> EmbeddingDeployment:
+    statement = select(EmbeddingDeployment).where(
+        EmbeddingDeployment.id == deployment_id
+    )
+    if lock:
+        statement = statement.with_for_update()
+    deployment = await session.scalar(statement)
+    if deployment is None:
+        raise NotFoundError("embedding deployment not found")
+    return deployment
 
 
 async def create_profile(
@@ -193,6 +216,99 @@ async def request_deployment(
         raise ConflictError(
             "another embedding deployment is already pending"
         ) from exc
+    except Exception:
+        await session.rollback()
+        raise
+
+
+async def activate_deployment(
+    session: AsyncSession,
+    context: TenantContext,
+    deployment_id: UUID,
+) -> EmbeddingDeployment:
+    """Atomically cut database authority over after exact corpus verification."""
+
+    try:
+        deployment = await get_deployment(session, deployment_id, lock=True)
+        if deployment.status != "ready":
+            raise ConflictError("embedding deployment is not ready")
+
+        current_versions = await session.scalar(
+            select(func.count())
+            .select_from(DocumentVersion)
+            .join(
+                DocumentVersionProjection,
+                (
+                    DocumentVersionProjection.org_id == DocumentVersion.org_id
+                )
+                & (
+                    DocumentVersionProjection.workspace_id
+                    == DocumentVersion.workspace_id
+                )
+                & (
+                    DocumentVersionProjection.document_version_id
+                    == DocumentVersion.id
+                ),
+            )
+            .where(
+                DocumentVersionProjection.is_current_eligible.is_(True),
+                DocumentVersion.state == "approved",
+                DocumentVersion.provenance_state == "ready",
+                DocumentVersion.source_deleted_at.is_(None),
+                DocumentVersion.source_storage_key.is_not(None),
+            )
+        )
+        completed_versions = await session.scalar(
+            select(
+                func.count(distinct(IngestStageAttempt.document_version_id))
+            ).where(
+                IngestStageAttempt.embedding_deployment_id == deployment.id,
+                IngestStageAttempt.pipeline_kind == "reindex",
+                IngestStageAttempt.stage == "authority_upsert",
+                IngestStageAttempt.state == "succeeded",
+            )
+        )
+        if (
+            current_versions != deployment.total_versions
+            or completed_versions != deployment.total_versions
+            or deployment.completed_versions != deployment.total_versions
+            or deployment.failed_versions != 0
+            or not deployment.scan_complete
+        ):
+            deployment.status = "failed"
+            deployment.failure_code = "CORPUS_CHANGED_DURING_REINDEX"
+            await record_audit(
+                session,
+                org_id=None,
+                actor_id=context.user_id,
+                action="embedding_deployment.activation_rejected",
+                target_type="embedding_deployment",
+                target_id=str(deployment.id),
+            )
+            await session.commit()
+            raise ConflictError("approved corpus changed during embedding reindex")
+
+        active = await session.scalar(
+            select(EmbeddingDeployment)
+            .where(EmbeddingDeployment.status == "active")
+            .with_for_update()
+        )
+        if active is not None:
+            active.status = "retired"
+            await session.flush()
+        deployment.status = "active"
+        deployment.activated_by = context.user_id
+        deployment.activated_at = naive_utc()
+        await record_audit(
+            session,
+            org_id=None,
+            actor_id=context.user_id,
+            action="embedding_deployment.activated",
+            target_type="embedding_deployment",
+            target_id=str(deployment.id),
+        )
+        await session.commit()
+        return deployment
     except Exception:
         await session.rollback()
         raise

@@ -128,6 +128,21 @@ async def test_deployment_generation_identity_is_server_authoritative(
     assert response.status_code == 422
 
 
+async def test_embedding_activation_is_platform_superadmin_only(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+) -> None:
+    headers = await auth(client, seeded_user.email)
+
+    response = await client.post(
+        "/api/v1/admin/embedding-deployments/"
+        "4bd2a478-9a6a-4e9d-8385-766a4fbed7ee/activate",
+        headers=headers,
+    )
+
+    assert response.status_code == 403
+
+
 async def test_embedding_profile_management_is_platform_superadmin_only(
     client: httpx.AsyncClient,
     seeded_user: User,
