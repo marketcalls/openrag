@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass
 from typing import Literal
 from uuid import UUID
@@ -16,6 +17,7 @@ from openrag.modules.documents.stages import StageCheckpoint, parse_stage_checkp
 
 ArtifactKind = Literal["parsed", "chunks"]
 _MAX_ARTIFACT_BYTES = 128 * 1024 * 1024
+_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,13 +35,19 @@ class StageArtifact:
     data: bytes
 
 
-def artifact_key(identity: ArtifactIdentity, kind: ArtifactKind) -> str:
+def artifact_key(
+    identity: ArtifactIdentity,
+    kind: ArtifactKind,
+    digest: str,
+) -> str:
+    if _DIGEST.fullmatch(digest) is None:
+        raise ValueError("artifact digest is invalid")
     checkpoint = identity.checkpoint
     return (
         f"authority-artifacts/{identity.org_id.hex}/{identity.workspace_id.hex}/"
         f"{identity.document_version_id.hex}/{checkpoint.pipeline_kind}/"
         f"{checkpoint.pipeline_attempt}/{checkpoint.authority_generation_id.hex}/"
-        f"{kind}.v1.json"
+        f"{kind}.v1.{digest}.json"
     )
 
 
@@ -97,16 +105,28 @@ def _artifact(
     payload: dict[str, object],
 ) -> StageArtifact:
     data = _canonical(payload)
+    digest = hashlib.sha256(data).hexdigest()
     return StageArtifact(
-        key=artifact_key(identity, kind),
-        digest=hashlib.sha256(data).hexdigest(),
+        key=artifact_key(identity, kind, digest),
+        digest=digest,
         data=data,
     )
 
 
-def _load(raw: bytes, *, schema: str, expected: ArtifactIdentity) -> dict[str, object]:
+def _load(
+    raw: bytes,
+    *,
+    schema: str,
+    expected: ArtifactIdentity,
+    expected_digest: str,
+) -> dict[str, object]:
     if not raw or len(raw) > _MAX_ARTIFACT_BYTES:
         raise ValueError("artifact byte length is invalid")
+    if (
+        _DIGEST.fullmatch(expected_digest) is None
+        or hashlib.sha256(raw).hexdigest() != expected_digest
+    ):
+        raise ValueError("artifact digest mismatch")
     try:
         decoded: object = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -226,8 +246,18 @@ def _decode_block(item: dict[str, object]) -> PageBlock:
     )
 
 
-def decode_parsed_artifact(raw: bytes, *, expected: ArtifactIdentity) -> ParsedDocument:
-    decoded = _load(raw, schema="openrag.parsed.v1", expected=expected)
+def decode_parsed_artifact(
+    raw: bytes,
+    *,
+    expected: ArtifactIdentity,
+    expected_digest: str,
+) -> ParsedDocument:
+    decoded = _load(
+        raw,
+        schema="openrag.parsed.v1",
+        expected=expected,
+        expected_digest=expected_digest,
+    )
     blocks = [_decode_block(item) for item in _records(decoded.get("blocks"), "blocks")]
     page_count = _int(decoded.get("page_count"), "page count", minimum=1)
     ocr_pages = _int_tuple(decoded.get("ocr_pages"), "OCR pages")
@@ -339,8 +369,14 @@ def decode_chunk_artifact(
     raw: bytes,
     *,
     expected: ArtifactIdentity,
+    expected_digest: str,
 ) -> tuple[list[Chunk], list[EvidenceSpan]]:
-    decoded = _load(raw, schema="openrag.chunks.v1", expected=expected)
+    decoded = _load(
+        raw,
+        schema="openrag.chunks.v1",
+        expected=expected,
+        expected_digest=expected_digest,
+    )
     chunks = [_decode_chunk(item) for item in _records(decoded.get("chunks"), "chunks")]
     spans = [
         _decode_span(item)

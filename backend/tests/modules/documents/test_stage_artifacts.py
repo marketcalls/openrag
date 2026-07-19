@@ -1,3 +1,4 @@
+import hashlib
 from dataclasses import replace
 from uuid import uuid4
 
@@ -51,8 +52,12 @@ def test_parsed_artifact_is_canonical_identity_bound_and_lossless() -> None:
 
     assert first == second
     assert len(first.digest) == 64
-    assert first.key == artifact_key(identity, "parsed")
-    decoded = decode_parsed_artifact(first.data, expected=identity)
+    assert first.key == artifact_key(identity, "parsed", first.digest)
+    decoded = decode_parsed_artifact(
+        first.data,
+        expected=identity,
+        expected_digest=first.digest,
+    )
     assert decoded.blocks == blocks
     assert decoded.page_count == 2
     assert decoded.ocr_pages == (2,)
@@ -67,13 +72,24 @@ def test_chunk_artifact_roundtrip_rejects_cross_wired_identity() -> None:
     decoded_chunks, decoded_spans = decode_chunk_artifact(
         artifact.data,
         expected=identity,
+        expected_digest=artifact.digest,
     )
 
     assert decoded_chunks == chunks
     assert decoded_spans == spans
     foreign = replace(identity, document_version_id=uuid4())
     with pytest.raises(ValueError, match="identity mismatch"):
-        decode_chunk_artifact(artifact.data, expected=foreign)
+        decode_chunk_artifact(
+            artifact.data,
+            expected=foreign,
+            expected_digest=artifact.digest,
+        )
+    with pytest.raises(ValueError, match="digest mismatch"):
+        decode_chunk_artifact(
+            artifact.data,
+            expected=identity,
+            expected_digest="0" * 64,
+        )
 
 
 def test_artifact_decoder_rejects_tampered_schema_and_noncontiguous_output() -> None:
@@ -96,4 +112,8 @@ def test_artifact_decoder_rejects_tampered_schema_and_noncontiguous_output() -> 
         b'"schema":"openrag.parsed.v0"',
     )
     with pytest.raises(ValueError, match="schema"):
-        decode_parsed_artifact(tampered, expected=parsed_identity)
+        decode_parsed_artifact(
+            tampered,
+            expected=parsed_identity,
+            expected_digest=hashlib.sha256(tampered).hexdigest(),
+        )
