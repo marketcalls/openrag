@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import get_settings
@@ -910,7 +910,10 @@ async def retry_version(
                         select(IngestJob)
                         .where(
                             IngestJob.document_id == candidate.document_id,
-                            IngestJob.document_version_id == candidate.id,
+                            or_(
+                                IngestJob.document_version_id == candidate.id,
+                                IngestJob.document_version_id.is_(None),
+                            ),
                             IngestJob.finished_at.is_(None),
                         )
                         .order_by(IngestJob.id)

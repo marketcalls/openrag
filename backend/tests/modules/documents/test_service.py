@@ -385,11 +385,12 @@ async def test_retry_rejects_recent_processing_legacy_attempt(
     assert version is not None
     database_now = await session.scalar(select(func.timezone("UTC", func.now())))
     assert isinstance(database_now, datetime)
+    version.updated_at = database_now - timedelta(seconds=901)
     session.add(
         IngestJob(
             org_id=context.org_id,
             document_id=document.id,
-            document_version_id=version.id,
+            document_version_id=None,
             stage="parse",
             started_at=database_now,
         )
@@ -431,7 +432,7 @@ async def test_retry_recovers_stale_processing_legacy_attempt_with_fence(
     job = IngestJob(
         org_id=context.org_id,
         document_id=document.id,
-        document_version_id=version.id,
+        document_version_id=None,
         stage="upsert",
         started_at=stale_at,
     )
