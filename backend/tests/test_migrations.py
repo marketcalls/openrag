@@ -652,6 +652,63 @@ def test_authority_upgrade_locks_all_compatibility_tables(
     }
 
 
+def test_authority_downgrade_fences_preflight_tables_in_global_lifecycle_order(
+    authority_db: tuple[Config, Engine, object],
+) -> None:
+    config, engine, _ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    migration = runpy.run_path(
+        str(
+            BACKEND_ROOT
+            / "migrations"
+            / "versions"
+            / f"{AUTHORITY_REVISION}_document_authority_and_citations.py"
+        )
+    )
+    expected_order = (
+        "workspaces",
+        "documents",
+        "document_versions",
+        "document_version_projections",
+        "grounding_policies",
+        "grounding_calibration_runs",
+        "document_authority_readiness",
+        "ingest_jobs",
+        "ingest_stage_attempts",
+        "legacy_rebuild_scan_checkpoints",
+        "document_blocks",
+        "document_chunks",
+        "document_chunk_blocks",
+        "document_evidence_spans",
+        "messages",
+        "citations",
+        "document_version_decision_records",
+        "audit_events",
+        "outbox_events",
+        "inbox_events",
+    )
+    assert migration["_DOWNGRADE_PREFLIGHT_TABLES"] == expected_order
+    lock_tables = cast(
+        Callable[[sa.Connection], None],
+        migration["_lock_downgrade_preflight_tables"],
+    )
+
+    with engine.begin() as connection:
+        lock_tables(connection)
+        rows = connection.execute(
+            text(
+                "SELECT tables.relname, locks.mode FROM pg_locks AS locks "
+                "JOIN pg_class AS tables ON tables.oid=locks.relation "
+                "WHERE locks.pid=pg_backend_pid() AND tables.relname=ANY(:tables)"
+            ),
+            {"tables": list(expected_order)},
+        ).mappings()
+
+        assert {row["relname"]: row["mode"] for row in rows} == {
+            table: "AccessExclusiveLock" for table in expected_order
+        }
+
+
 def test_authority_upgrade_backfills_bounded_inbox_event_identity(
     authority_db: tuple[Config, Engine, object],
 ) -> None:

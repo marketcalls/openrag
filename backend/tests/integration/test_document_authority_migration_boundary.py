@@ -1,4 +1,5 @@
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -953,6 +954,180 @@ def test_downgrade_refuses_to_discard_document_version_decision_history(
             text("SELECT count(*) FROM document_version_decision_records WHERE id=:id"),
             {"id": record_id},
         ).scalar_one() == 1
+        assert connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one() == AUTHORITY_REVISION
+
+
+def test_downgrade_rechecks_decisions_after_waiting_for_concurrent_writer(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    writer = engine.connect()
+    writer_transaction = writer.begin()
+    target_document_id = ids.document_ids["indexed"]
+    writer.execute(
+        text("SELECT id FROM workspaces WHERE id=:id FOR UPDATE"),
+        {"id": ids.workspace_id},
+    )
+    writer.execute(
+        text("SELECT id FROM documents WHERE id=:id FOR UPDATE"),
+        {"id": target_document_id},
+    )
+    writer.execute(
+        text("SELECT id FROM document_versions WHERE id=:id FOR UPDATE"),
+        {"id": target_document_id},
+    )
+    decision_id = _insert_version_decision(writer, ids)
+    audit_id = uuid4()
+    writer.execute(
+        text(
+            "INSERT INTO audit_events "
+            "(org_id, actor_id, action, target_type, target_id, id, created_at) "
+            "VALUES (:org, :actor, 'document.version.approved', "
+            "'document_version', :target, :id, now())"
+        ),
+        {
+            "org": ids.org_id,
+            "actor": ids.user_id,
+            "target": str(target_document_id),
+            "id": audit_id,
+        },
+    )
+    event_id = uuid4()
+    writer.execute(
+        text(
+            "INSERT INTO outbox_events "
+            "(event_id, aggregate_type, aggregate_id, event_type, payload, "
+            "dedupe_key, attempts, id, created_at) VALUES "
+            "(:event, 'document_version', :aggregate, "
+            "'document.version.approved.v1', '{}'::json, :dedupe, 0, :id, now())"
+        ),
+        {
+            "event": event_id,
+            "aggregate": target_document_id,
+            "dedupe": f"document-version:{target_document_id}:1",
+            "id": uuid4(),
+        },
+    )
+    downgrade_started = threading.Event()
+
+    def downgrade() -> None:
+        downgrade_started.set()
+        command.downgrade(config, "6c4a2f8b9d10")
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        future = executor.submit(downgrade)
+        assert downgrade_started.wait(timeout=2)
+
+        deadline = time.monotonic() + 10
+        waiting_for_authority_lock = False
+        while time.monotonic() < deadline:
+            with engine.connect() as observer:
+                waiting_for_authority_lock = observer.execute(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_locks l "
+                        "JOIN pg_class c ON c.oid=l.relation "
+                        "WHERE c.relname IN "
+                        "('workspaces', 'documents', 'document_versions', "
+                        "'document_version_decision_records', 'audit_events', "
+                        "'outbox_events') "
+                        "AND l.mode='AccessExclusiveLock' AND NOT l.granted)"
+                    )
+                ).scalar_one()
+            if waiting_for_authority_lock:
+                break
+            time.sleep(0.01)
+
+        # Release the writer even if the lock observation failed so the test
+        # cannot strand the downgrade worker during assertion cleanup.
+        writer_transaction.commit()
+        assert waiting_for_authority_lock
+        with pytest.raises(RuntimeError, match="document version decision record"):
+            future.result(timeout=10)
+    finally:
+        if writer_transaction.is_active:
+            writer_transaction.rollback()
+        writer.close()
+        executor.shutdown(wait=True, cancel_futures=True)
+
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT count(*) FROM document_version_decision_records WHERE id=:id"
+            ),
+            {"id": decision_id},
+        ).scalar_one() == 1
+        assert connection.execute(
+            text("SELECT count(*) FROM audit_events WHERE id=:id"),
+            {"id": audit_id},
+        ).scalar_one() == 1
+        assert connection.execute(
+            text("SELECT count(*) FROM outbox_events WHERE event_id=:id"),
+            {"id": event_id},
+        ).scalar_one() == 1
+        assert connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one() == AUTHORITY_REVISION
+
+
+def test_downgrade_rechecks_workspace_cutover_after_concurrent_writer(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    writer = engine.connect()
+    writer_transaction = writer.begin()
+    writer.execute(
+        text(
+            "UPDATE workspaces SET document_authority_enabled=true WHERE id=:workspace"
+        ),
+        {"workspace": ids.workspace_id},
+    )
+    downgrade_started = threading.Event()
+
+    def downgrade() -> None:
+        downgrade_started.set()
+        command.downgrade(config, "6c4a2f8b9d10")
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        future = executor.submit(downgrade)
+        assert downgrade_started.wait(timeout=2)
+
+        deadline = time.monotonic() + 10
+        waiting_for_workspace_lock = False
+        while time.monotonic() < deadline:
+            with engine.connect() as observer:
+                waiting_for_workspace_lock = observer.execute(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_locks l "
+                        "JOIN pg_class c ON c.oid=l.relation "
+                        "WHERE c.relname='workspaces' "
+                        "AND l.mode='AccessExclusiveLock' AND NOT l.granted)"
+                    )
+                ).scalar_one()
+            if waiting_for_workspace_lock:
+                break
+            time.sleep(0.01)
+
+        writer_transaction.commit()
+        assert waiting_for_workspace_lock
+        with pytest.raises(RuntimeError, match="enabled workspace"):
+            future.result(timeout=10)
+    finally:
+        if writer_transaction.is_active:
+            writer_transaction.rollback()
+        writer.close()
+        executor.shutdown(wait=True, cancel_futures=True)
+
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT document_authority_enabled FROM workspaces WHERE id=:id"),
+            {"id": ids.workspace_id},
+        ).scalar_one() is True
         assert connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one() == AUTHORITY_REVISION

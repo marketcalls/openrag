@@ -948,7 +948,48 @@ def _drop_authority_triggers() -> None:
     op.execute("DROP FUNCTION IF EXISTS openrag_validate_document_version_update()")
 
 
+_DOWNGRADE_PREFLIGHT_TABLES = (
+    "workspaces",
+    "documents",
+    "document_versions",
+    "document_version_projections",
+    "grounding_policies",
+    "grounding_calibration_runs",
+    "document_authority_readiness",
+    "ingest_jobs",
+    "ingest_stage_attempts",
+    "legacy_rebuild_scan_checkpoints",
+    "document_blocks",
+    "document_chunks",
+    "document_chunk_blocks",
+    "document_evidence_spans",
+    "messages",
+    "citations",
+    "document_version_decision_records",
+    "audit_events",
+    "outbox_events",
+    "inbox_events",
+)
+
+
+def _lock_downgrade_preflight_tables(connection: sa.Connection) -> None:
+    # Downgrade is an offline maintenance operation. Acquire the strongest
+    # relation fence in the documented workspace -> document -> version ->
+    # dependent artifacts -> message -> citation -> governance/event order
+    # before the first read. This prevents a writer from committing authority
+    # state after its table was checked but before the corresponding column or
+    # table is removed. PostgreSQL holds these transactional locks through
+    # either the complete downgrade or rollback.
+    # The interpolated identifier comes only from this immutable internal
+    # allowlist; no migration input is accepted here.
+    for table_name in _DOWNGRADE_PREFLIGHT_TABLES:
+        connection.execute(
+            sa.text(f"LOCK TABLE {table_name} IN ACCESS EXCLUSIVE MODE")
+        )
+
+
 def _downgrade_preflight(connection: sa.Connection) -> None:
+    _lock_downgrade_preflight_tables(connection)
     checks = (
         (
             "SELECT EXISTS(SELECT 1 FROM document_version_decision_records)",
