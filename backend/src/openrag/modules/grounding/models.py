@@ -41,6 +41,23 @@ class GroundingPolicy(UUIDPk, Base):
         ),
         CheckConstraint("calibration_sample_count >= 0", name="ck_grounding_policies_sample_count"),
         CheckConstraint(
+            "char_length(calibration_dataset_hash) = 64",
+            name="ck_grounding_policies_dataset_hash",
+        ),
+        CheckConstraint(
+            "char_length(calibration_dataset_version) BETWEEN 1 AND 100",
+            name="ck_grounding_policies_dataset_version",
+        ),
+        CheckConstraint(
+            "char_length(provider_preset_version) BETWEEN 1 AND 100",
+            name="ck_grounding_policies_preset_version",
+        ),
+        CheckConstraint(
+            "char_length(binding_revision) BETWEEN 1 AND 100 "
+            "AND char_length(credential_fingerprint) BETWEEN 1 AND 128",
+            name="ck_grounding_policies_binding_snapshot",
+        ),
+        CheckConstraint(
             "measured_false_support_rate IS NULL OR "
             "(measured_false_support_rate >= 0 AND measured_false_support_rate <= 1)",
             name="ck_grounding_policies_false_support_rate",
@@ -111,8 +128,23 @@ class GroundingCalibrationRun(UUIDPk, Base):
         ),
         CheckConstraint("attempts >= 0", name="ck_grounding_calibration_runs_attempts"),
         CheckConstraint(
-            "sample_count >= 0 AND supported_count >= 0 AND refused_count >= 0",
+            "sample_count >= 0 AND supported_count >= 0 AND refused_count >= 0 "
+            "AND supported_count + refused_count = sample_count",
             name="ck_grounding_calibration_runs_counts",
+        ),
+        CheckConstraint(
+            "char_length(idempotency_digest) = 64",
+            name="ck_grounding_calibration_runs_idempotency_digest",
+        ),
+        CheckConstraint(
+            "result_digest IS NULL OR char_length(result_digest) = 64",
+            name="ck_grounding_calibration_runs_result_digest",
+        ),
+        CheckConstraint(
+            "char_length(requested_binding_revision) BETWEEN 1 AND 100 "
+            "AND char_length(requested_preset_version) BETWEEN 1 AND 100 "
+            "AND char_length(requested_credential_fingerprint) BETWEEN 1 AND 128",
+            name="ck_grounding_calibration_runs_binding_snapshot",
         ),
         CheckConstraint(
             "false_support_rate IS NULL OR (false_support_rate >= 0 AND false_support_rate <= 1)",

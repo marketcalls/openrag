@@ -9,6 +9,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from openrag.core.db import Base, UUIDPk, naive_utc
@@ -48,8 +49,14 @@ class Message(UUIDPk, Base):
         UniqueConstraint("org_id", "workspace_id", "id", name="uq_messages_org_workspace_id"),
         UniqueConstraint("chat_id", "id", name="uq_messages_chat_id"),
         CheckConstraint(
-            "answer_status IS NULL OR answer_status IN ('verified','refused')",
+            "answer_status IS NULL OR answer_status IN ('grounded','cited_conflict','refused')",
             name="ck_messages_answer_status",
+        ),
+        CheckConstraint(
+            "answer_status IS NULL OR "
+            "(answer_status = 'refused' AND refusal_reason IS NOT NULL) OR "
+            "(answer_status <> 'refused' AND refusal_reason IS NULL)",
+            name="ck_messages_refusal_reason",
         ),
         ForeignKeyConstraint(
             ["org_id", "workspace_id", "chat_id"],
@@ -83,13 +90,32 @@ class Message(UUIDPk, Base):
     answer_status: Mapped[str | None] = mapped_column(String(32), default=None)
     refusal_reason: Mapped[str | None] = mapped_column(String(64), default=None)
     grounding_policy_id: Mapped[UUID | None] = mapped_column(default=None)
+    grounding_policy_version: Mapped[int | None] = mapped_column(default=None)
     verifier_model_id: Mapped[UUID | None] = mapped_column(default=None)
+    prompt_contract_version: Mapped[str | None] = mapped_column(String(100), default=None)
+    provider_preset_version: Mapped[str | None] = mapped_column(String(100), default=None)
+    binding_revision: Mapped[str | None] = mapped_column(String(100), default=None)
+    credential_fingerprint: Mapped[str | None] = mapped_column(String(128), default=None)
 
 
 class Citation(UUIDPk, Base):
     __tablename__ = "citations"
     __table_args__ = (
         CheckConstraint("page > 0", name="ck_citations_page_positive"),
+        CheckConstraint(
+            "section_path IS NULL OR "
+            "(jsonb_typeof(section_path) = 'array' "
+            "AND jsonb_array_length(section_path) BETWEEN 1 AND 8 "
+            "AND pg_column_size(section_path) <= 4096)",
+            name="ck_citations_section_path",
+        ),
+        CheckConstraint(
+            "claim_ids IS NULL OR "
+            "(jsonb_typeof(claim_ids) = 'array' "
+            "AND jsonb_array_length(claim_ids) BETWEEN 1 AND 64 "
+            "AND pg_column_size(claim_ids) <= 8192)",
+            name="ck_citations_claim_ids",
+        ),
         ForeignKeyConstraint(
             ["org_id", "workspace_id", "message_id"],
             ["messages.org_id", "messages.workspace_id", "messages.id"],
@@ -134,6 +160,7 @@ class Citation(UUIDPk, Base):
     document_name: Mapped[str | None] = mapped_column(String(500), default=None)
     version_label: Mapped[str | None] = mapped_column(String(200), default=None)
     section_label: Mapped[str | None] = mapped_column(String(500), default=None)
+    section_path: Mapped[list[str] | None] = mapped_column(JSONB, default=None)
     locator_kind: Mapped[str | None] = mapped_column(String(32), default=None)
     locator_label: Mapped[str | None] = mapped_column(String(200), default=None)
     content_hash: Mapped[str | None] = mapped_column(String(64), default=None)
@@ -142,4 +169,12 @@ class Citation(UUIDPk, Base):
     fused_score: Mapped[float | None] = mapped_column(default=None)
     rerank_score: Mapped[float | None] = mapped_column(default=None)
     claim_id: Mapped[UUID | None] = mapped_column(default=None)
+    claim_ids: Mapped[list[str] | None] = mapped_column(JSONB, default=None)
     verification_state: Mapped[str | None] = mapped_column(String(32), default=None)
+    prompt_contract_version: Mapped[str | None] = mapped_column(String(100), default=None)
+    grounding_policy_id: Mapped[UUID | None] = mapped_column(default=None)
+    grounding_policy_version: Mapped[int | None] = mapped_column(default=None)
+    verifier_model_id: Mapped[UUID | None] = mapped_column(default=None)
+    provider_preset_version: Mapped[str | None] = mapped_column(String(100), default=None)
+    binding_revision: Mapped[str | None] = mapped_column(String(100), default=None)
+    credential_fingerprint: Mapped[str | None] = mapped_column(String(128), default=None)

@@ -11,6 +11,9 @@ from openrag.modules.documents.lifecycle import (
 def test_version_key_is_nfkc_casefolded_and_sequence_is_not_client_data() -> None:
     assert normalize_version_label("  REV  ７ ") == ("REV 7", "rev 7")
 
+    with pytest.raises(ValueError, match="lookup key"):
+        normalize_version_label("İ" * 200)
+
 
 def test_section_path_is_bounded() -> None:
     assert validate_section_path(["Emergency", "Evacuation"]) == (
@@ -22,6 +25,9 @@ def test_section_path_is_bounded() -> None:
 
     with pytest.raises(ValueError, match="at most 200"):
         validate_section_path(["x" * 201])
+
+    with pytest.raises(ValueError, match="at least one"):
+        validate_section_path([])
 
 
 def test_processing_cannot_skip_review() -> None:

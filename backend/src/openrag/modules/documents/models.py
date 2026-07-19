@@ -2,7 +2,6 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
-    JSON,
     CheckConstraint,
     ForeignKey,
     ForeignKeyConstraint,
@@ -10,8 +9,10 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+import openrag.modules.grounding.models  # noqa: F401 - registers readiness FK target
 from openrag.core.db import Base, UUIDPk, naive_utc
 from openrag.modules.documents.lifecycle import (
     DocumentVersionState,
@@ -33,6 +34,12 @@ class Document(UUIDPk, Base):
             "id",
             name="uq_documents_org_workspace_id",
         ),
+        UniqueConstraint(
+            "org_id",
+            "workspace_id",
+            "external_identifier",
+            name="uq_documents_org_workspace_external_identifier",
+        ),
         ForeignKeyConstraint(
             ["org_id", "workspace_id"],
             ["workspaces.org_id", "workspaces.id"],
@@ -48,17 +55,29 @@ class Document(UUIDPk, Base):
             ["users.org_id", "users.id"],
             name="fk_documents_org_creator",
         ),
+        CheckConstraint(
+            "acl_policy IS NULL OR "
+            "(jsonb_typeof(acl_policy) = 'object' AND pg_column_size(acl_policy) <= 8192)",
+            name="ck_documents_acl_policy",
+        ),
     )
 
     org_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
     workspace_id: Mapped[UUID] = mapped_column(index=True)
-    filename: Mapped[str]
-    mime: Mapped[str]
+    name: Mapped[str | None] = mapped_column(String(255), default=None)
+    department: Mapped[str | None] = mapped_column(String(120), default=None)
+    document_type: Mapped[str | None] = mapped_column(String(120), default=None)
+    external_identifier: Mapped[str | None] = mapped_column(String(255), default=None)
+    acl_policy: Mapped[dict[str, object] | None] = mapped_column(JSONB, default=None)
+    # Transitional mirrors for the pre-authority single-blob API. New source
+    # identity belongs to DocumentVersion and Task 2 backfills these fields.
+    filename: Mapped[str] = mapped_column(String(500))
+    mime: Mapped[str] = mapped_column(String(255))
     size_bytes: Mapped[int]
-    content_hash: Mapped[str]
+    content_hash: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(default="queued")
     error: Mapped[str | None] = mapped_column(default=None)
-    storage_key: Mapped[str]
+    storage_key: Mapped[str] = mapped_column(String(1024))
     page_count: Mapped[int | None] = mapped_column(default=None)
     owner_id: Mapped[UUID | None] = mapped_column(default=None)
     created_by: Mapped[UUID]
@@ -71,6 +90,12 @@ class DocumentVersion(UUIDPk, Base):
         UniqueConstraint("org_id", "id", name="uq_document_versions_org_id"),
         UniqueConstraint(
             "org_id", "document_id", "id", name="uq_document_versions_org_document_id"
+        ),
+        UniqueConstraint(
+            "org_id",
+            "workspace_id",
+            "id",
+            name="uq_document_versions_org_workspace_id",
         ),
         UniqueConstraint("document_id", "id", name="uq_document_versions_document_id"),
         UniqueConstraint(
@@ -86,6 +111,36 @@ class DocumentVersion(UUIDPk, Base):
         CheckConstraint(
             "lifecycle_revision >= 1",
             name="ck_document_versions_lifecycle_revision_positive",
+        ),
+        CheckConstraint(
+            "char_length(content_hash) = 64",
+            name="ck_document_versions_content_hash_length",
+        ),
+        CheckConstraint(
+            "source_size_bytes IS NULL OR source_size_bytes >= 0",
+            name="ck_document_versions_source_size",
+        ),
+        CheckConstraint(
+            "source_page_count IS NULL OR source_page_count > 0",
+            name="ck_document_versions_source_page_count",
+        ),
+        CheckConstraint(
+            "(source_filename IS NULL AND source_mime IS NULL "
+            "AND source_size_bytes IS NULL AND source_storage_key IS NULL) OR "
+            "(source_filename IS NOT NULL AND source_mime IS NOT NULL "
+            "AND source_size_bytes IS NOT NULL AND source_storage_key IS NOT NULL)",
+            name="ck_document_versions_source_identity",
+        ),
+        CheckConstraint(
+            "(parser_profile_version IS NULL AND ocr_profile_version IS NULL "
+            "AND chunking_profile_version IS NULL AND embedding_profile_version IS NULL "
+            "AND index_profile_version IS NULL) OR "
+            "(char_length(parser_profile_version) BETWEEN 1 AND 100 "
+            "AND char_length(ocr_profile_version) BETWEEN 1 AND 100 "
+            "AND char_length(chunking_profile_version) BETWEEN 1 AND 100 "
+            "AND char_length(embedding_profile_version) BETWEEN 1 AND 100 "
+            "AND char_length(index_profile_version) BETWEEN 1 AND 100)",
+            name="ck_document_versions_profile_snapshot",
         ),
         CheckConstraint(
             "state IN ('draft','processing','review','approved','rejected',"
@@ -136,6 +191,17 @@ class DocumentVersion(UUIDPk, Base):
     version_label: Mapped[str] = mapped_column(String(200))
     version_key: Mapped[str] = mapped_column(String(200))
     content_hash: Mapped[str] = mapped_column(String(64))
+    source_filename: Mapped[str | None] = mapped_column(String(500), default=None)
+    source_mime: Mapped[str | None] = mapped_column(String(255), default=None)
+    source_size_bytes: Mapped[int | None] = mapped_column(default=None)
+    source_storage_key: Mapped[str | None] = mapped_column(String(1024), default=None)
+    source_page_count: Mapped[int | None] = mapped_column(default=None)
+    revision_date: Mapped[datetime | None] = mapped_column(default=None)
+    parser_profile_version: Mapped[str | None] = mapped_column(String(100), default=None)
+    ocr_profile_version: Mapped[str | None] = mapped_column(String(100), default=None)
+    chunking_profile_version: Mapped[str | None] = mapped_column(String(100), default=None)
+    embedding_profile_version: Mapped[str | None] = mapped_column(String(100), default=None)
+    index_profile_version: Mapped[str | None] = mapped_column(String(100), default=None)
     state: Mapped[str] = mapped_column(default=DocumentVersionState.DRAFT.value, index=True)
     provenance_state: Mapped[str] = mapped_column(default=ProvenanceState.NONE.value, index=True)
     lifecycle_revision: Mapped[int] = mapped_column(default=1)
@@ -144,8 +210,14 @@ class DocumentVersion(UUIDPk, Base):
     expires_at: Mapped[datetime | None] = mapped_column(default=None)
     created_by: Mapped[UUID]
     approved_by: Mapped[UUID | None] = mapped_column(default=None)
+    approved_at: Mapped[datetime | None] = mapped_column(default=None)
     rejected_by: Mapped[UUID | None] = mapped_column(default=None)
+    rejected_at: Mapped[datetime | None] = mapped_column(default=None)
     obsolete_by: Mapped[UUID | None] = mapped_column(default=None)
+    obsolete_at: Mapped[datetime | None] = mapped_column(default=None)
+    superseded_at: Mapped[datetime | None] = mapped_column(default=None)
+    decision_at: Mapped[datetime | None] = mapped_column(default=None)
+    processing_error_code: Mapped[str | None] = mapped_column(String(100), default=None)
     updated_at: Mapped[datetime] = mapped_column(default=naive_utc, onupdate=naive_utc)
 
 
@@ -159,18 +231,59 @@ class DocumentBlock(UUIDPk, Base):
             "document_version_id", "ordinal", name="uq_document_blocks_version_ordinal"
         ),
         CheckConstraint("ordinal >= 0", name="ck_document_blocks_ordinal"),
+        CheckConstraint(
+            "page_number IS NULL OR page_number > 0",
+            name="ck_document_blocks_page_positive",
+        ),
+        CheckConstraint(
+            "ocr_confidence IS NULL OR (ocr_confidence >= 0 AND ocr_confidence <= 1)",
+            name="ck_document_blocks_ocr_confidence",
+        ),
+        CheckConstraint(
+            "section_path IS NULL OR "
+            "(jsonb_typeof(section_path) = 'array' "
+            "AND jsonb_array_length(section_path) BETWEEN 1 AND 8 "
+            "AND pg_column_size(section_path) <= 4096)",
+            name="ck_document_blocks_section_path",
+        ),
+        CheckConstraint(
+            "content_hash IS NULL OR char_length(content_hash) = 64",
+            name="ck_document_blocks_content_hash",
+        ),
+        CheckConstraint(
+            "source_coordinates IS NULL OR "
+            "(jsonb_typeof(source_coordinates) = 'object' "
+            "AND pg_column_size(source_coordinates) <= 8192)",
+            name="ck_document_blocks_source_coordinates",
+        ),
         ForeignKeyConstraint(
             ["org_id", "document_version_id"],
             ["document_versions.org_id", "document_versions.id"],
             name="fk_document_blocks_org_version",
             ondelete="CASCADE",
         ),
+        ForeignKeyConstraint(
+            ["org_id", "document_version_id", "parent_block_id"],
+            ["document_blocks.org_id", "document_blocks.document_version_id", "document_blocks.id"],
+            name="fk_document_blocks_same_version_parent",
+        ),
     )
 
     org_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
     document_version_id: Mapped[UUID] = mapped_column(index=True)
+    parent_block_id: Mapped[UUID | None] = mapped_column(default=None)
     ordinal: Mapped[int]
     text: Mapped[str] = mapped_column(Text())
+    page_number: Mapped[int | None] = mapped_column(default=None)
+    locator_kind: Mapped[str | None] = mapped_column(String(32), default=None)
+    locator_label: Mapped[str | None] = mapped_column(String(200), default=None)
+    block_type: Mapped[str | None] = mapped_column(String(50), default=None)
+    section_path: Mapped[list[str] | None] = mapped_column(JSONB, default=None)
+    source_coordinates: Mapped[dict[str, object] | None] = mapped_column(JSONB, default=None)
+    extraction_method: Mapped[str | None] = mapped_column(String(50), default=None)
+    ocr_profile_version: Mapped[str | None] = mapped_column(String(100), default=None)
+    ocr_confidence: Mapped[float | None] = mapped_column(default=None)
+    content_hash: Mapped[str | None] = mapped_column(String(64), default=None)
 
 
 class DocumentChunk(UUIDPk, Base):
@@ -184,6 +297,32 @@ class DocumentChunk(UUIDPk, Base):
         ),
         CheckConstraint("ordinal >= 0", name="ck_document_chunks_ordinal"),
         CheckConstraint("token_count >= 0", name="ck_document_chunks_token_count"),
+        CheckConstraint(
+            "page_start IS NULL OR page_start > 0",
+            name="ck_document_chunks_page_start",
+        ),
+        CheckConstraint(
+            "page_end IS NULL OR "
+            "(page_end > 0 AND page_start IS NOT NULL AND page_end >= page_start)",
+            name="ck_document_chunks_page_range",
+        ),
+        CheckConstraint(
+            "section_path IS NULL OR "
+            "(jsonb_typeof(section_path) = 'array' "
+            "AND jsonb_array_length(section_path) BETWEEN 1 AND 8 "
+            "AND pg_column_size(section_path) <= 4096)",
+            name="ck_document_chunks_section_path",
+        ),
+        CheckConstraint(
+            "content_hash IS NULL OR char_length(content_hash) = 64",
+            name="ck_document_chunks_content_hash",
+        ),
+        CheckConstraint(
+            "(chunking_profile_version IS NULL AND embedding_profile_version IS NULL) OR "
+            "(char_length(chunking_profile_version) BETWEEN 1 AND 100 "
+            "AND char_length(embedding_profile_version) BETWEEN 1 AND 100)",
+            name="ck_document_chunks_profile_snapshot",
+        ),
         ForeignKeyConstraint(
             ["org_id", "document_version_id"],
             ["document_versions.org_id", "document_versions.id"],
@@ -203,6 +342,12 @@ class DocumentChunk(UUIDPk, Base):
     ordinal: Mapped[int]
     text: Mapped[str] = mapped_column(Text())
     token_count: Mapped[int]
+    page_start: Mapped[int | None] = mapped_column(default=None)
+    page_end: Mapped[int | None] = mapped_column(default=None)
+    section_path: Mapped[list[str] | None] = mapped_column(JSONB, default=None)
+    content_hash: Mapped[str | None] = mapped_column(String(64), default=None)
+    chunking_profile_version: Mapped[str | None] = mapped_column(String(100), default=None)
+    embedding_profile_version: Mapped[str | None] = mapped_column(String(100), default=None)
 
 
 class DocumentChunkBlock(UUIDPk, Base):
@@ -251,6 +396,16 @@ class DocumentEvidenceSpan(UUIDPk, Base):
             "artifact_byte_start >= 0 AND artifact_byte_end >= artifact_byte_start",
             name="ck_document_evidence_spans_artifact_range",
         ),
+        CheckConstraint(
+            "jsonb_typeof(section_path) = 'array' "
+            "AND jsonb_array_length(section_path) BETWEEN 1 AND 8 "
+            "AND pg_column_size(section_path) <= 4096",
+            name="ck_document_evidence_spans_section_path",
+        ),
+        CheckConstraint(
+            "char_length(content_hash) = 64",
+            name="ck_document_evidence_spans_content_hash",
+        ),
         ForeignKeyConstraint(
             ["org_id", "document_version_id", "chunk_id"],
             ["document_chunks.org_id", "document_chunks.document_version_id", "document_chunks.id"],
@@ -265,7 +420,7 @@ class DocumentEvidenceSpan(UUIDPk, Base):
     page_number: Mapped[int]
     locator_kind: Mapped[str] = mapped_column(String(32))
     locator_label: Mapped[str] = mapped_column(String(200))
-    section_path: Mapped[list[str]] = mapped_column(JSON)
+    section_path: Mapped[list[str]] = mapped_column(JSONB)
     content_hash: Mapped[str] = mapped_column(String(64))
     ordinal: Mapped[int]
     token_count: Mapped[int]
@@ -279,10 +434,18 @@ class DocumentVersionProjection(UUIDPk, Base):
         UniqueConstraint(
             "org_id", "document_version_id", name="uq_document_version_projections_version"
         ),
+        CheckConstraint(
+            "applied_revision >= 1",
+            name="ck_document_version_projections_applied_revision",
+        ),
         ForeignKeyConstraint(
-            ["org_id", "document_version_id"],
-            ["document_versions.org_id", "document_versions.id"],
-            name="fk_document_version_projections_org_version",
+            ["org_id", "workspace_id", "document_version_id"],
+            [
+                "document_versions.org_id",
+                "document_versions.workspace_id",
+                "document_versions.id",
+            ],
+            name="fk_document_version_projections_org_workspace_version",
             ondelete="CASCADE",
         ),
     )
@@ -291,8 +454,8 @@ class DocumentVersionProjection(UUIDPk, Base):
     workspace_id: Mapped[UUID] = mapped_column(index=True)
     document_version_id: Mapped[UUID] = mapped_column(index=True)
     is_current_eligible: Mapped[bool] = mapped_column(default=False, index=True)
-    lifecycle_revision: Mapped[int]
-    projected_at: Mapped[datetime] = mapped_column(default=naive_utc)
+    applied_revision: Mapped[int]
+    applied_at: Mapped[datetime] = mapped_column(default=naive_utc)
 
 
 class DocumentAuthorityReadiness(UUIDPk, Base):
@@ -309,8 +472,52 @@ class DocumentAuthorityReadiness(UUIDPk, Base):
             name="ck_document_authority_readiness_status",
         ),
         CheckConstraint(
+            "char_length(request_digest) = 64",
+            name="ck_document_authority_readiness_request_digest",
+        ),
+        CheckConstraint("schema_version > 0", name="ck_document_authority_readiness_schema"),
+        CheckConstraint(
+            "char_length(physical_collection) BETWEEN 1 AND 200 "
+            "AND char_length(collection_alias) BETWEEN 1 AND 200",
+            name="ck_document_authority_readiness_collection_names",
+        ),
+        CheckConstraint(
+            "(grounding_policy_id IS NULL AND grounding_policy_version IS NULL) OR "
+            "(grounding_policy_id IS NOT NULL AND grounding_policy_version > 0 "
+            "AND verifier_model_id IS NOT NULL AND calibration_hash IS NOT NULL "
+            "AND provider_preset_version IS NOT NULL AND binding_revision IS NOT NULL "
+            "AND credential_fingerprint IS NOT NULL)",
+            name="ck_document_authority_readiness_policy_snapshot",
+        ),
+        CheckConstraint(
+            "payload_index_digest IS NULL OR char_length(payload_index_digest) = 64",
+            name="ck_document_authority_readiness_payload_digest",
+        ),
+        CheckConstraint(
+            "provenance_digest IS NULL OR char_length(provenance_digest) = 64",
+            name="ck_document_authority_readiness_provenance_digest",
+        ),
+        CheckConstraint(
+            "lifecycle_revision_digest IS NULL OR char_length(lifecycle_revision_digest) = 64",
+            name="ck_document_authority_readiness_lifecycle_digest",
+        ),
+        CheckConstraint(
+            "calibration_hash IS NULL OR char_length(calibration_hash) = 64",
+            name="ck_document_authority_readiness_calibration_hash",
+        ),
+        CheckConstraint(
+            "readiness_digest IS NULL OR char_length(readiness_digest) = 64",
+            name="ck_document_authority_readiness_digest",
+        ),
+        CheckConstraint(
+            "cardinality(blocker_codes) <= 32",
+            name="ck_document_authority_readiness_blocker_count",
+        ),
+        CheckConstraint(
             "current_version_count >= 0 AND ready_version_count >= 0 "
-            "AND projected_version_count >= 0 AND point_count >= 0",
+            "AND ready_version_count <= current_version_count "
+            "AND projected_version_count >= 0 "
+            "AND projected_version_count <= current_version_count AND point_count >= 0",
             name="ck_document_authority_readiness_counts",
         ),
         CheckConstraint("attempts >= 0", name="ck_document_authority_readiness_attempts"),
@@ -319,6 +526,15 @@ class DocumentAuthorityReadiness(UUIDPk, Base):
             ["workspaces.org_id", "workspaces.id"],
             name="fk_document_authority_readiness_org_workspace",
             ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["org_id", "workspace_id", "grounding_policy_id"],
+            [
+                "grounding_policies.org_id",
+                "grounding_policies.workspace_id",
+                "grounding_policies.id",
+            ],
+            name="fk_document_authority_readiness_scope_policy",
         ),
         ForeignKeyConstraint(
             ["org_id", "activated_by"],
@@ -342,13 +558,17 @@ class DocumentAuthorityReadiness(UUIDPk, Base):
     provenance_digest: Mapped[str | None] = mapped_column(String(64), default=None)
     lifecycle_revision_digest: Mapped[str | None] = mapped_column(String(64), default=None)
     grounding_policy_id: Mapped[UUID | None] = mapped_column(default=None)
+    grounding_policy_version: Mapped[int | None] = mapped_column(default=None)
     calibration_hash: Mapped[str | None] = mapped_column(String(64), default=None)
-    verifier_model_id: Mapped[UUID | None] = mapped_column(default=None)
+    verifier_model_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("models.id"), default=None
+    )
     provider_preset_version: Mapped[str | None] = mapped_column(String(100), default=None)
     binding_revision: Mapped[str | None] = mapped_column(String(100), default=None)
     credential_fingerprint: Mapped[str | None] = mapped_column(String(128), default=None)
     readiness_digest: Mapped[str | None] = mapped_column(String(64), default=None)
     signature: Mapped[str | None] = mapped_column(String(128), default=None)
+    blocker_codes: Mapped[list[str]] = mapped_column(ARRAY(String(64)), default=list)
     status: Mapped[str] = mapped_column(default="building", index=True)
     lease_owner: Mapped[str | None] = mapped_column(String(200), default=None)
     lease_expires_at: Mapped[datetime | None] = mapped_column(default=None)
@@ -393,9 +613,13 @@ class IngestStageAttempt(UUIDPk, Base):
         ),
         CheckConstraint("attempts >= 0", name="ck_ingest_stage_attempts_attempts"),
         ForeignKeyConstraint(
-            ["org_id", "document_version_id"],
-            ["document_versions.org_id", "document_versions.id"],
-            name="fk_ingest_stage_attempts_org_version",
+            ["org_id", "workspace_id", "document_version_id"],
+            [
+                "document_versions.org_id",
+                "document_versions.workspace_id",
+                "document_versions.id",
+            ],
+            name="fk_ingest_stage_attempts_org_workspace_version",
             ondelete="CASCADE",
         ),
     )
@@ -431,11 +655,20 @@ class LegacyRebuildScanCheckpoint(UUIDPk, Base):
             name="fk_legacy_rebuild_scan_checkpoints_org_workspace",
             ondelete="CASCADE",
         ),
+        ForeignKeyConstraint(
+            ["org_id", "workspace_id", "cursor_document_version_id"],
+            [
+                "document_versions.org_id",
+                "document_versions.workspace_id",
+                "document_versions.id",
+            ],
+            name="fk_legacy_rebuild_scan_checkpoints_scope_cursor",
+        ),
     )
 
     org_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
     workspace_id: Mapped[UUID] = mapped_column(index=True)
-    cursor_document_id: Mapped[UUID | None] = mapped_column(default=None)
+    cursor_document_version_id: Mapped[UUID | None] = mapped_column(default=None)
     pass_number: Mapped[int] = mapped_column(default=0)
     scanned_count: Mapped[int] = mapped_column(default=0)
     emitted_count: Mapped[int] = mapped_column(default=0)

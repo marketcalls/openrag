@@ -30,7 +30,8 @@ class ProvenanceState(StrEnum):
 
 
 class AnswerStatus(StrEnum):
-    VERIFIED = "verified"
+    GROUNDED = "grounded"
+    CITED_CONFLICT = "cited_conflict"
     REFUSED = "refused"
 
 
@@ -73,12 +74,19 @@ def normalize_version_label(value: str) -> tuple[str, str]:
         raise ValueError("version label must not be empty")
     if len(display) > _MAX_VERSION_LABEL_LENGTH:
         raise ValueError(f"version label must be at most {_MAX_VERSION_LABEL_LENGTH} characters")
-    return display, display.casefold()
+    lookup_key = display.casefold()
+    if len(lookup_key) > _MAX_VERSION_LABEL_LENGTH:
+        raise ValueError(
+            f"version lookup key must be at most {_MAX_VERSION_LABEL_LENGTH} characters"
+        )
+    return display, lookup_key
 
 
 def validate_section_path(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:
     """Normalize a bounded, non-empty document section hierarchy."""
 
+    if not values:
+        raise ValueError("section path must contain at least one element")
     if len(values) > _MAX_SECTION_DEPTH:
         raise ValueError(f"section path may contain at most {_MAX_SECTION_DEPTH} elements")
     normalized: list[str] = []
