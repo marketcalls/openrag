@@ -21,8 +21,20 @@ def test_celery_config() -> None:
     assert "openrag.worker.tasks" in celery_app.conf.include
     assert {queue.name for queue in celery_app.conf.task_queues} == {
         "default",
+        "events",
         "interactive",
     }
+    dispatch_schedule = celery_app.conf.beat_schedule["dispatch-outbox"]
+    assert dispatch_schedule["task"] == "events.dispatch_outbox"
+    assert dispatch_schedule["options"]["queue"] == "events"
+    assert dispatch_schedule["options"]["expires"] <= 10
+
+
+def test_event_tasks_are_isolated_to_the_events_queue() -> None:
+    route = celery_app.conf.task_routes["events.*"]
+
+    assert route == {"queue": "events"}
+    assert "events.dispatch_outbox" in celery_app.tasks
 
 
 def test_queue_selection_by_size() -> None:

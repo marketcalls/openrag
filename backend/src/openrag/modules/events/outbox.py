@@ -5,6 +5,8 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID, uuid4
 
+from sqlalchemy import func
+
 from openrag.modules.events.envelopes import (
     RegisteredPayload,
     build_envelope,
@@ -51,6 +53,9 @@ def add_registered_event(
         payload=envelope.model_dump(mode="json"),
         dedupe_key=f"document-version:{aggregate_id}:{lifecycle_revision}",
         envelope_digest=hashlib.sha256(envelope_bytes).hexdigest(),
+        # Eligibility is initialized by PostgreSQL, avoiding host/container
+        # clock skew at the relay boundary.
+        dispatch_after=func.timezone("UTC", func.now()),
     )
     session.add(row)
     return row

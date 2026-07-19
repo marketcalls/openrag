@@ -120,7 +120,7 @@ See the [high-level architecture](docs/architecture.md) for service boundaries a
 
 ## Deploy with Docker Compose
 
-Docker Compose is the supported single-node evaluation and development deployment. It starts PostgreSQL, Redis, Qdrant, MinIO, the model gateway, database migrations, bootstrap, the FastAPI service, an ingestion worker, and the React web application.
+Docker Compose is the supported single-node evaluation and development deployment. It starts PostgreSQL, isolated broker and durable event Redis services, Qdrant, MinIO, the model gateway, database migrations, bootstrap, the FastAPI service, ingestion and event workers, the event scheduler, and the React web application.
 
 ### 1. Prepare the host
 
@@ -139,6 +139,19 @@ OPENRAG_BOOTSTRAP_EMAIL=admin@example.com
 OPENRAG_BOOTSTRAP_PASSWORD=replace-with-a-long-random-password
 LITELLM_MASTER_KEY=replace-with-a-long-random-key
 ```
+
+Create the local event-transport credential as an ignored, owner-readable file.
+It is mounted only into the dedicated event Redis and event worker, not placed
+in Compose environment variables or exposed to the API and ingestion worker.
+
+```bash
+install -d -m 700 data
+openssl rand -hex -out data/event_redis_password 32
+chmod 600 data/event_redis_password
+```
+
+`OPENRAG_EVENT_REDIS_SECRET_FILE` may point to a different secret-managed file
+for nonlocal deployments. Never commit that file.
 
 The bootstrap credentials create the first platform superadmin only when one does
 not already exist. Bootstrap is the only application path that can set platform
@@ -163,7 +176,7 @@ curl --fail http://localhost:8000/readyz
 Every listed service should be running or successfully completed, and readiness should return `{"status":"ready"}`. If startup fails, inspect the application services:
 
 ```bash
-docker compose -f deploy/compose.yaml logs --tail=200 api worker migrate bootstrap web
+docker compose -f deploy/compose.yaml logs --tail=200 api worker event-worker event-scheduler migrate bootstrap web
 ```
 
 ### 3. Sign in and configure a model
@@ -252,13 +265,13 @@ can be completed in a production deployment.
 Follow application logs:
 
 ```bash
-docker compose -f deploy/compose.yaml logs -f api worker web
+docker compose -f deploy/compose.yaml logs -f api worker event-worker event-scheduler web
 ```
 
 Restart only the application processes without deleting stored data:
 
 ```bash
-docker compose -f deploy/compose.yaml restart api worker web
+docker compose -f deploy/compose.yaml restart api worker event-worker event-scheduler web
 ```
 
 Upgrade from the public `main` branch:

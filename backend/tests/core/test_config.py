@@ -16,6 +16,31 @@ def test_settings_use_openrag_database_defaults() -> None:
         "postgresql+asyncpg://openrag:openrag@127.0.0.1:55432/openrag"
     )
     assert settings.redis_url == "redis://127.0.0.1:56379/0"
+    assert settings.event_redis_url is None
+    assert settings.event_redis_password_file is None
+
+
+def test_event_transport_settings_are_distinct_and_injected(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv(
+        "OPENRAG_EVENT_REDIS_URL",
+        "redis://openrag@event-redis:6379/0",
+    )
+    monkeypatch.setenv(
+        "OPENRAG_EVENT_REDIS_PASSWORD_FILE",
+        "/run/secrets/event_redis_password",
+    )
+
+    settings = Settings(_env_file=None)
+
+    assert settings.event_redis_url != settings.redis_url
+    assert settings.event_redis_url == "redis://openrag@event-redis:6379/0"
+    assert (
+        settings.event_redis_password_file
+        == "/run/secrets/event_redis_password"  # noqa: S105
+    )
+    assert settings.event_dispatch_batch_size == 100
+    assert settings.event_dispatch_lease_seconds == 30
+    assert settings.event_waitaof_timeout_ms == 5000
 
 
 def test_ingestion_settings_defaults() -> None:

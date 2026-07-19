@@ -10,8 +10,21 @@ from openrag.core.config import get_settings
 from openrag.modules.documents import ingest
 from openrag.modules.documents.pipeline import IngestFailure
 from openrag.worker.celery_app import celery_app
+from openrag.worker.event_runtime import dispatch_outbox_once
 
 _MAX_RETRIES = 3
+
+
+@celery_app.task(
+    name="events.dispatch_outbox",
+    ignore_result=True,
+    soft_time_limit=20,
+    time_limit=25,
+)
+def dispatch_outbox_task() -> dict[str, int]:
+    """Run one bounded relay tick; DB leases make duplicate ticks safe."""
+
+    return asyncio.run(dispatch_outbox_once())
 
 
 class IngestTask(Task):  # type: ignore[misc]

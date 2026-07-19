@@ -52,6 +52,44 @@ services:
       timeout: 3s
       retries: 10
 
+  event-redis:
+    image: redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        password="$$(cat /run/secrets/event_redis_password)"
+        test "$${#password}" -ge 16
+        exec redis-server \
+          --appendonly yes \
+          --appendfsync always \
+          --save "" \
+          --dir /data \
+          --user default off \
+          --user openrag on ">$${password}" "~openrag:*" \
+          +ping +info "+config|get" +xadd +xgroup +xinfo \
+          +xreadgroup +xack +xautoclaim +xpending +waitaof
+    secrets:
+      - event_redis_password
+    networks:
+      - event-network
+    volumes:
+      - eventredisdata:/data
+    mem_limit: 512m
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          REDISCLI_AUTH="$$(cat /run/secrets/event_redis_password)"
+          redis-cli --user openrag ping
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
   qdrant:
     image: qdrant/qdrant:v1.18.0
     ports: ["127.0.0.1:56333:6333"]
@@ -190,6 +228,84 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  event-scheduler:
+    image: openrag-backend:local
+    build:
+      context: ../backend
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - beat
+      - -l
+      - info
+      - --schedule=/tmp/celerybeat-schedule
+      - --pidfile=/tmp/celerybeat.pid
+    environment:
+      OPENRAG_REDIS_URL: redis://redis:6379/0
+      OPENRAG_ENVIRONMENT: ${OPENRAG_ENVIRONMENT:-dev}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    restart: unless-stopped
+
+  event-worker:
+    image: openrag-backend:local
+    build:
+      context: ../backend
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - worker
+      - -Q
+      - events
+      - -l
+      - info
+      - --concurrency=2
+      - --hostname=event@%h
+    environment:
+      OPENRAG_DATABASE_URL: postgresql+asyncpg://openrag:openrag@postgres:5432/openrag
+      OPENRAG_REDIS_URL: redis://redis:6379/0
+      OPENRAG_EVENT_REDIS_URL: redis://openrag@event-redis:6379/0
+      OPENRAG_EVENT_REDIS_PASSWORD_FILE: /run/secrets/event_redis_password
+      OPENRAG_ENVIRONMENT: ${OPENRAG_ENVIRONMENT:-dev}
+    secrets:
+      - event_redis_password
+    networks:
+      - default
+      - event-network
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      event-redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -m
+        - openrag.worker.event_runtime
+        - ready
+      interval: 10s
+      timeout: 8s
+      retries: 6
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 35s
+    restart: unless-stopped
+
   web:
     image: openrag-frontend:local
     build:
@@ -213,3 +329,12 @@ volumes:
   teidata:
   kekdata:
   ollamadata:
+  eventredisdata:
+
+networks:
+  event-network:
+    internal: true
+
+secrets:
+  event_redis_password:
+    file: ${OPENRAG_EVENT_REDIS_SECRET_FILE:-../data/event_redis_password}

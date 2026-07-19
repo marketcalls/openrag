@@ -16,7 +16,15 @@ def build_celery() -> Celery:
         task_acks_late=True,
         worker_prefetch_multiplier=1,
         task_default_queue="default",
-        task_queues=(Queue("default"), Queue("interactive")),
+        task_queues=(Queue("default"), Queue("interactive"), Queue("events")),
+        task_routes={"events.*": {"queue": "events"}},
+        beat_schedule={
+            "dispatch-outbox": {
+                "task": "events.dispatch_outbox",
+                "schedule": 2.0,
+                "options": {"queue": "events", "expires": 5},
+            }
+        },
         broker_connection_retry_on_startup=True,
     )
     return app

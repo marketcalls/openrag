@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +13,11 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://openrag:openrag@127.0.0.1:55432/openrag"
     redis_url: str = "redis://127.0.0.1:56379/0"
+    event_redis_url: str | None = None
+    event_redis_password_file: str | None = None
+    event_dispatch_batch_size: int = Field(default=100, ge=1, le=100)
+    event_dispatch_lease_seconds: int = Field(default=30, ge=5, le=300)
+    event_waitaof_timeout_ms: int = Field(default=5000, ge=100, le=30_000)
     environment: str = "dev"
     kek_file: str = "./data/openrag_kek"
     access_token_ttl_seconds: int = 900
