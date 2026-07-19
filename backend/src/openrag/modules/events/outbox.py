@@ -10,6 +10,7 @@ from sqlalchemy import func
 from openrag.modules.events.envelopes import (
     DocumentVersionIngestionRequestedV1,
     DocumentVersionRebuildRequestedV1,
+    DocumentVersionReindexRequestedV1,
     RegisteredPayload,
     build_envelope,
     canonical_envelope_bytes,
@@ -31,6 +32,10 @@ def _dedupe_key(
         return f"document-version:{aggregate_id}:ingestion:{payload.attempt}"
     if type(payload) is DocumentVersionRebuildRequestedV1:
         return f"document-version:{aggregate_id}:rebuild:1"
+    if type(payload) is DocumentVersionReindexRequestedV1:
+        return (
+            f"document-version:{aggregate_id}:reindex:{payload.deployment_id}"
+        )
     return f"document-version:{aggregate_id}:{lifecycle_revision}"
 
 

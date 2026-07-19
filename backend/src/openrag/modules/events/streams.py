@@ -8,6 +8,7 @@ from openrag.modules.events.envelopes import (
     INGESTION_REQUESTED_EVENT_TYPE,
     LIFECYCLE_EVENT_TYPE,
     REBUILD_REQUESTED_EVENT_TYPE,
+    REINDEX_REQUESTED_EVENT_TYPE,
 )
 
 DOCUMENT_EVENTS_STREAM = "openrag:events:documents"
@@ -28,6 +29,7 @@ def stream_for_event_type(event_type: str) -> str:
         return DOCUMENT_EVENTS_STREAM
     if event_type in {
         INGESTION_REQUESTED_EVENT_TYPE,
+        REINDEX_REQUESTED_EVENT_TYPE,
         REBUILD_REQUESTED_EVENT_TYPE,
     }:
         return DOCUMENT_COMMANDS_STREAM

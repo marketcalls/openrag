@@ -22,6 +22,7 @@ def test_document_lifecycle_events_use_the_document_stream() -> None:
     "event_type",
     [
         "document.version.ingestion_requested.v1",
+        "document.version.reindex_requested.v1",
         "document.version.rebuild_requested.v1",
     ],
 )

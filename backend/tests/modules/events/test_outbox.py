@@ -9,6 +9,7 @@ from openrag.modules.events.envelopes import (
     DocumentVersionIngestionRequestedV1,
     DocumentVersionLifecycleV1,
     DocumentVersionRebuildRequestedV1,
+    DocumentVersionReindexRequestedV1,
 )
 from openrag.modules.events.outbox import add_registered_event
 
@@ -100,10 +101,26 @@ def test_registered_factory_rejects_oversized_envelope_before_add(
             ),
             "document-version:40000000-0000-0000-0000-000000000004:rebuild:1",
         ),
+        (
+            DocumentVersionReindexRequestedV1(
+                document_id=UUID("10000000-0000-0000-0000-000000000001"),
+                deployment_id=UUID("70000000-0000-0000-0000-000000000007"),
+                embedding_profile_version=f"embedding/v1/{'a' * 64}",
+                authority_generation_id=UUID(
+                    "60000000-0000-0000-0000-000000000006"
+                ),
+            ),
+            "document-version:40000000-0000-0000-0000-000000000004:"
+            "reindex:70000000-0000-0000-0000-000000000007",
+        ),
     ],
 )
 def test_registered_factory_derives_document_start_dedupe_keys(
-    payload: DocumentVersionIngestionRequestedV1 | DocumentVersionRebuildRequestedV1,
+    payload: (
+        DocumentVersionIngestionRequestedV1
+        | DocumentVersionRebuildRequestedV1
+        | DocumentVersionReindexRequestedV1
+    ),
     expected: str,
 ) -> None:
     session = RecordingSession()

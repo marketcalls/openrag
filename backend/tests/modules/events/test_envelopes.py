@@ -10,6 +10,7 @@ from openrag.modules.events.envelopes import (
     DocumentVersionIngestionRequestedV1,
     DocumentVersionLifecycleV1,
     DocumentVersionRebuildRequestedV1,
+    DocumentVersionReindexRequestedV1,
     EventEnvelopeBase,
     EventEnvelopeV1,
     build_envelope,
@@ -178,10 +179,23 @@ def test_base_envelope_accepts_attestable_future_schema() -> None:
             ),
             "document.version.rebuild_requested.v1",
         ),
+        (
+            DocumentVersionReindexRequestedV1(
+                document_id=DOCUMENT_ID,
+                deployment_id=CORRELATION_ID,
+                embedding_profile_version=f"embedding/v1/{'a' * 64}",
+                authority_generation_id=EVENT_ID,
+            ),
+            "document.version.reindex_requested.v1",
+        ),
     ],
 )
 def test_document_start_commands_are_registered_content_free_contracts(
-    payload: DocumentVersionIngestionRequestedV1 | DocumentVersionRebuildRequestedV1,
+    payload: (
+        DocumentVersionIngestionRequestedV1
+        | DocumentVersionRebuildRequestedV1
+        | DocumentVersionReindexRequestedV1
+    ),
     event_type: str,
 ) -> None:
     envelope = build_envelope(
@@ -208,6 +222,13 @@ def test_document_start_commands_reject_invalid_attempts_and_extra_data() -> Non
         DocumentVersionIngestionRequestedV1(
             document_id=DOCUMENT_ID,
             attempt=0,
+            authority_generation_id=EVENT_ID,
+        )
+    with pytest.raises(ValidationError):
+        DocumentVersionReindexRequestedV1(
+            document_id=DOCUMENT_ID,
+            deployment_id=CORRELATION_ID,
+            embedding_profile_version="embedding/v1/not-a-digest",
             authority_generation_id=EVENT_ID,
         )
 

@@ -20,6 +20,7 @@ MAX_ENVELOPE_BYTES = 16 * 1024
 LIFECYCLE_EVENT_TYPE = "document.version.lifecycle.v1"
 INGESTION_REQUESTED_EVENT_TYPE = "document.version.ingestion_requested.v1"
 REBUILD_REQUESTED_EVENT_TYPE = "document.version.rebuild_requested.v1"
+REINDEX_REQUESTED_EVENT_TYPE = "document.version.reindex_requested.v1"
 
 
 class DocumentVersionLifecycleV1(BaseModel):
@@ -51,10 +52,25 @@ class DocumentVersionRebuildRequestedV1(BaseModel):
     authority_generation_id: UUID
 
 
+class DocumentVersionReindexRequestedV1(BaseModel):
+    """Content-free command that builds one pending embedding generation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    document_id: UUID
+    deployment_id: UUID
+    embedding_profile_version: Annotated[
+        str,
+        Field(pattern=r"^embedding/v1/[0-9a-f]{64}$"),
+    ]
+    authority_generation_id: UUID
+
+
 RegisteredPayload = (
     DocumentVersionLifecycleV1
     | DocumentVersionIngestionRequestedV1
     | DocumentVersionRebuildRequestedV1
+    | DocumentVersionReindexRequestedV1
 )
 
 
@@ -124,6 +140,8 @@ def _registration(payload: object) -> tuple[str, str]:
         return INGESTION_REQUESTED_EVENT_TYPE, "document_version"
     if type(payload) is DocumentVersionRebuildRequestedV1:
         return REBUILD_REQUESTED_EVENT_TYPE, "document_version"
+    if type(payload) is DocumentVersionReindexRequestedV1:
+        return REINDEX_REQUESTED_EVENT_TYPE, "document_version"
     raise ValueError("schema_not_registered")
 
 
@@ -205,6 +223,7 @@ def parse_registered_envelope(encoded: bytes) -> EventEnvelopeV1:
         LIFECYCLE_EVENT_TYPE,
         INGESTION_REQUESTED_EVENT_TYPE,
         REBUILD_REQUESTED_EVENT_TYPE,
+        REINDEX_REQUESTED_EVENT_TYPE,
     }:
         raise ValueError("schema_not_registered")
     try:
