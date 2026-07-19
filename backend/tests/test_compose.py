@@ -46,6 +46,7 @@ def test_compose_contains_complete_application_stack() -> None:
         "minio",
         "litellm",
         "migrate",
+        "authority-provisioner",
         "bootstrap",
         "api",
         "event-redis",
@@ -59,6 +60,10 @@ def test_compose_contains_complete_application_stack() -> None:
         config["services"]["api"]["depends_on"]["bootstrap"]["condition"]
         == "service_completed_successfully"
     )
+    assert (
+        config["services"]["api"]["depends_on"]["authority-provisioner"]["condition"]
+        == "service_completed_successfully"
+    )
     assert "kekdata" in config["volumes"]
     assert "ollama" in config["services"]
 
@@ -68,6 +73,12 @@ def test_backend_services_use_the_prebuilt_virtualenv_at_runtime() -> None:
 
     assert services["migrate"]["command"][0] == "/app/.venv/bin/alembic"
     assert services["bootstrap"]["command"][0] == "/app/.venv/bin/python"
+    assert services["authority-provisioner"]["command"][:4] == [
+        "/app/.venv/bin/python",
+        "-m",
+        "openrag.cli",
+        "authority",
+    ]
     assert services["api"]["command"][0] == "/app/.venv/bin/uvicorn"
     assert services["worker"]["command"][0] == "/app/.venv/bin/celery"
     assert services["event-worker"]["command"][0] == "/app/.venv/bin/celery"
@@ -76,6 +87,25 @@ def test_backend_services_use_the_prebuilt_virtualenv_at_runtime() -> None:
     assert services["worker"]["mem_limit"] == "4294967296"
     assert services["worker"]["pids_limit"] == 256
     assert services["worker"]["security_opt"] == ["no-new-privileges:true"]
+
+
+def test_authority_generation_is_provisioned_before_writes() -> None:
+    services = render_compose()["services"]
+    generation = services["api"]["environment"]["OPENRAG_AUTHORITY_GENERATION_ID"]
+
+    assert generation == services["ingestion-worker"]["environment"][
+        "OPENRAG_AUTHORITY_GENERATION_ID"
+    ]
+    assert services["authority-provisioner"]["environment"][
+        "OPENRAG_AUTHORITY_GENERATION_ID"
+    ] == generation
+    assert services["authority-provisioner"]["restart"] == "no"
+    assert services["authority-provisioner"]["depends_on"]["qdrant"]["condition"] == (
+        "service_healthy"
+    )
+    assert services["ingestion-worker"]["depends_on"]["authority-provisioner"][
+        "condition"
+    ] == "service_completed_successfully"
 
 
 def test_event_transport_is_private_durable_and_failure_isolated() -> None:

@@ -25,6 +25,7 @@ x-openrag-environment: &openrag-environment
   OPENRAG_TEI_URL: http://tei:80
   OPENRAG_EMBEDDING_BACKEND: ${OPENRAG_EMBEDDING_BACKEND:-hash}
   OPENRAG_EMBEDDING_DIM: ${OPENRAG_EMBEDDING_DIM:-1024}
+  OPENRAG_AUTHORITY_GENERATION_ID: ${OPENRAG_AUTHORITY_GENERATION_ID:-8a9848ab-6f79-5ec8-a906-a1f3c096cdb8}
   OPENRAG_INGEST_REVISION_PROTOCOL_V2_ENABLED: ${OPENRAG_INGEST_REVISION_PROTOCOL_V2_ENABLED:-false}
   OPENRAG_STALE_INGEST_RECOVERY_SECONDS: ${OPENRAG_STALE_INGEST_RECOVERY_SECONDS:-900}
   OPENRAG_LITELLM_URL: http://litellm:4000
@@ -170,6 +171,21 @@ services:
         condition: service_healthy
     restart: "no"
 
+  authority-provisioner:
+    <<: *openrag-backend
+    command:
+      - /app/.venv/bin/python
+      - -m
+      - openrag.cli
+      - authority
+      - provision
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      qdrant:
+        condition: service_healthy
+    restart: "no"
+
   bootstrap:
     <<: *openrag-backend
     command: ["/app/.venv/bin/python", "-m", "openrag.bootstrap"]
@@ -195,6 +211,8 @@ services:
     ports: ["127.0.0.1:${OPENRAG_API_PORT:-8000}:8000"]
     depends_on:
       bootstrap:
+        condition: service_completed_successfully
+      authority-provisioner:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
@@ -268,6 +286,8 @@ services:
       - /tmp:size=4g,noexec,nosuid,nodev
     depends_on:
       bootstrap:
+        condition: service_completed_successfully
+      authority-provisioner:
         condition: service_completed_successfully
       redis:
         condition: service_healthy

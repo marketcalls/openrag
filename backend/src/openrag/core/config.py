@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Literal
+from uuid import UUID
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -37,6 +38,9 @@ class Settings(BaseSettings):
     tei_url: str = "http://localhost:58080"
     embedding_backend: str = "tei"
     embedding_dim: int = 1024
+    authority_generation_id: UUID = UUID(
+        "8a9848ab-6f79-5ec8-a906-a1f3c096cdb8"
+    )
     max_upload_mb: int = 100
     upload_quarantine_dir: str = "./data/quarantine"
     upload_stream_chunk_kb: int = Field(default=1024, ge=64, le=4096)

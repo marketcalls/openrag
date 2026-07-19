@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from openrag.core.config import Settings
 
 
@@ -52,6 +54,9 @@ def test_ingestion_settings_defaults() -> None:
     assert settings.tei_url == "http://localhost:58080"
     assert settings.embedding_backend == "tei"
     assert settings.embedding_dim == 1024
+    assert settings.authority_generation_id == UUID(
+        "8a9848ab-6f79-5ec8-a906-a1f3c096cdb8"
+    )
     assert settings.interactive_upload_mb == 10
     assert settings.upload_quarantine_dir == "./data/quarantine"
     assert settings.upload_stream_chunk_kb == 1024
