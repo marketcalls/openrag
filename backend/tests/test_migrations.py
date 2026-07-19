@@ -26,6 +26,7 @@ DELETION_REVISION = "4b8e0f7a3c21"
 OUTBOX_REVISION = "a4f87e62b913"
 STAGE_REVISION = "d8a4f2c91e37"
 REBUILD_REVISION = "f1c3e8a2b7d4"
+RUNTIME_REVISION = "a2d4f6b8c0e1"
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -765,11 +766,12 @@ def test_legacy_rebuild_revision_is_the_single_head(
 ) -> None:
     config, _engine, _ids = authority_db
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [REBUILD_REVISION]
+    assert script.get_heads() == [RUNTIME_REVISION]
     assert script.get_revision(AUTHORITY_REVISION).down_revision == RBAC_REVISION
     assert script.get_revision(DELETION_REVISION).down_revision == AUTHORITY_REVISION
     assert script.get_revision(STAGE_REVISION).down_revision == OUTBOX_REVISION
     assert script.get_revision(REBUILD_REVISION).down_revision == STAGE_REVISION
+    assert script.get_revision(RUNTIME_REVISION).down_revision == REBUILD_REVISION
 
 
 def test_deletion_upgrade_adds_bounded_restartable_markers_and_closes_processing_delete(
@@ -1776,7 +1778,7 @@ def test_authority_upgrade_aborts_before_mutation_for_orphan_citation(
 
     with pytest.raises(RuntimeError, match="orphan or invalid legacy citation"):
         command.upgrade(config, AUTHORITY_REVISION)
-    assert ScriptDirectory.from_config(config).get_current_head() == REBUILD_REVISION
+    assert ScriptDirectory.from_config(config).get_current_head() == RUNTIME_REVISION
     with engine.connect() as connection:
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
@@ -2162,6 +2164,52 @@ def test_clean_legacy_rebuild_revision_downgrades_to_stage_contract(
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
             == STAGE_REVISION
+        )
+
+
+def test_durable_legacy_ingestion_revision_allows_claim_and_review_then_fences_downgrade(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, RUNTIME_REVISION)
+    version_id = ids.document_ids["processing"]
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE document_versions SET provenance_state='building' "
+                "WHERE id=:id"
+            ),
+            {"id": version_id},
+        )
+        assert connection.scalar(
+            text("SELECT source_page_count FROM document_versions WHERE id=:id"),
+            {"id": version_id},
+        ) is None
+        connection.execute(
+            text(
+                "UPDATE document_versions SET source_page_count=1, "
+                "state='review', provenance_state='ready' WHERE id=:id"
+            ),
+            {"id": version_id},
+        )
+
+    with pytest.raises(RuntimeError, match="governed state exists"):
+        command.downgrade(config, REBUILD_REVISION)
+
+
+def test_clean_durable_legacy_ingestion_revision_downgrades(
+    authority_db: tuple[Config, Engine, object],
+) -> None:
+    config, engine, _ids = authority_db
+    command.upgrade(config, RUNTIME_REVISION)
+
+    command.downgrade(config, REBUILD_REVISION)
+
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(text("SELECT version_num FROM alembic_version"))
+            == REBUILD_REVISION
         )
 
 

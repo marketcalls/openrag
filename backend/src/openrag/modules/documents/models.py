@@ -163,8 +163,12 @@ class DocumentVersion(UUIDPk, Base):
             "AND index_profile_version = 'legacy/index-v1' "
             "AND ((state = 'approved' AND provenance_state IN "
             "('legacy_pending','building','ready','failed')) "
-            "OR (state = 'failed' AND provenance_state = 'none') "
-            "OR (state = 'processing' AND provenance_state = 'none'))) OR "
+            "OR (state = 'failed' AND provenance_state IN ('none','failed')) "
+            "OR (state = 'processing' AND provenance_state IN "
+            "('none','building','failed')) "
+            "OR (state = 'review' AND provenance_state = 'ready') "
+            "OR (state IN ('rejected','superseded','obsolete') "
+            "AND provenance_state = 'ready'))) OR "
             "(version_label <> 'Legacy 1' AND version_key <> 'legacy 1' "
             "AND provenance_state <> 'legacy_pending' "
             "AND parser_profile_version <> 'legacy/parser-v1' "
@@ -181,8 +185,9 @@ class DocumentVersion(UUIDPk, Base):
             "AND provenance_state <> 'ready') OR "
             "(sequence = 1 AND version_label = 'Legacy 1' AND version_key = 'legacy 1' "
             "AND ((state = 'approved' AND provenance_state = 'legacy_pending') "
-            "OR (state = 'failed' AND provenance_state = 'none') "
-            "OR (state = 'processing' AND provenance_state = 'none')))",
+            "OR (state = 'failed' AND provenance_state IN ('none','failed')) "
+            "OR (state = 'processing' AND provenance_state IN "
+            "('none','building','failed'))))",
             name="ck_document_versions_page_count_or_exact_legacy",
         ),
         CheckConstraint(
