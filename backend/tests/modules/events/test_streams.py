@@ -1,6 +1,8 @@
 import pytest
 
 from openrag.modules.events.streams import (
+    DOCUMENT_COMMANDS_GROUP,
+    DOCUMENT_COMMANDS_STREAM,
     DOCUMENT_EVENTS_GROUP,
     DOCUMENT_EVENTS_STREAM,
     EVENT_TRANSPORT_FIELDS,
@@ -14,6 +16,17 @@ def test_document_lifecycle_events_use_the_document_stream() -> None:
         stream_for_event_type("document.version.lifecycle.v1")
         == DOCUMENT_EVENTS_STREAM
     )
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        "document.version.ingestion_requested.v1",
+        "document.version.rebuild_requested.v1",
+    ],
+)
+def test_document_start_commands_use_the_command_stream(event_type: str) -> None:
+    assert stream_for_event_type(event_type) == DOCUMENT_COMMANDS_STREAM
 
 
 def test_transport_has_exactly_two_attested_fields() -> None:
@@ -37,8 +50,11 @@ class RecordingRedis:
         return True
 
     async def xinfo_groups(self, name: str) -> list[dict[bytes, bytes]]:
-        assert name == DOCUMENT_EVENTS_STREAM
-        return [{b"name": DOCUMENT_EVENTS_GROUP.encode()}]
+        expected = {
+            DOCUMENT_EVENTS_STREAM: DOCUMENT_EVENTS_GROUP,
+            DOCUMENT_COMMANDS_STREAM: DOCUMENT_COMMANDS_GROUP,
+        }
+        return [{b"name": expected[name].encode()}]
 
 
 async def test_stream_provisioning_is_explicit_and_verified() -> None:
@@ -52,7 +68,13 @@ async def test_stream_provisioning_is_explicit_and_verified() -> None:
             DOCUMENT_EVENTS_GROUP,
             "0-0",
             True,
-        )
+        ),
+        (
+            DOCUMENT_COMMANDS_STREAM,
+            DOCUMENT_COMMANDS_GROUP,
+            "0-0",
+            True,
+        ),
     ]
 
 

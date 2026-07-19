@@ -15,6 +15,7 @@ from openrag.modules.events.consumer import StreamDelivery, consume_one
 from openrag.modules.events.dispatcher import claim_outbox, dispatch_claim
 from openrag.modules.events.envelopes import (
     DocumentVersionLifecycleV1,
+    DocumentVersionRebuildRequestedV1,
     build_envelope,
     parse_base_envelope,
 )
@@ -22,6 +23,7 @@ from openrag.modules.events.models import InboxEvent, OutboxEvent
 from openrag.modules.events.outbox import add_registered_event
 from openrag.modules.events.readiness import check_event_transport
 from openrag.modules.events.streams import (
+    DOCUMENT_COMMANDS_STREAM,
     DOCUMENT_EVENTS_DLQ_STREAM,
     DOCUMENT_EVENTS_GROUP,
     DOCUMENT_EVENTS_STREAM,
@@ -126,6 +128,49 @@ async def test_real_dispatcher_marks_postgres_only_after_waitaof(
         assert persisted is not None
     assert persisted.published_at is not None
     assert persisted.published_message_id is not None
+
+
+async def test_real_dispatcher_routes_start_commands_to_dedicated_stream(
+    durable_event_redis: Redis,
+    engine: AsyncEngine,
+) -> None:
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory.begin() as session:
+        event = add_registered_event(
+            session,
+            payload=DocumentVersionRebuildRequestedV1(
+                document_id=UUID("76100000-0000-0000-0000-000000000001"),
+                authority_generation_id=UUID(
+                    "76100000-0000-0000-0000-000000000002"
+                ),
+            ),
+            org_id=UUID("76100000-0000-0000-0000-000000000003"),
+            workspace_id=UUID("76100000-0000-0000-0000-000000000004"),
+            aggregate_id=UUID("76100000-0000-0000-0000-000000000005"),
+            lifecycle_revision=1,
+            correlation_id=UUID("76100000-0000-0000-0000-000000000006"),
+            occurred_at=datetime(2026, 7, 20, 1, tzinfo=UTC),
+        )
+    claim = (
+        await claim_outbox(
+            session_factory,
+            owner="integration-relay",
+            batch_size=1,
+            lease_seconds=30,
+        )
+    )[0]
+
+    result = await dispatch_claim(
+        session_factory,
+        durable_event_redis,  # type: ignore[arg-type]
+        claim,
+        waitaof_timeout_ms=5000,
+    )
+
+    assert result == "published"
+    messages = await durable_event_redis.xrange(DOCUMENT_COMMANDS_STREAM)
+    assert len(messages) == 1
+    assert messages[0][1][b"envelope_digest"] == event.envelope_digest.encode()
 
 
 async def test_attested_future_schema_stays_pending_then_new_consumer_reclaims(
