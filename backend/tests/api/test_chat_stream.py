@@ -243,6 +243,19 @@ async def test_uncited_llm_output_is_not_persisted_as_durable_history(
     )
     assert response.status_code == 200
 
+    events = parse_sse(response.text)
+    assert [event for event, _ in events] == [
+        "retrieval_started",
+        "sources",
+        "token",
+        "citations",
+        "done",
+    ]
+    assert events[2][1]["delta"] == NO_ANSWER_TEXT
+    assert events[3][1]["citations"] == []
+    assert events[4][1]["no_answer"] is True
+    assert "Unsupported generated prose" not in response.text
+
     assistant = (
         await session.execute(select(Message).where(Message.role == "assistant"))
     ).scalar_one()

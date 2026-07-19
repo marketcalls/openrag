@@ -129,12 +129,20 @@ class Citation(UUIDPk, Base):
             name="ck_citations_content_hash_sha256",
         ),
         CheckConstraint(
+            "(document_name IS NULL OR char_length(document_name) BETWEEN 1 AND 500) "
+            "AND (version_label IS NULL OR char_length(version_label) BETWEEN 1 AND 200) "
+            "AND (section_label IS NULL OR char_length(section_label) BETWEEN 1 AND 500) "
+            "AND (locator_kind IS NULL OR char_length(locator_kind) BETWEEN 1 AND 32) "
+            "AND (locator_label IS NULL OR char_length(locator_label) BETWEEN 1 AND 200)",
+            name="ck_citations_snapshot_strings_bounded",
+        ),
+        CheckConstraint(
             "(verification_state = 'legacy_unverified' "
             "AND document_version_id IS NOT NULL AND evidence_span_id IS NULL "
             "AND document_name IS NOT NULL AND version_label = 'Legacy 1' "
             "AND section_label = 'Legacy import' "
             "AND section_path = '[\"Legacy import\"]'::jsonb "
-            "AND locator_kind IS NOT NULL AND locator_label IS NOT NULL "
+            "AND locator_kind = 'page' AND locator_label = CAST(page AS text) "
             "AND content_hash = 'legacy-unverified' AND claim_ids = '[]'::jsonb "
             "AND claim_id IS NULL AND dense_score IS NULL AND sparse_score IS NULL "
             "AND fused_score IS NULL AND rerank_score IS NULL "

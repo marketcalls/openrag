@@ -141,7 +141,6 @@ class DocumentVersion(UUIDPk, Base):
             name="ck_document_versions_profile_snapshot_complete",
         ),
         CheckConstraint(
-            "NOT (version_label = 'Legacy 1' OR version_key = 'legacy 1') OR "
             "(sequence = 1 AND version_label = 'Legacy 1' AND version_key = 'legacy 1' "
             "AND parser_profile_version = 'legacy/parser-v1' "
             "AND ocr_profile_version = 'legacy/ocr-unknown-v1' "
@@ -150,7 +149,14 @@ class DocumentVersion(UUIDPk, Base):
             "AND index_profile_version = 'legacy/index-v1' "
             "AND ((state = 'approved' AND provenance_state = 'legacy_pending') "
             "OR (state = 'failed' AND provenance_state = 'none') "
-            "OR (state = 'processing' AND provenance_state = 'none')))",
+            "OR (state = 'processing' AND provenance_state = 'none'))) OR "
+            "(version_label <> 'Legacy 1' AND version_key <> 'legacy 1' "
+            "AND provenance_state <> 'legacy_pending' "
+            "AND parser_profile_version <> 'legacy/parser-v1' "
+            "AND ocr_profile_version <> 'legacy/ocr-unknown-v1' "
+            "AND chunking_profile_version <> 'legacy/chunking-v1' "
+            "AND embedding_profile_version <> 'legacy/embedding-v1' "
+            "AND index_profile_version <> 'legacy/index-v1')",
             name="ck_document_versions_exact_legacy_contract",
         ),
         CheckConstraint(

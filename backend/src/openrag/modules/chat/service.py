@@ -369,47 +369,49 @@ async def _persist_assistant(
         chat.workspace_id,
         "chat.use",
     )
-    workspace = (
-        await session.execute(
-            select(Workspace)
-            .where(
-                Workspace.org_id == context.org_id,
-                Workspace.id == chat.workspace_id,
-            )
-            .with_for_update()
-        )
-    ).scalar_one()
-    if citations and workspace.document_authority_enabled:
-        raise ConflictError("legacy persistence is disabled for authority-enabled workspace")
-
-    legacy_sources: list[tuple[CitationRef, Document, DocumentVersion]] = []
-    for citation in citations:
-        document_id = UUID(citation.document_id)
-        row = (
-            await session.execute(
-                select(Document, DocumentVersion)
-                .join(
-                    DocumentVersion,
-                    DocumentVersion.document_id == Document.id,
-                )
-                .where(
-                    Document.org_id == context.org_id,
-                    Document.workspace_id == chat.workspace_id,
-                    Document.id == document_id,
-                    DocumentVersion.org_id == context.org_id,
-                    DocumentVersion.workspace_id == chat.workspace_id,
-                    DocumentVersion.sequence == 1,
-                    DocumentVersion.version_label == LEGACY_VERSION_LABEL,
-                    DocumentVersion.version_key == LEGACY_VERSION_KEY,
-                )
-            )
-        ).one_or_none()
-        if row is None:
-            raise ConflictError("legacy source is not migration-ready")
-        document, version = row
-        legacy_sources.append((citation, document, version))
-
     try:
+        workspace = (
+            await session.execute(
+                select(Workspace)
+                .where(
+                    Workspace.org_id == context.org_id,
+                    Workspace.id == chat.workspace_id,
+                )
+                .with_for_update()
+            )
+        ).scalar_one()
+        if citations and workspace.document_authority_enabled:
+            raise ConflictError(
+                "legacy persistence is disabled for authority-enabled workspace"
+            )
+
+        legacy_sources: list[tuple[CitationRef, Document, DocumentVersion]] = []
+        for citation in citations:
+            document_id = UUID(citation.document_id)
+            row = (
+                await session.execute(
+                    select(Document, DocumentVersion)
+                    .join(
+                        DocumentVersion,
+                        DocumentVersion.document_id == Document.id,
+                    )
+                    .where(
+                        Document.org_id == context.org_id,
+                        Document.workspace_id == chat.workspace_id,
+                        Document.id == document_id,
+                        DocumentVersion.org_id == context.org_id,
+                        DocumentVersion.workspace_id == chat.workspace_id,
+                        DocumentVersion.sequence == 1,
+                        DocumentVersion.version_label == LEGACY_VERSION_LABEL,
+                        DocumentVersion.version_key == LEGACY_VERSION_KEY,
+                    )
+                )
+            ).one_or_none()
+            if row is None:
+                raise ConflictError("legacy source is not migration-ready")
+            document, version = row
+            legacy_sources.append((citation, document, version))
+
         persisted_content = content if citations else NO_ANSWER_TEXT
         message = await _prepare_message(
             session,
@@ -534,7 +536,6 @@ async def stream_reply(
         ):
             if isinstance(item, LLMDelta):
                 parts.append(item.text)
-                yield token_event(item.text)
             else:
                 usage = item
     except UpstreamError as exc:
@@ -568,6 +569,11 @@ async def stream_reply(
         usage=usage,
         citations=citation_references,
     )
+    if citation_references:
+        for part in parts:
+            yield token_event(part)
+    else:
+        yield token_event(NO_ANSWER_TEXT)
     yield citations_event(citation_references)
     yield done_event(
         message_id=str(message.id),
@@ -575,7 +581,7 @@ async def stream_reply(
         completion_tokens=(
             usage.completion_tokens if usage is not None else 0
         ),
-        no_answer=False,
+        no_answer=not citation_references,
     )
 
 

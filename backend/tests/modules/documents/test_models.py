@@ -491,6 +491,37 @@ async def test_non_ocr_profile_sentinel_is_valid_for_native_document(
 
 
 @pytest.mark.parametrize(
+    ("field", "legacy_value"),
+    [
+        ("parser_profile_version", "legacy/parser-v1"),
+        ("ocr_profile_version", "legacy/ocr-unknown-v1"),
+        ("chunking_profile_version", "legacy/chunking-v1"),
+        ("embedding_profile_version", "legacy/embedding-v1"),
+        ("index_profile_version", "legacy/index-v1"),
+        ("provenance_state", "legacy_pending"),
+    ],
+)
+async def test_nonlegacy_version_rejects_every_legacy_only_provenance_value(
+    session: AsyncSession,
+    field: str,
+    legacy_value: str,
+) -> None:
+    organization, workspace, user = await seed_scope(session)
+    _, version = await seed_document_version(
+        session,
+        organization=organization,
+        workspace=workspace,
+        user=user,
+        document_hash=f"nonlegacy-{field}",
+        version_hash=f"nonlegacy-{field}-version",
+    )
+    setattr(version, field, legacy_value)
+
+    with pytest.raises(IntegrityError):
+        await session.commit()
+
+
+@pytest.mark.parametrize(
     ("legacy_status", "state", "provenance_state"),
     [
         ("indexed", "approved", "legacy_pending"),

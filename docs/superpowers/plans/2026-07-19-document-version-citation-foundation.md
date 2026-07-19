@@ -359,6 +359,15 @@ evidence, and are excluded from every retrieval, claim-verification, and memory
 seed path. Prove that updating a historical assistant from null status to
 grounded/cited-conflict while it has only legacy citations fails.
 
+Add a real two-transaction activation race test. The legacy citation
+transaction must take a locking read on the same workspace row before it
+evaluates `document_authority_enabled`; the activation transaction must use a
+compatible workspace lock. Prove the only two serial outcomes are: the complete
+assistant and citation commit before activation, or activation wins and the
+legacy assistant plus citation transaction rolls back completely. A stale
+unlocked flag read that permits a legacy citation to commit after activation is
+forbidden.
+
 Also test `Message UPDATE` into or out of grounded/refused state revalidates the
 final state; authority `Citation INSERT` rejects user, null-status legacy, or
 refused parents and tenant/version/span mismatch; `Citation UPDATE` rejects
@@ -433,6 +442,10 @@ Create named PostgreSQL functions/triggers that:
 - on `Message INSERT OR UPDATE`, require user messages to have null answer/refusal state, refused messages to have a refusal reason and zero citations, and grounded/conflict assistant messages to have at least one authority citation at transaction end; explicitly exclude `legacy_unverified` rows from this count;
 - on authority `Citation INSERT OR UPDATE`, require a real span, canonical SHA-256, nonempty claims, and complete name/version/section/page snapshot; reject attachment to user/null-status/refused messages, reject any org/workspace/document/version/span mismatch, and reject mutation or re-parenting of an existing immutable snapshot;
 - on legacy `Citation INSERT`, allow exactly the disabled-workspace, null-status assistant, exact `Legacy 1`, `Legacy import`, sentinel-hash, empty-claims, null-span, complete-display shape above; reject this branch after activation and reject every hybrid of legacy and authority fields;
+- before evaluating that legacy branch, take a locking read on the referenced
+  workspace row in the global workspace-before-message/citation lock order;
+  direct SQL writers must serialize with authority activation rather than rely
+  on a stale `READ COMMITTED` flag read;
 - on `Citation DELETE`, defer the parent-state check to transaction end: deleting the last citation while the grounded/conflict message survives fails, while a database cascade caused by deleting the parent message/chat passes because the checked parent no longer exists;
 - verify current eligibility at citation insert and recheck final message/citation cardinality after every affected insert/update/delete path.
 
