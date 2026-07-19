@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import re
 from dataclasses import asdict, dataclass
 from typing import Literal
@@ -15,7 +16,7 @@ from openrag.modules.documents.pipeline import (
 )
 from openrag.modules.documents.stages import StageCheckpoint, parse_stage_checkpoint
 
-ArtifactKind = Literal["parsed", "chunks"]
+ArtifactKind = Literal["parsed", "chunks", "vectors"]
 _MAX_ARTIFACT_BYTES = 128 * 1024 * 1024
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
@@ -33,6 +34,22 @@ class StageArtifact:
     key: str
     digest: str
     data: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceVector:
+    span_index: int
+    dense: tuple[float, ...]
+    sparse_indices: tuple[int, ...]
+    sparse_values: tuple[float, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class VectorArtifact:
+    parent_digest: str
+    embedding_profile_version: str
+    dense_dimension: int
+    vectors: list[EvidenceVector]
 
 
 def artifact_key(
@@ -384,3 +401,128 @@ def decode_chunk_artifact(
     ]
     _validate_chunk_output(chunks, spans)
     return chunks, spans
+
+
+def _validate_vector_output(
+    vectors: list[EvidenceVector],
+    *,
+    dense_dimension: int,
+) -> None:
+    if not vectors or [vector.span_index for vector in vectors] != list(
+        range(len(vectors))
+    ):
+        raise ValueError("artifact vector span indices are not contiguous")
+    if dense_dimension < 1:
+        raise ValueError("artifact dense dimension is invalid")
+    for vector in vectors:
+        if len(vector.dense) != dense_dimension or any(
+            not math.isfinite(value) for value in vector.dense
+        ):
+            raise ValueError("artifact dense vector is invalid")
+        if (
+            not vector.sparse_indices
+            or len(vector.sparse_indices) != len(vector.sparse_values)
+            or tuple(sorted(set(vector.sparse_indices))) != vector.sparse_indices
+            or any(index < 0 for index in vector.sparse_indices)
+            or any(not math.isfinite(value) for value in vector.sparse_values)
+        ):
+            raise ValueError("artifact sparse vector is invalid")
+
+
+def encode_vector_artifact(
+    identity: ArtifactIdentity,
+    *,
+    parent_digest: str,
+    embedding_profile_version: str,
+    dense_dimension: int,
+    vectors: list[EvidenceVector],
+) -> StageArtifact:
+    if identity.checkpoint.stage != "embed":
+        raise ValueError("vector artifact requires embed checkpoint")
+    if _DIGEST.fullmatch(parent_digest) is None:
+        raise ValueError("artifact parent digest is invalid")
+    if not 1 <= len(embedding_profile_version) <= 100:
+        raise ValueError("artifact embedding profile is invalid")
+    _validate_vector_output(vectors, dense_dimension=dense_dimension)
+    return _artifact(
+        identity,
+        "vectors",
+        {
+            "schema": "openrag.vectors.v1",
+            "identity": _identity_payload(identity),
+            "parent_digest": parent_digest,
+            "embedding_profile_version": embedding_profile_version,
+            "dense_dimension": dense_dimension,
+            "vectors": [asdict(vector) for vector in vectors],
+        },
+    )
+
+
+def _float_tuple(value: object, field: str) -> tuple[float, ...]:
+    if not isinstance(value, list) or any(
+        isinstance(item, bool) or not isinstance(item, int | float) for item in value
+    ):
+        raise ValueError(f"artifact {field} is invalid")
+    return tuple(float(item) for item in value)
+
+
+def _decode_vector(item: dict[str, object]) -> EvidenceVector:
+    return EvidenceVector(
+        span_index=_int(item.get("span_index"), "vector span index"),
+        dense=_float_tuple(item.get("dense"), "dense vector"),
+        sparse_indices=_int_tuple(
+            item.get("sparse_indices"),
+            "sparse vector indices",
+        ),
+        sparse_values=_float_tuple(
+            item.get("sparse_values"),
+            "sparse vector values",
+        ),
+    )
+
+
+def decode_vector_artifact(
+    raw: bytes,
+    *,
+    expected: ArtifactIdentity,
+    expected_digest: str,
+    expected_parent_digest: str,
+    expected_embedding_profile: str,
+    expected_dense_dimension: int,
+) -> VectorArtifact:
+    decoded = _load(
+        raw,
+        schema="openrag.vectors.v1",
+        expected=expected,
+        expected_digest=expected_digest,
+    )
+    parent_digest = _string(decoded.get("parent_digest"), "parent digest")
+    if (
+        _DIGEST.fullmatch(parent_digest) is None
+        or parent_digest != expected_parent_digest
+    ):
+        raise ValueError("artifact vector lineage mismatch")
+    embedding_profile = _string(
+        decoded.get("embedding_profile_version"),
+        "embedding profile",
+    )
+    if embedding_profile != expected_embedding_profile:
+        raise ValueError("artifact embedding profile mismatch")
+    dense_dimension = _int(
+        decoded.get("dense_dimension"),
+        "dense dimension",
+        minimum=1,
+    )
+    if dense_dimension != expected_dense_dimension:
+        raise ValueError("artifact dense dimension mismatch")
+    vectors = [
+        _decode_vector(item)
+        for item in _records(decoded.get("vectors"), "vectors")
+    ]
+    _validate_vector_output(vectors, dense_dimension=dense_dimension)
+    return VectorArtifact(
+        parent_digest=parent_digest,
+        embedding_profile_version=embedding_profile,
+        dense_dimension=dense_dimension,
+        vectors=vectors,
+    )

@@ -1,4 +1,5 @@
 import hashlib
+import math
 from dataclasses import replace
 from uuid import uuid4
 
@@ -7,11 +8,14 @@ import pytest
 from openrag.modules.documents.pipeline import chunk_blocks
 from openrag.modules.documents.stage_artifacts import (
     ArtifactIdentity,
+    EvidenceVector,
     artifact_key,
     decode_chunk_artifact,
     decode_parsed_artifact,
+    decode_vector_artifact,
     encode_chunk_artifact,
     encode_parsed_artifact,
+    encode_vector_artifact,
 )
 from openrag.modules.documents.stages import StageCheckpoint
 from tests.modules.documents.test_provenance import fixture_provenance
@@ -116,4 +120,70 @@ def test_artifact_decoder_rejects_tampered_schema_and_noncontiguous_output() -> 
             tampered,
             expected=parsed_identity,
             expected_digest=hashlib.sha256(tampered).hexdigest(),
+        )
+
+
+def test_vector_artifact_binds_chunk_lineage_profile_dimension_and_span_order() -> None:
+    identity = _identity("embed")
+    parent_digest = "a" * 64
+    vectors = [
+        EvidenceVector(
+            span_index=0,
+            dense=(0.1, 0.2, 0.3),
+            sparse_indices=(1, 9),
+            sparse_values=(0.4, 0.8),
+        ),
+        EvidenceVector(
+            span_index=1,
+            dense=(0.3, 0.2, 0.1),
+            sparse_indices=(2,),
+            sparse_values=(0.7,),
+        ),
+    ]
+
+    artifact = encode_vector_artifact(
+        identity,
+        parent_digest=parent_digest,
+        embedding_profile_version="bge-m3/v1",
+        dense_dimension=3,
+        vectors=vectors,
+    )
+    decoded = decode_vector_artifact(
+        artifact.data,
+        expected=identity,
+        expected_digest=artifact.digest,
+        expected_parent_digest=parent_digest,
+        expected_embedding_profile="bge-m3/v1",
+        expected_dense_dimension=3,
+    )
+
+    assert decoded.vectors == vectors
+    assert decoded.parent_digest == parent_digest
+    with pytest.raises(ValueError, match="lineage mismatch"):
+        decode_vector_artifact(
+            artifact.data,
+            expected=identity,
+            expected_digest=artifact.digest,
+            expected_parent_digest="b" * 64,
+            expected_embedding_profile="bge-m3/v1",
+            expected_dense_dimension=3,
+        )
+
+
+def test_vector_artifact_rejects_nonfinite_or_noncontiguous_vectors() -> None:
+    identity = _identity("embed")
+    invalid = EvidenceVector(
+        span_index=2,
+        dense=(math.nan, 0.2),
+        sparse_indices=(1,),
+        sparse_values=(0.4,),
+    )
+
+    with pytest.raises(ValueError, match="span indices"):
+        encode_vector_artifact(
+            identity,
+            parent_digest="a" * 64,
+            embedding_profile_version="bge-m3/v1",
+            dense_dimension=2,
+            vectors=[invalid],
         )
