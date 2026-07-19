@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import get_settings
@@ -140,10 +140,7 @@ async def test_upload_stores_row_object_and_audit(
     )
     storage = build_storage(get_settings())
     assert await storage.get(document.storage_key) == b"hello world"
-    actions = [
-        event.action
-        for event in (await session.execute(select(AuditEvent))).scalars()
-    ]
+    actions = [event.action for event in (await session.execute(select(AuditEvent))).scalars()]
     assert "document.uploaded" in actions
 
 
@@ -276,9 +273,7 @@ async def test_approve_supersedes_incumbent_and_writes_atomic_content_free_recor
 async def test_approve_oracle_distinguishes_foreign_object_from_missing_capability(
     session: AsyncSession,
 ) -> None:
-    context, _document, candidate, _ = await seed_review_version(
-        session, "approve-oracle"
-    )
+    context, _document, candidate, _ = await seed_review_version(session, "approve-oracle")
     restricted = TenantContext(
         user_id=context.user_id,
         org_id=context.org_id,
@@ -293,15 +288,11 @@ async def test_approve_oracle_distinguishes_foreign_object_from_missing_capabili
     )
     candidate_id = candidate.id
     with pytest.raises(WorkspaceAccessDenied):
-        await service.approve_version(
-            session, restricted, candidate_id, reason=None
-        )
+        await service.approve_version(session, restricted, candidate_id, reason=None)
 
     foreign_context, _ = await seed_workspace(session, "approve-foreign", role="admin")
     with pytest.raises(NotFoundError):
-        await service.approve_version(
-            session, foreign_context, candidate_id, reason=None
-        )
+        await service.approve_version(session, foreign_context, candidate_id, reason=None)
 
 
 @pytest.mark.parametrize(
@@ -315,9 +306,7 @@ async def test_governance_reason_validation_does_not_bypass_object_oracle(
     context, _document, candidate, _ = await seed_review_version(
         session,
         f"reason-oracle-{command_name}",
-        candidate_state=(
-            "approved" if command_name == "obsolete_version" else "review"
-        ),
+        candidate_state=("approved" if command_name == "obsolete_version" else "review"),
     )
     restricted = TenantContext(
         user_id=context.user_id,
@@ -346,9 +335,7 @@ async def test_governance_reason_validation_does_not_bypass_object_oracle(
 async def test_dispatch_compensation_cannot_fail_an_active_ingest_attempt(
     session: AsyncSession,
 ) -> None:
-    context, workspace = await seed_workspace(
-        session, "active-dispatch-compensation", role="admin"
-    )
+    context, workspace = await seed_workspace(session, "active-dispatch-compensation", role="admin")
     document = await create_from_upload(
         session,
         context,
@@ -381,6 +368,101 @@ async def test_dispatch_compensation_cannot_fail_an_active_ingest_attempt(
     assert (version.state, document.status) == ("processing", "queued")
 
 
+async def test_retry_rejects_recent_processing_legacy_attempt(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context, workspace = await seed_workspace(session, "recent-legacy-recovery", role="admin")
+    document = await create_from_upload(
+        session,
+        context,
+        workspace.id,
+        filename="recent.txt",
+        mime="text/plain",
+        data=b"recent attempt",
+    )
+    version = await session.get(DocumentVersion, document.id)
+    assert version is not None
+    database_now = await session.scalar(select(func.timezone("UTC", func.now())))
+    assert isinstance(database_now, datetime)
+    session.add(
+        IngestJob(
+            org_id=context.org_id,
+            document_id=document.id,
+            document_version_id=version.id,
+            stage="parse",
+            started_at=database_now,
+        )
+    )
+    await session.commit()
+    monkeypatch.setattr(
+        service,
+        "get_settings",
+        lambda: SimpleNamespace(stale_ingest_recovery_seconds=900),
+    )
+
+    with pytest.raises(ConflictError, match="ingest attempt is still active"):
+        await service.retry_version(session, context, version.id)
+
+    await session.refresh(version)
+    assert version.lifecycle_revision == 1
+    assert len(list((await session.execute(select(OutboxEvent))).scalars())) == 0
+
+
+async def test_retry_recovers_stale_processing_legacy_attempt_with_fence(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context, workspace = await seed_workspace(session, "stale-legacy-recovery", role="admin")
+    document = await create_from_upload(
+        session,
+        context,
+        workspace.id,
+        filename="stale.txt",
+        mime="text/plain",
+        data=b"stale attempt",
+    )
+    version = await session.get(DocumentVersion, document.id)
+    assert version is not None
+    database_now = await session.scalar(select(func.timezone("UTC", func.now())))
+    assert isinstance(database_now, datetime)
+    stale_at = database_now - timedelta(seconds=901)
+    version.updated_at = stale_at
+    job = IngestJob(
+        org_id=context.org_id,
+        document_id=document.id,
+        document_version_id=version.id,
+        stage="upsert",
+        started_at=stale_at,
+    )
+    session.add(job)
+    await session.commit()
+    monkeypatch.setattr(
+        service,
+        "get_settings",
+        lambda: SimpleNamespace(stale_ingest_recovery_seconds=900),
+    )
+
+    recovered = await service.retry_version(session, context, version.id)
+
+    assert (recovered.state, recovered.lifecycle_revision) == ("processing", 2)
+    await session.refresh(job)
+    assert job.finished_at is not None
+    assert job.error == "superseded_by_v2_recovery"
+    events = list((await session.execute(select(OutboxEvent))).scalars())
+    assert len(events) == 1
+    assert events[0].payload["previous_state"] == "processing"
+    assert events[0].payload["new_state"] == "processing"
+    audits = list(
+        (
+            await session.execute(
+                select(AuditEvent).where(AuditEvent.action == "document.version.processing")
+            )
+        ).scalars()
+    )
+    assert [event.action for event in audits] == ["document.version.processing"]
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected_state"),
     [
@@ -399,9 +481,7 @@ async def test_governance_commands_record_bounded_reason_only_in_decision(
         candidate_state=("approved" if mutation == "obsolete_version" else "review"),
     )
     reason = "bounded governance detail"
-    changed = await getattr(service, mutation)(
-        session, context, candidate.id, reason=reason
-    )
+    changed = await getattr(service, mutation)(session, context, candidate.id, reason=reason)
     assert changed.state == expected_state
     decision = (
         await session.execute(
@@ -619,9 +699,7 @@ async def test_upload_put_that_writes_then_raises_compensates_exact_new_key(
             assert not session.in_transaction()
             deleted.append(key)
 
-    monkeypatch.setattr(
-        service, "build_storage", lambda _settings: PartialPutStorage()
-    )
+    monkeypatch.setattr(service, "build_storage", lambda _settings: PartialPutStorage())
 
     with pytest.raises(RuntimeError, match="primary object write failure"):
         await service.create_from_upload(
@@ -717,9 +795,7 @@ async def test_approval_preconditions_fail_without_partial_writes(
             else None
         ),
         candidate_expires_at=(
-            naive_utc() + timedelta(seconds=expiry_delta)
-            if expiry_delta is not None
-            else None
+            naive_utc() + timedelta(seconds=expiry_delta) if expiry_delta is not None else None
         ),
     )
 
@@ -784,9 +860,7 @@ async def test_retry_resets_only_processing_fields_and_emits_one_event(
 async def test_retry_invalid_state_has_no_partial_rows(
     session: AsyncSession,
 ) -> None:
-    context, _document, version, _ = await seed_review_version(
-        session, "retry-invalid"
-    )
+    context, _document, version, _ = await seed_review_version(session, "retry-invalid")
     with pytest.raises(ConflictError):
         await service.retry_version(session, context, version.id)
     assert list((await session.execute(select(OutboxEvent))).scalars()) == []
@@ -827,7 +901,9 @@ async def test_lifecycle_command_permission_and_foreign_object_oracles(
     required_permission: str,
 ) -> None:
     initial_state = (
-        "approved" if command == "obsolete_version" else "failed"
+        "approved"
+        if command == "obsolete_version"
+        else "failed"
         if command in {"retry_version", "request_document_deletion"}
         else "review"
     )
@@ -885,9 +961,7 @@ async def test_checked_version_read_and_list_preserve_oracles(
     with pytest.raises(WorkspaceAccessDenied):
         await service.list_versions(session, restricted, document.id)
 
-    foreign_context, _ = await seed_workspace(
-        session, "checked-version-foreign", role="admin"
-    )
+    foreign_context, _ = await seed_workspace(session, "checked-version-foreign", role="admin")
     with pytest.raises(NotFoundError):
         await service.get_version_checked(session, foreign_context, version.id)
     with pytest.raises(NotFoundError):
@@ -910,9 +984,7 @@ async def test_same_org_nonmember_observes_not_found_for_object_reads_and_comman
             user_id=context.user_id,
             org_id=context.org_id,
             is_platform_superadmin=False,
-            org_permissions=frozenset(
-                {"document.read", "document.upload", "document.approve"}
-            ),
+            org_permissions=frozenset({"document.read", "document.upload", "document.approve"}),
             workspace_permissions={},
             workspace_ids=frozenset(),
         ),
@@ -930,19 +1002,11 @@ async def test_same_org_nonmember_observes_not_found_for_object_reads_and_comman
             await read()
 
     commands = (
-        lambda: service.approve_version(
-            session, nonmember, version_id, reason=None
-        ),
-        lambda: service.reject_version(
-            session, nonmember, version_id, reason=None
-        ),
-        lambda: service.obsolete_version(
-            session, nonmember, version_id, reason=None
-        ),
+        lambda: service.approve_version(session, nonmember, version_id, reason=None),
+        lambda: service.reject_version(session, nonmember, version_id, reason=None),
+        lambda: service.obsolete_version(session, nonmember, version_id, reason=None),
         lambda: service.retry_version(session, nonmember, version_id),
-        lambda: service.request_document_deletion(
-            session, nonmember, version_id
-        ),
+        lambda: service.request_document_deletion(session, nonmember, version_id),
     )
     for command in commands:
         with pytest.raises(NotFoundError):
@@ -1006,9 +1070,7 @@ async def test_deletion_request_defensively_rejects_governed_decision_history(
 async def test_prepared_version_upload_normalizes_before_io_and_sequence_is_server_allocated(
     session: AsyncSession,
 ) -> None:
-    context, document, _first, _ = await seed_review_version(
-        session, "prepared-version"
-    )
+    context, document, _first, _ = await seed_review_version(session, "prepared-version")
     prepared = await service.authorize_upload_scope(
         session,
         context,
@@ -1028,13 +1090,10 @@ async def test_prepared_version_upload_normalizes_before_io_and_sequence_is_serv
     assert isinstance(prepared, service.PreparedUpload)
     assert (prepared.version_label, prepared.version_key) == ("Rev 2", "rev 2")
     assert prepared.storage_key == (
-        f"{context.org_id}/{document.workspace_id}/{document.id}/"
-        f"{prepared.version_id}/source"
+        f"{context.org_id}/{document.workspace_id}/{document.id}/{prepared.version_id}/source"
     )
 
-    created = await service.create_version_record(
-        session, context, prepared
-    )
+    created = await service.create_version_record(session, context, prepared)
     await session.commit()
     assert created.sequence == 2
 
@@ -1042,9 +1101,7 @@ async def test_prepared_version_upload_normalizes_before_io_and_sequence_is_serv
 async def test_confusable_duplicate_label_rejected_during_authorization_before_storage(
     session: AsyncSession,
 ) -> None:
-    context, document, _first, _ = await seed_review_version(
-        session, "prepared-duplicate"
-    )
+    context, document, _first, _ = await seed_review_version(session, "prepared-duplicate")
     with pytest.raises(ConflictError):
         await service.authorize_upload_scope(
             session,
@@ -1067,9 +1124,7 @@ async def test_confusable_duplicate_label_rejected_during_authorization_before_s
 async def test_create_version_reauthorizes_prepared_scope(
     session: AsyncSession,
 ) -> None:
-    context, document, _first, _ = await seed_review_version(
-        session, "prepared-reauthorize"
-    )
+    context, document, _first, _ = await seed_review_version(session, "prepared-reauthorize")
     prepared = await service.authorize_upload_scope(
         session,
         context,

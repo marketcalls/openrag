@@ -23,9 +23,8 @@ class IngestTask(Task):  # type: ignore[misc]
         kwargs: dict[str, Any],
         einfo: Any,
     ) -> None:
-        asyncio.run(
-            ingest.mark_failed(UUID(str(args[0])), int(args[1]), str(exc))
-        )
+        expected_revision = int(args[1]) if len(args) > 1 else 1
+        asyncio.run(ingest.mark_failed(UUID(str(args[0])), expected_revision, str(exc)))
 
 
 def _run(task: Task, coroutine_factory: Any) -> None:
@@ -46,7 +45,7 @@ def _run(task: Task, coroutine_factory: Any) -> None:
     max_retries=_MAX_RETRIES,
     name="documents.parse",
 )
-def parse_task(task: Task, document_id: str, expected_revision: int) -> str:
+def parse_task(task: Task, document_id: str, expected_revision: int = 1) -> str:
     _run(
         task,
         lambda: ingest.run_parse(UUID(document_id), expected_revision),
@@ -60,7 +59,7 @@ def parse_task(task: Task, document_id: str, expected_revision: int) -> str:
     max_retries=_MAX_RETRIES,
     name="documents.chunk",
 )
-def chunk_task(task: Task, document_id: str, expected_revision: int) -> str:
+def chunk_task(task: Task, document_id: str, expected_revision: int = 1) -> str:
     _run(
         task,
         lambda: ingest.run_chunk(UUID(document_id), expected_revision),
@@ -77,7 +76,7 @@ def chunk_task(task: Task, document_id: str, expected_revision: int) -> str:
 def embed_upsert_task(
     task: Task,
     document_id: str,
-    expected_revision: int,
+    expected_revision: int = 1,
 ) -> str:
     _run(
         task,
@@ -132,6 +131,10 @@ def enqueue_ingest(
     size_bytes: int,
     expected_revision: int,
 ) -> None:
+    if not get_settings().ingest_revision_protocol_v2_enabled:
+        raise RuntimeError(
+            "worker revision protocol v2 is not enabled; drain legacy workers before cutover"
+        )
     build_ingest_chain(
         str(document_id),
         select_queue(size_bytes),
@@ -140,6 +143,4 @@ def enqueue_ingest(
 
 
 def enqueue_delete(document_id: UUID, actor_id: UUID) -> None:
-    delete_task.si(str(document_id), str(actor_id)).apply_async(
-        queue="interactive"
-    )
+    delete_task.si(str(document_id), str(actor_id)).apply_async(queue="interactive")

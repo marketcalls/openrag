@@ -5,7 +5,8 @@ import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
-from uuid import UUID
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
 
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
@@ -15,7 +16,12 @@ from openrag.core.config import get_settings
 from openrag.core.db import build_engine, build_session_factory, naive_utc
 from openrag.core.storage import ObjectStorage, build_storage
 from openrag.modules.audit.service import record_audit
-from openrag.modules.documents.lifecycle import LEGACY_VERSION_KEY, LEGACY_VERSION_LABEL
+from openrag.modules.documents.events import DocumentVersionEventV1
+from openrag.modules.documents.lifecycle import (
+    LEGACY_VERSION_KEY,
+    LEGACY_VERSION_LABEL,
+    DocumentVersionState,
+)
 from openrag.modules.documents.models import (
     Document,
     DocumentBlock,
@@ -37,6 +43,7 @@ from openrag.modules.documents.pipeline import (
     parse_bytes,
     upsert_points,
 )
+from openrag.modules.events.models import OutboxEvent
 from openrag.modules.retrieval.embeddings import get_dense_embedder
 from openrag.modules.retrieval.service import (
     delete_document_points,
@@ -45,6 +52,7 @@ from openrag.modules.retrieval.service import (
 )
 
 _BATCH_SIZE = 32
+_LIFECYCLE_EVENT_TYPE = "document.version.lifecycle.v1"
 
 
 @dataclass(frozen=True)
@@ -112,6 +120,49 @@ async def _finish_stage(
     await session.commit()
 
 
+async def _record_legacy_lifecycle_transition(
+    session: AsyncSession,
+    document: Document,
+    version: DocumentVersion,
+    previous_state: str,
+    occurred_at: datetime,
+) -> None:
+    aware_occurred_at = (
+        occurred_at.replace(tzinfo=UTC)
+        if occurred_at.tzinfo is None
+        else occurred_at.astimezone(UTC)
+    )
+    event = DocumentVersionEventV1(
+        org_id=version.org_id,
+        workspace_id=version.workspace_id,
+        document_id=version.document_id,
+        document_version_id=version.id,
+        previous_state=DocumentVersionState(previous_state),
+        new_state=DocumentVersionState(version.state),
+        lifecycle_revision=version.lifecycle_revision,
+        actor_id=document.created_by,
+        occurred_at=aware_occurred_at,
+    )
+    session.add(
+        OutboxEvent(
+            event_id=uuid4(),
+            aggregate_type="document_version",
+            aggregate_id=version.id,
+            event_type=_LIFECYCLE_EVENT_TYPE,
+            payload=event.model_dump(mode="json"),
+            dedupe_key=event.dedupe_key,
+        )
+    )
+    await record_audit(
+        session,
+        org_id=version.org_id,
+        actor_id=document.created_by,
+        action=f"document.version.{version.state}",
+        target_type="document_version",
+        target_id=str(version.id),
+    )
+
+
 async def _fail_jobs(
     session: AsyncSession,
     document: Document,
@@ -128,13 +179,18 @@ async def _fail_jobs(
         return
     document.status = "failed"
     document.error = reason[:1000]
+    now = naive_utc()
     for job in jobs:
-        job.finished_at = naive_utc()
+        job.finished_at = now
         job.error = reason[:1000]
+    previous_state = legacy_version.state
     legacy_version.state = "failed"
     legacy_version.provenance_state = "none"
     legacy_version.processing_error_code = "ingest_failed"
     legacy_version.lifecycle_revision += 1
+    await _record_legacy_lifecycle_transition(
+        session, document, legacy_version, previous_state, now
+    )
     await session.commit()
 
 
@@ -317,6 +373,7 @@ async def run_embed_upsert(document_id: UUID, expected_revision: int) -> None:
         now = naive_utc()
         document.status = "indexed"
         document.error = None
+        previous_state = legacy_version.state
         legacy_version.state = "approved"
         legacy_version.provenance_state = "legacy_pending"
         legacy_version.source_page_count = document.page_count
@@ -340,6 +397,9 @@ async def run_embed_upsert(document_id: UUID, expected_revision: int) -> None:
         for job in (embed_job, upsert_job):
             job.finished_at = now
             job.progress = 1.0
+        await _record_legacy_lifecycle_transition(
+            session, document, legacy_version, previous_state, now
+        )
         await session.commit()
 
 
@@ -565,6 +625,7 @@ async def mark_failed(
                 return
             document.status = "failed"
             document.error = reason[:1000]
+            previous_state = legacy_version.state
             legacy_version.state = "failed"
             legacy_version.provenance_state = "none"
             legacy_version.processing_error_code = "ingest_failed"
@@ -583,4 +644,7 @@ async def mark_failed(
             for job in unfinished:
                 job.finished_at = now
                 job.error = reason[:1000]
+            await _record_legacy_lifecycle_transition(
+                session, document, legacy_version, previous_state, now
+            )
             await session.commit()

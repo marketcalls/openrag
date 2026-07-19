@@ -1,5 +1,18 @@
+from types import SimpleNamespace
+from uuid import UUID
+
+import pytest
+
+from openrag.modules.documents import ingest
+from openrag.worker import tasks
 from openrag.worker.celery_app import celery_app
-from openrag.worker.tasks import build_ingest_chain, select_queue
+from openrag.worker.tasks import (
+    IngestTask,
+    build_ingest_chain,
+    enqueue_ingest,
+    parse_task,
+    select_queue,
+)
 
 
 def test_celery_config() -> None:
@@ -25,8 +38,77 @@ def test_ingest_chain_structure() -> None:
         "documents.chunk",
         "documents.embed_upsert",
     ]
-    assert all(
-        task.options.get("queue") == "interactive"
-        for task in signature.tasks
-    )
+    assert all(task.options.get("queue") == "interactive" for task in signature.tasks)
     assert all(task.args == ("doc-id-123", 7) for task in signature.tasks)
+
+
+def test_revision_protocol_dispatch_is_fail_closed_until_cutover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tasks,
+        "get_settings",
+        lambda: SimpleNamespace(
+            interactive_upload_mb=10,
+            ingest_revision_protocol_v2_enabled=False,
+        ),
+    )
+    with pytest.raises(RuntimeError, match="worker revision protocol v2"):
+        enqueue_ingest(UUID("12345678-1234-5678-1234-567812345678"), 10, 1)
+
+
+def test_revision_protocol_dispatch_is_enabled_after_cutover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    applied: list[bool] = []
+
+    class Signature:
+        def apply_async(self) -> None:
+            applied.append(True)
+
+    monkeypatch.setattr(
+        tasks,
+        "get_settings",
+        lambda: SimpleNamespace(
+            interactive_upload_mb=10,
+            ingest_revision_protocol_v2_enabled=True,
+        ),
+    )
+    monkeypatch.setattr(tasks, "build_ingest_chain", lambda *_args: Signature())
+    enqueue_ingest(UUID("12345678-1234-5678-1234-567812345678"), 10, 1)
+    assert applied == [True]
+
+
+def test_legacy_one_argument_task_envelope_defaults_to_revision_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document_id = UUID("12345678-1234-5678-1234-567812345678")
+    calls: list[tuple[UUID, int]] = []
+
+    async def run_parse(doc_id: UUID, revision: int) -> None:
+        calls.append((doc_id, revision))
+
+    monkeypatch.setattr(ingest, "run_parse", run_parse)
+
+    assert parse_task.run(str(document_id)) == str(document_id)
+    assert calls == [(document_id, 1)]
+
+
+def test_legacy_failure_hook_defaults_to_revision_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document_id = UUID("12345678-1234-5678-1234-567812345678")
+    calls: list[tuple[UUID, int, str]] = []
+
+    async def mark_failed(doc_id: UUID, revision: int, reason: str) -> None:
+        calls.append((doc_id, revision, reason))
+
+    monkeypatch.setattr(ingest, "mark_failed", mark_failed)
+    IngestTask().on_failure(
+        RuntimeError("legacy failure"),
+        "task-id",
+        (str(document_id),),
+        {},
+        None,
+    )
+    assert calls == [(document_id, 1, "legacy failure")]

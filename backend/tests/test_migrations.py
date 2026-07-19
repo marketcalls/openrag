@@ -694,8 +694,7 @@ def test_deletion_upgrade_adds_bounded_restartable_markers_and_closes_processing
     config, engine, ids = authority_db
     command.upgrade(config, DELETION_REVISION)
     columns = {
-        column["name"]: column
-        for column in inspect(engine).get_columns("document_versions")
+        column["name"]: column for column in inspect(engine).get_columns("document_versions")
     }
     assert set(columns) >= {
         "source_delete_requested_at",
@@ -767,8 +766,7 @@ def test_deletion_upgrade_backfills_durable_legacy_approval_evidence(
     with engine.connect() as connection:
         before = connection.execute(
             text(
-                "SELECT approved_by, approved_at, decision_at "
-                "FROM document_versions WHERE id=:id"
+                "SELECT approved_by, approved_at, decision_at FROM document_versions WHERE id=:id"
             ),
             {"id": indexed_id},
         ).one()
@@ -787,6 +785,45 @@ def test_deletion_upgrade_backfills_durable_legacy_approval_evidence(
     assert approved_by == created_by == ids.user_id
     assert approved_at is not None
     assert decision_at == approved_at
+    with pytest.raises(RuntimeError, match="backfilled approval evidence exists"):
+        command.downgrade(config, AUTHORITY_REVISION)
+
+
+def test_deletion_trigger_rejects_old_worker_lifecycle_transitions(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, DELETION_REVISION)
+    processing_id = ids.document_ids["processing"]
+    with engine.begin() as connection:
+        with pytest.raises(sa.exc.DBAPIError, match="lifecycle revision"):
+            with connection.begin_nested():
+                connection.execute(
+                    text(
+                        "UPDATE document_versions SET state='approved', "
+                        "provenance_state='legacy_pending', source_page_count=1 "
+                        "WHERE id=:id"
+                    ),
+                    {"id": processing_id},
+                )
+        connection.execute(
+            text(
+                "UPDATE document_versions SET state='approved', "
+                "provenance_state='legacy_pending', source_page_count=1, "
+                "lifecycle_revision=lifecycle_revision+1, approved_by=:actor, "
+                "approved_at=now(), decision_at=now() WHERE id=:id"
+            ),
+            {"id": processing_id, "actor": ids.user_id},
+        )
+        with pytest.raises(sa.exc.DBAPIError, match="lifecycle revision"):
+            with connection.begin_nested():
+                connection.execute(
+                    text(
+                        "UPDATE document_versions SET state='failed', "
+                        "provenance_state='none' WHERE id=:id"
+                    ),
+                    {"id": processing_id},
+                )
 
 
 def test_deletion_upgrade_requires_ordered_complete_marker_and_preserves_decision_history(
@@ -805,9 +842,7 @@ def test_deletion_upgrade_requires_ordered_complete_marker_and_preserves_decisio
         with pytest.raises(sa.exc.DBAPIError):
             with connection.begin_nested():
                 connection.execute(
-                    text(
-                        "UPDATE document_versions SET source_deleted_at=:now WHERE id=:id"
-                    ),
+                    text("UPDATE document_versions SET source_deleted_at=:now WHERE id=:id"),
                     {"id": rejected_id, "now": datetime(2026, 7, 19, 1)},
                 )
 
@@ -921,7 +956,9 @@ def test_deletion_upgrade_admits_only_explicit_never_approved_states(
                 "pages": None if state in {"draft", "processing", "failed"} else 1,
                 "state": state,
                 "provenance": (
-                    "failed" if state == "failed" else "none"
+                    "failed"
+                    if state == "failed"
+                    else "none"
                     if state in {"draft", "processing"}
                     else "ready"
                 ),
@@ -957,10 +994,7 @@ def test_deletion_upgrade_admits_only_explicit_never_approved_states(
             )
         with engine.begin() as connection:
             connection.execute(
-                text(
-                    "UPDATE document_versions SET source_deleted_at=:deleted_at "
-                    "WHERE id=:id"
-                ),
+                text("UPDATE document_versions SET source_deleted_at=:deleted_at WHERE id=:id"),
                 {
                     "deleted_at": datetime(2026, 7, 19, 2),
                     "id": version_ids[state],
@@ -1183,15 +1217,11 @@ def test_decision_insert_and_deletion_marker_serialize_in_both_race_orders(
 
     with engine.connect() as connection:
         marker_first = connection.execute(
-            text(
-                "SELECT source_delete_requested_at FROM document_versions WHERE id=:id"
-            ),
+            text("SELECT source_delete_requested_at FROM document_versions WHERE id=:id"),
             {"id": marker_first_version},
         ).scalar_one()
         decision_first = connection.execute(
-            text(
-                "SELECT source_delete_requested_at FROM document_versions WHERE id=:id"
-            ),
+            text("SELECT source_delete_requested_at FROM document_versions WHERE id=:id"),
             {"id": decision_first_version},
         ).scalar_one()
         assert marker_first is not None
@@ -1413,11 +1443,7 @@ def test_authority_upgrade_backfills_bounded_inbox_event_identity(
 
     command.upgrade(config, AUTHORITY_REVISION)
     with engine.connect() as connection:
-        rows = dict(
-            connection.execute(
-                text("SELECT event_id, event_type FROM inbox_events")
-            ).all()
-        )
+        rows = dict(connection.execute(text("SELECT event_id, event_type FROM inbox_events")).all())
     assert rows == {
         joined_event: "document.version.rebuild_requested.v1",
         orphan_event: "legacy.unknown",
@@ -1564,9 +1590,7 @@ def test_authority_upgrade_installs_scoped_version_and_signed_readiness_schema(
     assert decision_columns["reason"]["nullable"] is True
     decision_uniques = {
         constraint["name"]: tuple(constraint["column_names"])
-        for constraint in inspector.get_unique_constraints(
-            "document_version_decision_records"
-        )
+        for constraint in inspector.get_unique_constraints("document_version_decision_records")
     }
     assert decision_uniques["uq_document_version_decision_records_version_revision"] == (
         "org_id",
@@ -1575,9 +1599,7 @@ def test_authority_upgrade_installs_scoped_version_and_signed_readiness_schema(
     )
     decision_foreign_keys = {
         foreign_key["name"]: tuple(foreign_key["constrained_columns"])
-        for foreign_key in inspector.get_foreign_keys(
-            "document_version_decision_records"
-        )
+        for foreign_key in inspector.get_foreign_keys("document_version_decision_records")
     }
     assert decision_foreign_keys["fk_document_version_decision_records_exact_version"] == (
         "org_id",

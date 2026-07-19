@@ -3,7 +3,7 @@
 import hashlib
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID, uuid4
 
@@ -895,8 +895,47 @@ async def retry_version(
         )
         if candidate.source_delete_requested_at is not None:
             raise ConflictError("document version deletion is already requested")
-        now = naive_utc()
-        previous = _apply_transition(candidate, DocumentVersionState.PROCESSING)
+        database_now = await session.scalar(
+            select(func.timezone("UTC", func.now()))
+        )
+        if not isinstance(database_now, datetime):
+            raise RuntimeError("database clock is unavailable")
+        now = database_now
+        if candidate.state == DocumentVersionState.PROCESSING.value:
+            if not _is_exact_legacy(candidate):
+                raise ConflictError("document version is already processing")
+            unfinished = list(
+                (
+                    await session.execute(
+                        select(IngestJob)
+                        .where(
+                            IngestJob.document_id == candidate.document_id,
+                            IngestJob.document_version_id == candidate.id,
+                            IngestJob.finished_at.is_(None),
+                        )
+                        .order_by(IngestJob.id)
+                        .with_for_update()
+                    )
+                ).scalars()
+            )
+            activity_times = [candidate.updated_at]
+            activity_times.extend(
+                job.started_at or job.created_at for job in unfinished
+            )
+            stale_cutoff = now - timedelta(
+                seconds=max(1, get_settings().stale_ingest_recovery_seconds)
+            )
+            if max(activity_times) > stale_cutoff:
+                raise ConflictError("ingest attempt is still active")
+            previous = candidate.state
+            candidate.lifecycle_revision += 1
+            for job in unfinished:
+                job.finished_at = now
+                job.error = "superseded_by_v2_recovery"
+        else:
+            previous = _apply_transition(
+                candidate, DocumentVersionState.PROCESSING
+            )
         candidate.provenance_state = "none"
         candidate.processing_error_code = None
         if _is_exact_legacy(candidate):

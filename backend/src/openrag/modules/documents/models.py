@@ -110,15 +110,9 @@ class DocumentVersion(UUIDPk, Base):
             name="uq_document_versions_org_workspace_document_id",
         ),
         UniqueConstraint("document_id", "id", name="uq_document_versions_document_id"),
-        UniqueConstraint(
-            "document_id", "sequence", name="uq_document_versions_document_sequence"
-        ),
-        UniqueConstraint(
-            "document_id", "version_key", name="uq_document_versions_document_key"
-        ),
-        UniqueConstraint(
-            "document_id", "content_hash", name="uq_document_versions_document_hash"
-        ),
+        UniqueConstraint("document_id", "sequence", name="uq_document_versions_document_sequence"),
+        UniqueConstraint("document_id", "version_key", name="uq_document_versions_document_key"),
+        UniqueConstraint("document_id", "content_hash", name="uq_document_versions_document_hash"),
         Index(
             "uq_document_versions_one_approved",
             "document_id",
@@ -209,6 +203,20 @@ class DocumentVersion(UUIDPk, Base):
             "OR source_deleted_at >= source_delete_requested_at))",
             name="ck_document_versions_source_deletion_markers",
         ),
+        CheckConstraint(
+            "NOT legacy_approval_backfilled OR "
+            "(id = document_id AND sequence = 1 "
+            "AND version_label = 'Legacy 1' AND version_key = 'legacy 1')",
+            name="ck_document_versions_legacy_approval_backfill_scope",
+        ),
+        CheckConstraint(
+            "NOT (id = document_id AND sequence = 1 "
+            "AND version_label = 'Legacy 1' AND version_key = 'legacy 1' "
+            "AND state = 'approved') OR "
+            "(approved_by IS NOT NULL AND approved_at IS NOT NULL "
+            "AND decision_at IS NOT NULL)",
+            name="ck_document_versions_legacy_approval_evidence",
+        ),
         ForeignKeyConstraint(
             ["org_id", "workspace_id", "document_id"],
             ["documents.org_id", "documents.workspace_id", "documents.id"],
@@ -281,6 +289,9 @@ class DocumentVersion(UUIDPk, Base):
     superseded_at: Mapped[datetime | None] = mapped_column(default=None)
     decision_at: Mapped[datetime | None] = mapped_column(default=None)
     processing_error_code: Mapped[str | None] = mapped_column(String(100), default=None)
+    legacy_approval_backfilled: Mapped[bool] = mapped_column(
+        default=False, server_default=text("false")
+    )
     source_delete_requested_at: Mapped[datetime | None] = mapped_column(default=None)
     source_delete_requested_by: Mapped[UUID | None] = mapped_column(default=None)
     source_deleted_at: Mapped[datetime | None] = mapped_column(default=None)
@@ -358,7 +369,7 @@ class DocumentBlock(UUIDPk, Base):
             "AND jsonb_array_length(section_path) BETWEEN 1 AND 8 "
             "AND pg_column_size(section_path) <= 4096 "
             "AND jsonb_array_length(jsonb_path_query_array(section_path, "
-            "'$[*] ? (@.type() == \"string\" && @ like_regex \"^.{1,200}$\" flag \"s\")')) "
+            '\'$[*] ? (@.type() == "string" && @ like_regex "^.{1,200}$" flag "s")\')) '
             "= jsonb_array_length(section_path)",
             name="ck_document_blocks_section_path",
         ),
@@ -430,7 +441,7 @@ class DocumentChunk(UUIDPk, Base):
             "AND jsonb_array_length(section_path) BETWEEN 1 AND 8 "
             "AND pg_column_size(section_path) <= 4096 "
             "AND jsonb_array_length(jsonb_path_query_array(section_path, "
-            "'$[*] ? (@.type() == \"string\" && @ like_regex \"^.{1,200}$\" flag \"s\")')) "
+            '\'$[*] ? (@.type() == "string" && @ like_regex "^.{1,200}$" flag "s")\')) '
             "= jsonb_array_length(section_path)",
             name="ck_document_chunks_section_path",
         ),
@@ -525,7 +536,7 @@ class DocumentEvidenceSpan(UUIDPk, Base):
             "AND jsonb_array_length(section_path) BETWEEN 1 AND 8 "
             "AND pg_column_size(section_path) <= 4096 "
             "AND jsonb_array_length(jsonb_path_query_array(section_path, "
-            "'$[*] ? (@.type() == \"string\" && @ like_regex \"^.{1,200}$\" flag \"s\")')) "
+            '\'$[*] ? (@.type() == "string" && @ like_regex "^.{1,200}$" flag "s")\')) '
             "= jsonb_array_length(section_path)",
             name="ck_document_evidence_spans_section_path",
         ),
@@ -617,8 +628,7 @@ class DocumentAuthorityReadiness(UUIDPk, Base):
             name="ck_document_authority_readiness_policy_snapshot",
         ),
         CheckConstraint(
-            "payload_index_digest IS NULL OR "
-            "payload_index_digest ~ '^[0-9a-f]{64}$'",
+            "payload_index_digest IS NULL OR payload_index_digest ~ '^[0-9a-f]{64}$'",
             name="ck_document_authority_readiness_payload_digest",
         ),
         CheckConstraint(
@@ -626,8 +636,7 @@ class DocumentAuthorityReadiness(UUIDPk, Base):
             name="ck_document_authority_readiness_provenance_digest",
         ),
         CheckConstraint(
-            "lifecycle_revision_digest IS NULL OR "
-            "lifecycle_revision_digest ~ '^[0-9a-f]{64}$'",
+            "lifecycle_revision_digest IS NULL OR lifecycle_revision_digest ~ '^[0-9a-f]{64}$'",
             name="ck_document_authority_readiness_lifecycle_digest",
         ),
         CheckConstraint(

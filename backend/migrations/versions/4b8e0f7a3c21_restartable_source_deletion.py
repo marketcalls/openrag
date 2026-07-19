@@ -22,6 +22,23 @@ def _install_deletion_guards() -> None:
         CREATE FUNCTION openrag_validate_source_deletion_marker() RETURNS trigger
         LANGUAGE plpgsql AS $$
         BEGIN
+          IF NEW.legacy_approval_backfilled IS DISTINCT FROM OLD.legacy_approval_backfilled THEN
+            RAISE EXCEPTION 'legacy approval backfill provenance is immutable';
+          END IF;
+
+          IF NEW.id = NEW.document_id
+             AND NEW.sequence = 1
+             AND NEW.version_label = 'Legacy 1'
+             AND NEW.version_key = 'legacy 1'
+             AND NEW.state IS DISTINCT FROM OLD.state THEN
+            IF NEW.lifecycle_revision <= OLD.lifecycle_revision THEN
+              RAISE EXCEPTION 'legacy lifecycle transition requires lifecycle revision advancement';
+            END IF;
+            IF OLD.state = 'approved' AND NEW.state = 'failed' THEN
+              RAISE EXCEPTION 'approved legacy version cannot regress to failed';
+            END IF;
+          END IF;
+
           IF OLD.source_delete_requested_at IS NOT NULL THEN
             IF NEW.source_delete_requested_at IS DISTINCT FROM OLD.source_delete_requested_at
                OR NEW.source_delete_requested_by IS DISTINCT FROM OLD.source_delete_requested_by
@@ -164,6 +181,15 @@ def _install_deletion_guards() -> None:
 def upgrade() -> None:
     op.add_column(
         "document_versions",
+        sa.Column(
+            "legacy_approval_backfilled",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.false(),
+        ),
+    )
+    op.add_column(
+        "document_versions",
         sa.Column("source_delete_requested_at", sa.DateTime(), nullable=True),
     )
     op.add_column(
@@ -198,7 +224,13 @@ def upgrade() -> None:
     op.execute(
         """
         UPDATE document_versions
-        SET approved_by = COALESCE(approved_by, created_by),
+        SET legacy_approval_backfilled = (
+              legacy_approval_backfilled
+              OR approved_by IS NULL
+              OR approved_at IS NULL
+              OR decision_at IS NULL
+            ),
+            approved_by = COALESCE(approved_by, created_by),
             approved_at = COALESCE(approved_at, decision_at, updated_at, created_at),
             decision_at = COALESCE(decision_at, approved_at, updated_at, created_at)
         WHERE id = document_id
@@ -207,6 +239,22 @@ def upgrade() -> None:
           AND version_key = 'legacy 1'
           AND state = 'approved'
         """
+    )
+    op.create_check_constraint(
+        "ck_document_versions_legacy_approval_backfill_scope",
+        "document_versions",
+        "NOT legacy_approval_backfilled OR "
+        "(id = document_id AND sequence = 1 "
+        "AND version_label = 'Legacy 1' AND version_key = 'legacy 1')",
+    )
+    op.create_check_constraint(
+        "ck_document_versions_legacy_approval_evidence",
+        "document_versions",
+        "NOT (id = document_id AND sequence = 1 "
+        "AND version_label = 'Legacy 1' AND version_key = 'legacy 1' "
+        "AND state = 'approved') OR "
+        "(approved_by IS NOT NULL AND approved_at IS NOT NULL "
+        "AND decision_at IS NOT NULL)",
     )
     _install_deletion_guards()
 
@@ -274,6 +322,16 @@ def downgrade() -> None:
         raise RuntimeError(
             "source-deletion migration downgrade aborted: deletion history exists"
         )
+    if connection.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM document_versions "
+            "WHERE legacy_approval_backfilled)"
+        )
+    ).scalar_one():
+        raise RuntimeError(
+            "source-deletion migration downgrade aborted: "
+            "backfilled approval evidence exists"
+        )
     op.execute(
         "DROP TRIGGER IF EXISTS trg_document_versions_source_deletion "
         "ON document_versions"
@@ -293,6 +351,16 @@ def downgrade() -> None:
         type_="check",
     )
     op.drop_constraint(
+        "ck_document_versions_legacy_approval_evidence",
+        "document_versions",
+        type_="check",
+    )
+    op.drop_constraint(
+        "ck_document_versions_legacy_approval_backfill_scope",
+        "document_versions",
+        type_="check",
+    )
+    op.drop_constraint(
         "fk_document_versions_org_source_delete_requester",
         "document_versions",
         type_="foreignkey",
@@ -300,3 +368,4 @@ def downgrade() -> None:
     op.drop_column("document_versions", "source_deleted_at")
     op.drop_column("document_versions", "source_delete_requested_by")
     op.drop_column("document_versions", "source_delete_requested_at")
+    op.drop_column("document_versions", "legacy_approval_backfilled")

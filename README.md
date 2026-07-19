@@ -212,6 +212,23 @@ docker compose -f deploy/compose.yaml run --rm bootstrap
 docker compose -f deploy/compose.yaml up -d api worker web
 ```
 
+For the revision-fenced ingestion upgrade, keep
+`OPENRAG_INGEST_REVISION_PROTOCOL_V2_ENABLED=false` and use this order:
+
+1. stop new uploads, drain both Celery queues, and stop every old worker;
+2. deploy the new API and worker images and run the database migration;
+3. start only new workers and verify no old worker remains connected;
+4. set `OPENRAG_INGEST_REVISION_PROTOCOL_V2_ENABLED=true`, then restart the
+   API and workers before accepting uploads again.
+
+New workers can consume a residual one-argument legacy task as revision 1.
+The database rejects lifecycle writes from an accidentally retained old worker,
+and retrieval excludes its non-approved vectors. After cutover, retrying an
+exact-Legacy processing item is allowed only after all unfinished work is older
+than `OPENRAG_STALE_INGEST_RECOVERY_SECONDS` (default 900). Recovery locks the
+jobs, advances the revision fence, terminalizes the stale jobs, and dispatches
+a fresh v2 attempt. A recent attempt fails with a conflict and is not stolen.
+
 Rollback warning: downgrading to `4f2e1c9a7b30` is intentionally lossy. Custom
 roles, multiple role bindings, workspace-scoped bindings, and capability detail
 cannot be represented by the legacy three-role schema. The downgrade maps a

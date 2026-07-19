@@ -1,12 +1,15 @@
 import asyncio
+import hashlib
 from uuid import UUID, uuid4
 
 import pytest
 from qdrant_client import models
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from openrag.core.db import naive_utc
 from openrag.core.errors import WorkspaceAccessDenied
 from openrag.modules.auth.models import User
+from openrag.modules.documents.models import Document, DocumentVersion
 from openrag.modules.retrieval.client import COLLECTION, get_qdrant
 from openrag.modules.retrieval.embeddings import embed_sparse, get_dense_embedder
 from openrag.modules.retrieval.service import (
@@ -53,9 +56,7 @@ async def seed_workspace(
         )
     await session.commit()
     permissions = (
-        ALL_PERMISSIONS
-        if role == "admin"
-        else frozenset({"document.read", "document.upload"})
+        ALL_PERMISSIONS if role == "admin" else frozenset({"document.read", "document.upload"})
     )
     context = TenantContext(
         user_id=user.id,
@@ -66,20 +67,60 @@ async def seed_workspace(
             is_platform_superadmin=False,
             org_permissions=permissions,
             workspace_permissions={},
-            workspace_ids=(
-                frozenset({workspace.id}) if member else frozenset()
-            ),
+            workspace_ids=(frozenset({workspace.id}) if member else frozenset()),
         ),
     )
     return context, workspace
 
 
 async def upsert_texts(
+    session: AsyncSession,
     context: TenantContext,
     workspace: Workspace,
     texts: list[str],
+    *,
+    approved: bool = True,
 ) -> str:
     document_id = str(uuid4())
+    document_uuid = UUID(document_id)
+    document = Document(
+        id=document_uuid,
+        org_id=context.org_id,
+        workspace_id=workspace.id,
+        name="Retrieval fixture",
+        created_by=context.user_id,
+    )
+    session.add(document)
+    await session.flush()
+    session.add(
+        DocumentVersion(
+            id=document_uuid,
+            org_id=context.org_id,
+            workspace_id=workspace.id,
+            document_id=document_uuid,
+            sequence=1,
+            version_label="Legacy 1",
+            version_key="legacy 1",
+            content_hash=hashlib.sha256(document_id.encode()).hexdigest(),
+            source_filename="fixture.txt",
+            source_mime="text/plain",
+            source_size_bytes=1,
+            source_storage_key=f"fixtures/{document_id}/source",
+            source_page_count=1 if approved else None,
+            parser_profile_version="legacy/parser-v1",
+            ocr_profile_version="legacy/ocr-unknown-v1",
+            chunking_profile_version="legacy/chunking-v1",
+            embedding_profile_version="legacy/embedding-v1",
+            index_profile_version="legacy/index-v1",
+            state="approved" if approved else "processing",
+            provenance_state="legacy_pending" if approved else "none",
+            created_by=context.user_id,
+            approved_by=context.user_id if approved else None,
+            approved_at=naive_utc() if approved else None,
+            decision_at=naive_utc() if approved else None,
+        )
+    )
+    await session.commit()
     dense_vectors = await get_dense_embedder().embed(texts)
     sparse_vectors = await asyncio.to_thread(embed_sparse, texts)
     points = [
@@ -112,6 +153,7 @@ async def test_retrieve_returns_matching_chunk(
 ) -> None:
     context, workspace = await seed_workspace(session, "retrieval-a")
     await upsert_texts(
+        session,
         context,
         workspace,
         [
@@ -143,7 +185,7 @@ async def test_min_score_triggers_no_answer_with_nearest_chunk(
         "retrieval-b",
         min_score=0.99,
     )
-    await upsert_texts(context, workspace, ["vaguely related invoice text"])
+    await upsert_texts(session, context, workspace, ["vaguely related invoice text"])
 
     result = await retrieve(
         session,
@@ -203,7 +245,7 @@ async def test_delete_document_points(
     qdrant_collection: None,
 ) -> None:
     context, workspace = await seed_workspace(session, "retrieval-f")
-    document_id = await upsert_texts(context, workspace, ["target text to delete"])
+    document_id = await upsert_texts(session, context, workspace, ["target text to delete"])
 
     await delete_document_points(context.org_id, UUID(document_id))
     result = await retrieve(
@@ -216,14 +258,36 @@ async def test_delete_document_points(
     assert result.chunks == []
 
 
+async def test_nonapproved_orphan_qdrant_points_are_never_served(
+    session: AsyncSession,
+    qdrant_collection: None,
+) -> None:
+    context, workspace = await seed_workspace(session, "retrieval-orphan")
+    await upsert_texts(
+        session,
+        context,
+        workspace,
+        ["orphan vector must not be served"],
+        approved=False,
+    )
+
+    result = await retrieve(
+        session,
+        context,
+        workspace.id,
+        "orphan vector must not be served",
+    )
+
+    assert result.no_answer
+    assert result.chunks == []
+
+
 async def test_delete_document_version_points_preserves_siblings_and_other_tenants(
     session: AsyncSession,
     qdrant_collection: None,
 ) -> None:
     context, workspace = await seed_workspace(session, "retrieval-version-delete")
-    other_context, other_workspace = await seed_workspace(
-        session, "retrieval-version-delete-other"
-    )
+    other_context, other_workspace = await seed_workspace(session, "retrieval-version-delete-other")
     target_version_id = uuid4()
     sibling_version_id = uuid4()
     point_ids = {

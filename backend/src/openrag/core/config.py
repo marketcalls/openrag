@@ -10,9 +10,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    database_url: str = (
-        "postgresql+asyncpg://openrag:openrag@127.0.0.1:55432/openrag"
-    )
+    database_url: str = "postgresql+asyncpg://openrag:openrag@127.0.0.1:55432/openrag"
     redis_url: str = "redis://127.0.0.1:56379/0"
     environment: str = "dev"
     kek_file: str = "./data/openrag_kek"
@@ -28,6 +26,9 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
     max_upload_mb: int = 100
     interactive_upload_mb: int = 10
+    # Keep direct v2 dispatch disabled until every legacy worker is drained.
+    ingest_revision_protocol_v2_enabled: bool = False
+    stale_ingest_recovery_seconds: int = 900
     litellm_url: str = "http://localhost:54000"
     litellm_master_key: str = "sk-openrag-dev-master"  # noqa: S105
     chat_context_token_budget: int = 8000

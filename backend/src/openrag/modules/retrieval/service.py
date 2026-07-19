@@ -5,9 +5,11 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from qdrant_client import models
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import get_settings
+from openrag.modules.documents.models import DocumentVersion
 from openrag.modules.retrieval.client import COLLECTION, get_qdrant
 from openrag.modules.retrieval.embeddings import embed_sparse, get_dense_embedder
 from openrag.modules.tenancy.context import TenantContext
@@ -35,6 +37,7 @@ def _tenant_filter(
     workspace_id: UUID | None = None,
     document_id: UUID | None = None,
     document_version_id: UUID | None = None,
+    document_ids: list[UUID] | None = None,
 ) -> models.Filter:
     must: list[models.Condition] = [
         models.FieldCondition(
@@ -61,6 +64,13 @@ def _tenant_filter(
             models.FieldCondition(
                 key="document_version_id",
                 match=models.MatchValue(value=str(document_version_id)),
+            )
+        )
+    if document_ids is not None:
+        must.append(
+            models.FieldCondition(
+                key="document_id",
+                match=models.MatchAny(any=[str(value) for value in document_ids]),
             )
         )
     return models.Filter(must=must)
@@ -105,12 +115,27 @@ async def retrieve(
         context,
         workspace_id,
     )
+    approved_document_ids = list(
+        (
+            await session.execute(
+                select(DocumentVersion.document_id).where(
+                    DocumentVersion.org_id == context.org_id,
+                    DocumentVersion.workspace_id == workspace_id,
+                    DocumentVersion.state == "approved",
+                    DocumentVersion.superseded_by_id.is_(None),
+                )
+            )
+        ).scalars()
+    )
+    if not approved_document_ids:
+        return RetrievalResult(chunks=[], no_answer=True)
     await ensure_collection(workspace.embedding_model)
     dense_vector = (await get_dense_embedder().embed([query]))[0]
     sparse_vector = (await asyncio.to_thread(embed_sparse, [query]))[0]
     tenant_filter = _tenant_filter(
         org_id=context.org_id,
         workspace_id=workspace_id,
+        document_ids=approved_document_ids,
     )
     client = get_qdrant()
     fused = await client.query_points(
