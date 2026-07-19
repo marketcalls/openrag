@@ -23,7 +23,9 @@ export function DocumentRow({
   const { tone, label } = statusPresentation(document);
   return (
     <TR>
-      <TD className="max-w-[320px] truncate font-medium">{document.filename}</TD>
+      <TD className="max-w-[320px] truncate font-medium">
+        {document.filename ?? 'Untitled document'}
+      </TD>
       <TD className="text-secondary">{formatBytes(document.size_bytes)}</TD>
       <TD className="text-secondary">{document.page_count ?? '—'}</TD>
       <TD>
@@ -36,7 +38,9 @@ export function DocumentRow({
             </PopoverTrigger>
             <PopoverContent>
               <p className="font-medium text-danger">Ingestion failed</p>
-              <p className="mt-1 text-secondary">{document.error ?? 'Unknown error'}</p>
+              <p className="mt-1 text-secondary">
+                {document.error_code ?? 'processing_failed'}
+              </p>
             </PopoverContent>
           </Popover>
         ) : (
@@ -48,7 +52,7 @@ export function DocumentRow({
         <Button
           variant="ghost"
           size="icon"
-          aria-label={`Delete ${document.filename}`}
+          aria-label={`Delete ${document.filename ?? 'untitled document'}`}
           onClick={() => setConfirmOpen(true)}
         >
           <Trash2 className="h-4 w-4" aria-hidden />
@@ -56,7 +60,7 @@ export function DocumentRow({
         <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
           <DialogContent
             title="Delete document"
-            description={`“${document.filename}” and all its indexed chunks will be removed.`}
+            description={`“${document.filename ?? 'Untitled document'}” and all its indexed chunks will be removed.`}
           >
             <DialogFooter>
               <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
