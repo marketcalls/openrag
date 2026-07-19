@@ -212,6 +212,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{document_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Document Versions */
+        get: operations["list_document_versions_api_v1_documents__document_id__versions_get"];
+        put?: never;
+        /** Upload Document Version */
+        post: operations["upload_document_version_api_v1_documents__document_id__versions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{document_id}": {
         parameters: {
             query?: never;
@@ -229,23 +247,6 @@ export interface paths {
         head?: never;
         /** Patch Document */
         patch: operations["patch_document_api_v1_documents__document_id__patch"];
-        trace?: never;
-    };
-    "/api/v1/documents/{document_id}/versions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Document Versions */
-        get: operations["list_document_versions_api_v1_documents__document_id__versions_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/api/v1/document-versions/{version_id}": {
@@ -331,6 +332,41 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/embedding-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Embedding Profiles */
+        get: operations["list_embedding_profiles_api_v1_admin_embedding_profiles_get"];
+        put?: never;
+        /** Create Embedding Profile */
+        post: operations["create_embedding_profile_api_v1_admin_embedding_profiles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/embedding-profiles/{profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Embedding Profile */
+        patch: operations["patch_embedding_profile_api_v1_admin_embedding_profiles__profile_id__patch"];
         trace?: never;
     };
     "/healthz": {
@@ -615,6 +651,15 @@ export interface components {
             /** Sequence */
             sequence?: number | null;
         };
+        /** Body_upload_document_version_api_v1_documents__document_id__versions_post */
+        Body_upload_document_version_api_v1_documents__document_id__versions_post: {
+            /** File */
+            file: string;
+            /** Version Label */
+            version_label: string;
+            /** Sequence */
+            sequence?: number | null;
+        };
         /** ChatCreate */
         ChatCreate: {
             /**
@@ -844,6 +889,64 @@ export interface components {
             updated_at: string;
             /** Lifecycle Revision */
             lifecycle_revision: number;
+        };
+        /** EmbeddingProfileCreate */
+        EmbeddingProfileCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Provider Kind
+             * @enum {string}
+             */
+            provider_kind: "litellm" | "tei" | "hash";
+            /** Model Name */
+            model_name: string;
+            /** Dimension */
+            dimension: number;
+            /**
+             * Max Input Tokens
+             * @default 8192
+             */
+            max_input_tokens: number;
+            /**
+             * Batch Size
+             * @default 32
+             */
+            batch_size: number;
+        };
+        /** EmbeddingProfileOut */
+        EmbeddingProfileOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Provider Kind
+             * @enum {string}
+             */
+            provider_kind: "litellm" | "tei" | "hash";
+            /** Model Name */
+            model_name: string;
+            /** Dimension */
+            dimension: number;
+            /** Max Input Tokens */
+            max_input_tokens: number;
+            /** Batch Size */
+            batch_size: number;
+            /** Config Digest */
+            config_digest: string;
+            /** Enabled */
+            enabled: boolean;
+        };
+        /** EmbeddingProfilePatch */
+        EmbeddingProfilePatch: {
+            /** Name */
+            name?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1679,6 +1782,72 @@ export interface operations {
             };
         };
     };
+    list_document_versions_api_v1_documents__document_id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentVersionOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_document_version_api_v1_documents__document_id__versions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_document_version_api_v1_documents__document_id__versions_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentVersionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_document_api_v1_documents__document_id__get: {
         parameters: {
             query?: never;
@@ -1765,37 +1934,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_document_versions_api_v1_documents__document_id__versions_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentVersionOut"][];
                 };
             };
             /** @description Validation Error */
@@ -1965,6 +2103,94 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_embedding_profiles_api_v1_admin_embedding_profiles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbeddingProfileOut"][];
+                };
+            };
+        };
+    };
+    create_embedding_profile_api_v1_admin_embedding_profiles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmbeddingProfileCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbeddingProfileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_embedding_profile_api_v1_admin_embedding_profiles__profile_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmbeddingProfilePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbeddingProfileOut"];
                 };
             };
             /** @description Validation Error */

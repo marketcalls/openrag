@@ -64,6 +64,7 @@ test('a user sees no administration links', async () => {
   expect(await screen.findByText('Finance')).toBeInTheDocument();
   expect(screen.queryByText('Users')).not.toBeInTheDocument();
   expect(screen.queryByText('Models')).not.toBeInTheDocument();
+  expect(screen.queryByText('Embeddings')).not.toBeInTheDocument();
   expect(screen.queryByText('Roles')).not.toBeInTheDocument();
 });
 
@@ -74,6 +75,7 @@ test('capability hints show only matching organization administration links', as
   expect(screen.getByText('Users')).toBeInTheDocument();
   expect(screen.getByText('Roles')).toBeInTheDocument();
   expect(screen.queryByText('Models')).not.toBeInTheDocument();
+  expect(screen.queryByText('Embeddings')).not.toBeInTheDocument();
 });
 
 test('a platform superadmin sees platform and organization administration links', async () => {
@@ -82,5 +84,6 @@ test('a platform superadmin sees platform and organization administration links'
   expect(await screen.findByText('Finance')).toBeInTheDocument();
   expect(await screen.findByText('Users')).toBeInTheDocument();
   expect(screen.getByText('Models')).toBeInTheDocument();
+  expect(screen.getByText('Embeddings')).toBeInTheDocument();
   expect(screen.getByText('Roles')).toBeInTheDocument();
 });

@@ -1,4 +1,4 @@
-import { FileText, KeyRound, Settings2, Users } from 'lucide-react';
+import { FileText, KeyRound, Orbit, Settings2, Users } from 'lucide-react';
 import { type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 
@@ -62,11 +62,18 @@ export function Sidebar() {
           />
         ) : null}
         {claims?.platform_superadmin ? (
-          <SideLink
-            to="/admin/models"
-            label="Models"
-            icon={<Settings2 className="h-4 w-4" aria-hidden />}
-          />
+          <>
+            <SideLink
+              to="/admin/models"
+              label="Models"
+              icon={<Settings2 className="h-4 w-4" aria-hidden />}
+            />
+            <SideLink
+              to="/admin/embedding-profiles"
+              label="Embeddings"
+              icon={<Orbit className="h-4 w-4" aria-hidden />}
+            />
+          </>
         ) : null}
       </nav>
       <UserFooter />

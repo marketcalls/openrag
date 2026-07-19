@@ -20,6 +20,9 @@ export type ModelCreate = components['schemas']['ModelCreate'];
 export type ModelOut = components['schemas']['ModelOut'];
 export type ModelPatch = components['schemas']['ModelPatch'];
 export type ModelPublic = components['schemas']['ModelPublic'];
+export type EmbeddingProfileCreate = components['schemas']['EmbeddingProfileCreate'];
+export type EmbeddingProfileOut = components['schemas']['EmbeddingProfileOut'];
+export type EmbeddingProfilePatch = components['schemas']['EmbeddingProfilePatch'];
 
 export type DocumentStatus = DocumentOut['status'];
 

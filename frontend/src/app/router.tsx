@@ -25,6 +25,10 @@ const ModelsPage = lazy(async () => {
   const module = await import('@/features/admin/models/models-page');
   return { default: module.ModelsPage };
 });
+const EmbeddingProfilesPage = lazy(async () => {
+  const module = await import('@/features/admin/embeddings/embedding-profiles-page');
+  return { default: module.EmbeddingProfilesPage };
+});
 const RolesPage = lazy(async () => {
   const module = await import('@/features/admin/roles/roles-page');
   return { default: module.RolesPage };
@@ -86,6 +90,20 @@ function ModelsRoute() {
   );
 }
 
+function EmbeddingProfilesRoute() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-1 items-center justify-center">
+          <Spinner label="Loading embedding profiles…" />
+        </div>
+      }
+    >
+      <EmbeddingProfilesPage />
+    </Suspense>
+  );
+}
+
 function RolesRoute() {
   return (
     <Suspense
@@ -124,7 +142,13 @@ export const router = createBrowserRouter(
             },
             {
               element: <RequirePlatformSuperadmin />,
-              children: [{ path: '/admin/models', element: <ModelsRoute /> }],
+              children: [
+                { path: '/admin/models', element: <ModelsRoute /> },
+                {
+                  path: '/admin/embedding-profiles',
+                  element: <EmbeddingProfilesRoute />,
+                },
+              ],
             },
           ],
         },
