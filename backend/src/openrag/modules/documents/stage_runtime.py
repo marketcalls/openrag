@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from collections.abc import Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -59,10 +59,14 @@ from openrag.modules.documents.stages import (
     parse_stage_checkpoint,
     retry_stage,
 )
+from openrag.modules.embeddings.runtime import (
+    EmbeddingRuntime,
+    resolve_generation_runtime,
+)
 from openrag.modules.events.envelopes import DocumentVersionLifecycleV1
 from openrag.modules.events.outbox import add_registered_event
 from openrag.modules.retrieval.client import get_qdrant
-from openrag.modules.retrieval.embeddings import DenseEmbedder, get_dense_embedder
+from openrag.modules.retrieval.embeddings import DenseEmbedder
 
 _logger = logging.getLogger(__name__)
 
@@ -515,7 +519,8 @@ async def run_claimed_stage_once(
     *,
     owner: str,
     storage: StageObjectStorage,
-    dense_embedder: DenseEmbedder,
+    dense_embedder: DenseEmbedder | None = None,
+    embedding_runtime_resolver: Callable[[UUID], Awaitable[EmbeddingRuntime]] | None = None,
     sparse_embedder: SparseEmbedder | None = None,
     qdrant: AuthorityPointWriter,
     authority_ready: AuthorityReady,
@@ -533,10 +538,22 @@ async def run_claimed_stage_once(
     if claim is None:
         return "idle"
     try:
+        if embedding_runtime_resolver is not None:
+            embedding_runtime = await embedding_runtime_resolver(
+                claim.authority_generation_id
+            )
+        elif dense_embedder is not None:
+            embedding_runtime = EmbeddingRuntime(
+                embedder=dense_embedder,
+                dimension=settings.embedding_dim,
+                profile_version="configured-test-runtime",
+            )
+        else:
+            raise IngestFailure("embedding runtime is unavailable")
         plan = await load_stage_execution_plan(
             session_factory,
             claim,
-            dense_dimension=settings.embedding_dim,
+            dense_dimension=embedding_runtime.dimension,
         )
         completion = await _with_heartbeat(
             session_factory,
@@ -545,7 +562,7 @@ async def run_claimed_stage_once(
                 claim,
                 plan,
                 storage=storage,
-                dense_embedder=dense_embedder,
+                dense_embedder=embedding_runtime.embedder,
                 sparse_embedder=sparse_embedder,
                 qdrant=qdrant,
                 authority_ready=authority_ready,
@@ -603,11 +620,19 @@ async def run_durable_stage_once(
     storage: ObjectStorage = build_storage(resolved)
     qdrant: AsyncQdrantClient = get_qdrant()
 
+    async def runtime(generation_id: UUID) -> EmbeddingRuntime:
+        return await resolve_generation_runtime(
+            session_factory,
+            generation_id,
+            resolved,
+        )
+
     async def ready(generation_id: UUID) -> bool:
+        embedding_runtime = await runtime(generation_id)
         status = await probe_authority_storage(
             AuthorityCollectionSpec(
                 generation_id=generation_id,
-                dense_dimension=resolved.embedding_dim,
+                dense_dimension=embedding_runtime.dimension,
             ),
             client=qdrant,
         )
@@ -618,7 +643,7 @@ async def run_durable_stage_once(
             session_factory,
             owner=owner,
             storage=cast(StageObjectStorage, storage),
-            dense_embedder=get_dense_embedder(),
+            embedding_runtime_resolver=runtime,
             sparse_embedder=None,
             qdrant=cast(AuthorityPointWriter, qdrant),
             authority_ready=ready,
