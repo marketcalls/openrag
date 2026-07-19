@@ -52,6 +52,30 @@ def _prepare_compatibility_tables() -> None:
     """Expand tenant scope before new tables reference composite keys."""
 
     op.add_column(
+        "inbox_events", sa.Column("event_type", sa.String(length=200), nullable=True)
+    )
+    op.execute(
+        "UPDATE inbox_events i SET event_type=o.event_type "
+        "FROM outbox_events o WHERE o.event_id=i.event_id"
+    )
+    # Old Inbox rows whose Outbox envelope was already pruned cannot be assigned
+    # an invented event identity. Keep a bounded explicit unknown sentinel; all
+    # new consumers must persist the exact event type.
+    op.execute("UPDATE inbox_events SET event_type='legacy.unknown' WHERE event_type IS NULL")
+    op.alter_column("inbox_events", "event_type", nullable=False)
+    op.create_check_constraint(
+        "ck_inbox_events_event_type_bounded",
+        "inbox_events",
+        "char_length(event_type) BETWEEN 1 AND 200",
+    )
+    op.create_index(
+        op.f("ix_inbox_events_event_type"),
+        "inbox_events",
+        ["event_type"],
+        unique=False,
+    )
+
+    op.add_column(
         "workspaces", sa.Column("document_authority_enabled", sa.Boolean(), nullable=True)
     )
     op.execute("UPDATE workspaces SET document_authority_enabled=false")
@@ -441,6 +465,25 @@ def _install_authority_triggers() -> None:
     )
     op.execute(
         """
+        CREATE FUNCTION openrag_validate_document_version_delete() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          IF OLD.state NOT IN ('draft','processing','rejected','failed') THEN
+            RAISE EXCEPTION 'governed document version history cannot be deleted';
+          END IF;
+          RETURN OLD;
+        END $$;
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_document_versions_delete_lifecycle
+        BEFORE DELETE ON document_versions FOR EACH ROW
+        EXECUTE FUNCTION openrag_validate_document_version_delete();
+        """
+    )
+    op.execute(
+        """
         CREATE FUNCTION openrag_validate_citation_write() RETURNS trigger
         LANGUAGE plpgsql AS $$
         DECLARE
@@ -455,11 +498,14 @@ def _install_authority_triggers() -> None:
           stored_version_state text;
           stored_provenance_state text;
           stored_superseded_by_id uuid;
+          stored_effective_at timestamp;
+          stored_expires_at timestamp;
           span_hash text;
           span_page integer;
           span_locator_kind text;
           span_locator_label text;
           span_section_path jsonb;
+          span_section_label text;
         BEGIN
           IF TG_OP='UPDATE' THEN
             RAISE EXCEPTION 'citation snapshots are immutable';
@@ -484,10 +530,12 @@ def _install_authority_triggers() -> None:
           END IF;
 
           SELECT v.sequence, v.version_label, v.version_key, d.name,
-                 v.state, v.provenance_state, v.superseded_by_id
+                 v.state, v.provenance_state, v.superseded_by_id,
+                 v.effective_at, v.expires_at
           INTO version_sequence, stored_version_label, stored_version_key,
                stored_document_name, stored_version_state,
-               stored_provenance_state, stored_superseded_by_id
+               stored_provenance_state, stored_superseded_by_id,
+               stored_effective_at, stored_expires_at
           FROM document_versions v
           JOIN documents d ON (d.org_id, d.workspace_id, d.id)=
                               (v.org_id, v.workspace_id, v.document_id)
@@ -532,6 +580,8 @@ def _install_authority_triggers() -> None:
                OR stored_version_state<>'approved'
                OR stored_provenance_state<>'ready'
                OR stored_superseded_by_id IS NOT NULL
+               OR (stored_effective_at IS NOT NULL AND stored_effective_at>now())
+               OR (stored_expires_at IS NOT NULL AND stored_expires_at<=now())
                OR NEW.document_name IS DISTINCT FROM stored_document_name
                OR NEW.version_label IS DISTINCT FROM stored_version_label
                OR NEW.document_name IS NULL OR btrim(NEW.document_name)=''
@@ -546,9 +596,10 @@ def _install_authority_triggers() -> None:
             END IF;
 
             SELECT e.content_hash, e.page_number, e.locator_kind, e.locator_label,
-                   e.section_path
+                   e.section_path,
+                   e.section_path ->> (jsonb_array_length(e.section_path) - 1)
             INTO span_hash, span_page, span_locator_kind, span_locator_label,
-                 span_section_path
+                 span_section_path, span_section_label
             FROM document_evidence_spans e
             WHERE e.org_id=NEW.org_id
               AND e.document_version_id=NEW.document_version_id
@@ -557,7 +608,8 @@ def _install_authority_triggers() -> None:
                OR NEW.page IS DISTINCT FROM span_page
                OR NEW.locator_kind IS DISTINCT FROM span_locator_kind
                OR NEW.locator_label IS DISTINCT FROM span_locator_label
-               OR NEW.section_path IS DISTINCT FROM span_section_path THEN
+               OR NEW.section_path IS DISTINCT FROM span_section_path
+               OR NEW.section_label IS DISTINCT FROM span_section_label THEN
               RAISE EXCEPTION 'authority citation does not reproduce immutable evidence';
             END IF;
             IF NOT EXISTS (
@@ -671,6 +723,63 @@ def _install_authority_triggers() -> None:
           IF OLD.status IN ('stale','failed','activated') THEN
             RAISE EXCEPTION 'terminal readiness generation is immutable';
           END IF;
+          IF OLD.status='building' THEN
+            IF NEW.status NOT IN ('building','passed','stale','failed') THEN
+              RAISE EXCEPTION 'invalid readiness transition from building';
+            END IF;
+            IF NEW.status='passed' AND (
+              NEW.payload_index_digest IS NULL OR NEW.provenance_digest IS NULL
+              OR NEW.lifecycle_revision_digest IS NULL
+              OR NEW.readiness_digest IS NULL OR NEW.signature IS NULL
+              OR NEW.checked_at IS NULL OR cardinality(NEW.blocker_codes)<>0
+            ) THEN
+              RAISE EXCEPTION 'passed readiness requires a complete signed result';
+            END IF;
+          ELSIF OLD.status='passed' THEN
+            IF NEW.status NOT IN ('stale','activated') THEN
+              RAISE EXCEPTION 'invalid readiness transition from passed';
+            END IF;
+            IF ROW(
+              OLD.generation_id, OLD.org_id, OLD.workspace_id, OLD.request_digest,
+              OLD.physical_collection, OLD.collection_alias, OLD.schema_version,
+              OLD.current_version_count, OLD.ready_version_count,
+              OLD.projected_version_count, OLD.point_count,
+              OLD.payload_index_digest, OLD.provenance_digest,
+              OLD.lifecycle_revision_digest, OLD.grounding_policy_id,
+              OLD.grounding_policy_version, OLD.calibration_hash,
+              OLD.verifier_model_id, OLD.provider_preset_version,
+              OLD.binding_revision, OLD.credential_fingerprint,
+              OLD.readiness_digest, OLD.signature, OLD.blocker_codes,
+              OLD.lease_owner, OLD.lease_expires_at, OLD.attempts,
+              OLD.checked_at, OLD.expires_at, OLD.id, OLD.created_at
+            ) IS DISTINCT FROM ROW(
+              NEW.generation_id, NEW.org_id, NEW.workspace_id, NEW.request_digest,
+              NEW.physical_collection, NEW.collection_alias, NEW.schema_version,
+              NEW.current_version_count, NEW.ready_version_count,
+              NEW.projected_version_count, NEW.point_count,
+              NEW.payload_index_digest, NEW.provenance_digest,
+              NEW.lifecycle_revision_digest, NEW.grounding_policy_id,
+              NEW.grounding_policy_version, NEW.calibration_hash,
+              NEW.verifier_model_id, NEW.provider_preset_version,
+              NEW.binding_revision, NEW.credential_fingerprint,
+              NEW.readiness_digest, NEW.signature, NEW.blocker_codes,
+              NEW.lease_owner, NEW.lease_expires_at, NEW.attempts,
+              NEW.checked_at, NEW.expires_at, NEW.id, NEW.created_at
+            ) THEN
+              RAISE EXCEPTION 'passed readiness snapshot and signed result are immutable';
+            END IF;
+            IF NEW.status='activated' AND (
+              NEW.activated_at IS NULL OR NEW.activated_by IS NULL
+            ) THEN
+              RAISE EXCEPTION 'activated readiness requires actor and timestamp';
+            END IF;
+            IF NEW.status='stale' AND ROW(OLD.activated_at, OLD.activated_by)
+               IS DISTINCT FROM ROW(NEW.activated_at, NEW.activated_by) THEN
+              RAISE EXCEPTION 'stale readiness cannot carry activation fields';
+            END IF;
+          ELSE
+            RAISE EXCEPTION 'invalid readiness status';
+          END IF;
           RETURN NEW;
         END $$;
         """
@@ -705,8 +814,37 @@ def _install_authority_triggers() -> None:
         """
         CREATE FUNCTION openrag_protect_evidence_artifact() RETURNS trigger
         LANGUAGE plpgsql AS $$
+        DECLARE
+          owning_org uuid;
+          owning_version uuid;
+          owning_state text;
+          owning_provenance text;
         BEGIN
-          RAISE EXCEPTION 'immutable evidence artifact cannot be updated';
+          IF TG_OP='UPDATE' THEN
+            RAISE EXCEPTION 'immutable evidence artifact cannot be updated';
+          END IF;
+          owning_org := CASE WHEN TG_OP='DELETE' THEN OLD.org_id ELSE NEW.org_id END;
+          owning_version := CASE WHEN TG_OP='DELETE' THEN OLD.document_version_id
+                                 ELSE NEW.document_version_id END;
+          SELECT state, provenance_state INTO owning_state, owning_provenance
+          FROM document_versions
+          WHERE org_id=owning_org AND id=owning_version
+          FOR SHARE;
+          IF NOT FOUND AND TG_OP='DELETE' AND pg_trigger_depth()>1 THEN
+            -- A parent-version cascade is admitted only after the version's
+            -- own BEFORE DELETE lifecycle trigger accepts a never-approved
+            -- deletable state.
+            RETURN OLD;
+          END IF;
+          IF NOT FOUND OR NOT (
+            owning_state='processing' OR owning_provenance='building'
+          ) THEN
+            RAISE EXCEPTION 'evidence artifact mutation requires processing/building owner';
+          END IF;
+          IF TG_OP='DELETE' THEN
+            RETURN OLD;
+          END IF;
+          RETURN NEW;
         END $$;
         """
     )
@@ -718,7 +856,7 @@ def _install_authority_triggers() -> None:
     ):
         op.execute(
             f"CREATE TRIGGER trg_{table}_immutable "
-            f"BEFORE UPDATE ON {table} FOR EACH ROW "
+            f"BEFORE INSERT OR UPDATE OR DELETE ON {table} FOR EACH ROW "
             "EXECUTE FUNCTION openrag_protect_evidence_artifact();"
         )
 
@@ -740,12 +878,17 @@ def _drop_authority_triggers() -> None:
     op.execute("DROP TRIGGER IF EXISTS trg_citations_parent_final_state ON citations")
     op.execute("DROP TRIGGER IF EXISTS trg_messages_final_state ON messages")
     op.execute("DROP TRIGGER IF EXISTS trg_citations_validate_write ON citations")
+    op.execute(
+        "DROP TRIGGER IF EXISTS trg_document_versions_delete_lifecycle "
+        "ON document_versions"
+    )
     op.execute("DROP TRIGGER IF EXISTS trg_document_versions_immutable ON document_versions")
     op.execute("DROP FUNCTION IF EXISTS openrag_protect_evidence_artifact()")
     op.execute("DROP FUNCTION IF EXISTS openrag_protect_terminal_calibration()")
     op.execute("DROP FUNCTION IF EXISTS openrag_protect_terminal_readiness()")
     op.execute("DROP FUNCTION IF EXISTS openrag_validate_message_final_state()")
     op.execute("DROP FUNCTION IF EXISTS openrag_validate_citation_write()")
+    op.execute("DROP FUNCTION IF EXISTS openrag_validate_document_version_delete()")
     op.execute("DROP FUNCTION IF EXISTS openrag_validate_document_version_update()")
 
 
@@ -798,7 +941,9 @@ def _downgrade_preflight(connection: sa.Connection) -> None:
         ("SELECT EXISTS(SELECT 1 FROM grounding_policies)", "grounding policy"),
         ("SELECT EXISTS(SELECT 1 FROM grounding_calibration_runs)", "calibration run"),
         (
-            "SELECT EXISTS(SELECT 1 FROM outbox_events o LEFT JOIN inbox_events i ON i.event_id=o.event_id WHERE o.event_type LIKE 'document.version.%')",
+            "SELECT EXISTS(SELECT 1 FROM outbox_events "
+            "WHERE event_type LIKE 'document.version.%' UNION ALL "
+            "SELECT 1 FROM inbox_events WHERE event_type LIKE 'document.version.%')",
             "document version event",
         ),
         (
@@ -1798,6 +1943,11 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_outbox_events_lease_expires_at"), table_name="outbox_events")
     op.drop_column("outbox_events", "lease_expires_at")
     op.drop_column("outbox_events", "lease_owner")
+    op.drop_index(op.f("ix_inbox_events_event_type"), table_name="inbox_events")
+    op.drop_constraint(
+        "ck_inbox_events_event_type_bounded", "inbox_events", type_="check"
+    )
+    op.drop_column("inbox_events", "event_type")
     op.drop_column("models", "provider_preset_version")
     op.drop_column("models", "supports_verifier")
     op.drop_column("models", "supports_structured_json")

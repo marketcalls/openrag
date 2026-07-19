@@ -1,5 +1,6 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -111,12 +112,18 @@ def _insert_legacy_citation(
 def _seed_authority_evidence(
     connection: sa.Connection,
     ids: SimpleNamespace,
+    *,
+    finalize: bool = True,
+    effective_at: datetime | None = None,
+    expires_at: datetime | None = None,
 ) -> dict[str, object]:
     document_id = ids.document_ids["failed"]
     version_id = uuid4()
     model_id = uuid4()
     policy_id = uuid4()
     chunk_id = uuid4()
+    block_id = uuid4()
+    link_id = uuid4()
     span_id = uuid4()
     evidence_hash = "b" * 64
     connection.execute(
@@ -159,11 +166,12 @@ def _seed_authority_evidence(
             "source_size_bytes, source_storage_key, source_page_count, "
             "parser_profile_version, ocr_profile_version, chunking_profile_version, "
             "embedding_profile_version, index_profile_version, state, provenance_state, "
-            "lifecycle_revision, created_by, updated_at, created_at) VALUES "
+            "lifecycle_revision, effective_at, expires_at, created_by, updated_at, "
+            "created_at) VALUES "
             "(:id, :org, :workspace, :document, 2, 'Approved 2', 'approved 2', :hash, "
             "'approved-2.pdf', 'application/pdf', 10, 'approved-2.pdf', 1, "
             "'parser/v2', 'none/v1', 'chunk/v2', 'embed/v2', 'index/v2', "
-            "'approved', 'ready', 1, :user, now(), now())"
+            "'processing', 'building', 1, :effective_at, :expires_at, :user, now(), now())"
         ),
         {
             "id": version_id,
@@ -171,7 +179,27 @@ def _seed_authority_evidence(
             "workspace": ids.workspace_id,
             "document": document_id,
             "hash": "c" * 64,
+            "effective_at": effective_at,
+            "expires_at": expires_at,
             "user": ids.user_id,
+        },
+    )
+    connection.execute(
+        text(
+            "INSERT INTO document_blocks "
+            "(id, org_id, document_version_id, parent_block_id, ordinal, text, "
+            "page_number, locator_kind, locator_label, block_type, section_path, "
+            "source_coordinates, extraction_method, ocr_profile_version, "
+            "ocr_confidence, content_hash, created_at) VALUES "
+            "(:id, :org, :version, NULL, 0, 'Approved evidence', 1, 'page', '1', "
+            "'paragraph', '[\"Safety\"]'::jsonb, NULL, 'native', 'none/v1', NULL, "
+            ":hash, now())"
+        ),
+        {
+            "id": block_id,
+            "org": ids.org_id,
+            "version": version_id,
+            "hash": evidence_hash,
         },
     )
     connection.execute(
@@ -192,6 +220,20 @@ def _seed_authority_evidence(
     )
     connection.execute(
         text(
+            "INSERT INTO document_chunk_blocks "
+            "(id, org_id, document_version_id, chunk_id, block_id, position, created_at) "
+            "VALUES (:id, :org, :version, :chunk, :block, 0, now())"
+        ),
+        {
+            "id": link_id,
+            "org": ids.org_id,
+            "version": version_id,
+            "chunk": chunk_id,
+            "block": block_id,
+        },
+    )
+    connection.execute(
+        text(
             "INSERT INTO document_evidence_spans "
             "(id, org_id, document_version_id, chunk_id, page_number, locator_kind, "
             "locator_label, section_path, content_hash, ordinal, token_count, "
@@ -207,11 +249,22 @@ def _seed_authority_evidence(
             "hash": evidence_hash,
         },
     )
+    if finalize:
+        connection.execute(
+            text(
+                "UPDATE document_versions SET state='approved', provenance_state='ready' "
+                "WHERE id=:id"
+            ),
+            {"id": version_id},
+        )
     return {
         "document_id": document_id,
         "version_id": version_id,
         "model_id": model_id,
         "policy_id": policy_id,
+        "chunk_id": chunk_id,
+        "block_id": block_id,
+        "link_id": link_id,
         "span_id": span_id,
         "content_hash": evidence_hash,
     }
@@ -229,6 +282,8 @@ def _insert_authority_citation(
     org_id: object | None = None,
     workspace_id: object | None = None,
     document_id: object | None = None,
+    section_label: str = "Safety",
+    section_path: str = '["Safety"]',
 ) -> object:
     citation_id = uuid4()
     connection.execute(
@@ -241,8 +296,8 @@ def _insert_authority_citation(
             "grounding_policy_version, verifier_model_id, provider_preset_version, "
             "binding_revision, credential_fingerprint, created_at) VALUES "
             "(:id, :org, :workspace, :message, :document, :version, :span, 'span:1', "
-            ":page, 0.95, 1, 'failed.pdf', 'Approved 2', 'Safety', "
-            "'[\"Safety\"]'::jsonb, 'page', '1', :hash, '[\"claim-1\"]'::jsonb, "
+            ":page, 0.95, 1, 'failed.pdf', 'Approved 2', :section_label, "
+            "CAST(:section_path AS jsonb), 'page', '1', :hash, '[\"claim-1\"]'::jsonb, "
             "'verified', 'grounding/v1', :policy, 1, :model, 'preset/v1', "
             "'binding/v1', 'credential-v1', now())"
         ),
@@ -255,6 +310,8 @@ def _insert_authority_citation(
             "version": document_version_id or evidence["version_id"],
             "span": evidence_span_id or evidence["span_id"],
             "page": page,
+            "section_label": section_label,
+            "section_path": section_path,
             "hash": evidence["content_hash"],
             "policy": evidence["policy_id"],
             "model": evidence["model_id"],
@@ -559,6 +616,28 @@ def test_authority_citation_requires_exact_evidence_and_last_delete_is_deferred(
         )
 
 
+def test_authority_citation_section_label_is_derived_from_evidence_path(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    _chat, _user, assistant = _seed_legacy_parent(engine, ids)
+    with pytest.raises(sa.exc.DBAPIError, match="immutable evidence"):
+        with engine.begin() as connection:
+            evidence = _seed_authority_evidence(connection, ids)
+            connection.execute(
+                text("UPDATE messages SET answer_status='grounded' WHERE id=:id"),
+                {"id": assistant},
+            )
+            _insert_authority_citation(
+                connection,
+                ids,
+                evidence,
+                assistant,
+                section_label="FORGED SECTION",
+            )
+
+
 @pytest.mark.parametrize("parent_kind", ["user", "historical", "refused"])
 def test_authority_citation_rejects_every_ineligible_parent_state(
     authority_db: tuple[Config, Engine, SimpleNamespace],
@@ -676,7 +755,7 @@ def test_readiness_generation_preserves_signed_tenant_snapshot_and_is_terminal(
     readiness_id = uuid4()
     generation_id = uuid4()
     with engine.begin() as connection:
-        evidence = _seed_authority_evidence(connection, ids)
+        evidence = _seed_authority_evidence(connection, ids, finalize=False)
         connection.execute(
             text(
                 "INSERT INTO document_authority_readiness "
@@ -816,13 +895,34 @@ def test_readiness_and_calibration_allow_normal_transitions_then_freeze_terminal
 
     with engine.begin() as connection:
         connection.execute(
-            text("UPDATE document_authority_readiness SET status='passed' WHERE id=:id"),
-            {"id": readiness_id},
+            text(
+                "UPDATE document_authority_readiness SET status='passed', "
+                "payload_index_digest=:payload, provenance_digest=:provenance, "
+                "lifecycle_revision_digest=:lifecycle, readiness_digest=:readiness, "
+                "signature=:signature, checked_at=now() WHERE id=:id"
+            ),
+            {
+                "id": readiness_id,
+                "payload": "3" * 64,
+                "provenance": "4" * 64,
+                "lifecycle": "5" * 64,
+                "readiness": "6" * 64,
+                "signature": "7" * 64,
+            },
         )
-        connection.execute(
-            text("UPDATE document_authority_readiness SET status=:status WHERE id=:id"),
-            {"id": readiness_id, "status": readiness_terminal},
-        )
+        if readiness_terminal == "activated":
+            connection.execute(
+                text(
+                    "UPDATE document_authority_readiness SET status='activated', "
+                    "activated_at=now(), activated_by=:actor WHERE id=:id"
+                ),
+                {"id": readiness_id, "actor": ids.user_id},
+            )
+        else:
+            connection.execute(
+                text("UPDATE document_authority_readiness SET status='stale' WHERE id=:id"),
+                {"id": readiness_id},
+            )
         connection.execute(
             text("UPDATE grounding_calibration_runs SET state='running' WHERE id=:id"),
             {"id": calibration_id},
@@ -844,6 +944,88 @@ def test_readiness_and_calibration_allow_normal_transitions_then_freeze_terminal
                 text("UPDATE grounding_calibration_runs SET attempts=1 WHERE id=:id"),
                 {"id": calibration_id},
             )
+
+
+def test_readiness_rejects_direct_activation_and_freezes_passed_snapshot(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    readiness_id = uuid4()
+    with engine.begin() as connection:
+        evidence = _seed_authority_evidence(connection, ids, finalize=False)
+        connection.execute(
+            text(
+                "INSERT INTO document_authority_readiness "
+                "(id, generation_id, org_id, workspace_id, request_digest, "
+                "physical_collection, collection_alias, schema_version, "
+                "current_version_count, ready_version_count, projected_version_count, "
+                "point_count, grounding_policy_id, grounding_policy_version, "
+                "calibration_hash, verifier_model_id, provider_preset_version, "
+                "binding_revision, credential_fingerprint, blocker_codes, status, "
+                "attempts, expires_at, created_at) VALUES "
+                "(:id, :generation, :org, :workspace, :digest, 'authority-v2', "
+                "'authority-current', 1, 0, 0, 0, 0, :policy, 1, :calibration, "
+                ":model, 'preset/v1', 'binding/v1', 'credential-v1', "
+                "ARRAY[]::varchar[], 'building', 0, now() + interval '1 hour', now())"
+            ),
+            {
+                "id": readiness_id,
+                "generation": uuid4(),
+                "org": ids.org_id,
+                "workspace": ids.workspace_id,
+                "digest": "1" * 64,
+                "policy": evidence["policy_id"],
+                "calibration": "a" * 64,
+                "model": evidence["model_id"],
+            },
+        )
+
+    with pytest.raises(sa.exc.DBAPIError, match="readiness transition"):
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE document_authority_readiness SET status='activated', "
+                    "activated_at=now(), activated_by=:actor WHERE id=:id"
+                ),
+                {"id": readiness_id, "actor": ids.user_id},
+            )
+
+    with pytest.raises(sa.exc.DBAPIError, match="complete signed result"):
+        with engine.begin() as connection:
+            connection.execute(
+                text("UPDATE document_authority_readiness SET status='passed' WHERE id=:id"),
+                {"id": readiness_id},
+            )
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE document_authority_readiness SET status='passed', attempts=1, "
+                "payload_index_digest=:payload, provenance_digest=:provenance, "
+                "lifecycle_revision_digest=:lifecycle, readiness_digest=:readiness, "
+                "signature=:signature, checked_at=now() WHERE id=:id"
+            ),
+            {
+                "id": readiness_id,
+                "payload": "3" * 64,
+                "provenance": "4" * 64,
+                "lifecycle": "5" * 64,
+                "readiness": "6" * 64,
+                "signature": "7" * 64,
+            },
+        )
+
+    for mutation in (
+        "UPDATE document_authority_readiness SET signature=repeat('8',64) WHERE id=:id",
+        "UPDATE document_authority_readiness SET readiness_digest=repeat('9',64) WHERE id=:id",
+        "UPDATE document_authority_readiness SET request_digest=repeat('a',64) WHERE id=:id",
+        "UPDATE document_authority_readiness SET attempts=attempts+1 WHERE id=:id",
+        "UPDATE document_authority_readiness SET status='failed' WHERE id=:id",
+    ):
+        with pytest.raises(sa.exc.DBAPIError, match="readiness"):
+            with engine.begin() as connection:
+                connection.execute(text(mutation), {"id": readiness_id})
 
 
 @pytest.mark.parametrize(
@@ -890,6 +1072,197 @@ def test_referenced_evidence_artifacts_are_immutable(
             )
 
 
+def test_processing_or_building_provenance_uses_delete_reinsert_and_fk_cascades(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    with engine.begin() as connection:
+        evidence = _seed_authority_evidence(connection, ids, finalize=False)
+
+    with pytest.raises(sa.exc.DBAPIError, match="evidence artifact"):
+        with engine.begin() as connection:
+            connection.execute(
+                text("UPDATE document_blocks SET text='rewrite' WHERE id=:id"),
+                {"id": evidence["block_id"]},
+            )
+
+    with engine.begin() as connection:
+        connection.execute(
+            text("DELETE FROM document_chunks WHERE id=:id"),
+            {"id": evidence["chunk_id"]},
+        )
+        assert connection.execute(
+            text(
+                "SELECT count(*) FROM document_evidence_spans WHERE id=:span "
+                "UNION ALL SELECT count(*) FROM document_chunk_blocks WHERE id=:link"
+            ),
+            {"span": evidence["span_id"], "link": evidence["link_id"]},
+        ).scalars().all() == [0, 0]
+        connection.execute(
+            text("DELETE FROM document_blocks WHERE id=:id"),
+            {"id": evidence["block_id"]},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO document_blocks "
+                "(id, org_id, document_version_id, parent_block_id, ordinal, text, "
+                "page_number, locator_kind, locator_label, block_type, section_path, "
+                "source_coordinates, extraction_method, ocr_profile_version, "
+                "ocr_confidence, content_hash, created_at) VALUES "
+                "(:id, :org, :version, NULL, 0, 'rebuilt', 1, 'page', '1', "
+                "'paragraph', '[\"Safety\"]'::jsonb, NULL, 'native', 'none/v1', "
+                "NULL, :hash, now())"
+            ),
+            {
+                "id": evidence["block_id"],
+                "org": ids.org_id,
+                "version": evidence["version_id"],
+                "hash": evidence["content_hash"],
+            },
+        )
+        connection.execute(
+            text(
+                "UPDATE document_versions SET state='failed', "
+                "provenance_state='failed' WHERE id=:id"
+            ),
+            {"id": evidence["version_id"]},
+        )
+        connection.execute(
+            text("DELETE FROM document_versions WHERE id=:id"),
+            {"id": evidence["version_id"]},
+        )
+        assert connection.execute(
+            text(
+                "SELECT count(*) FROM document_blocks WHERE document_version_id=:id "
+                "UNION ALL SELECT count(*) FROM document_chunks "
+                "WHERE document_version_id=:id"
+            ),
+            {"id": evidence["version_id"]},
+        ).scalars().all() == [0, 0]
+
+
+def test_provenance_mutation_serializes_with_ready_transition(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    with engine.begin() as connection:
+        evidence = _seed_authority_evidence(connection, ids, finalize=False)
+
+    mutation_connection = engine.connect()
+    mutation_transaction = mutation_connection.begin()
+    mutation_connection.execute(
+        text("DELETE FROM document_blocks WHERE id=:id"),
+        {"id": evidence["block_id"]},
+    )
+    transition_started = threading.Event()
+    transition_finished = threading.Event()
+
+    def mark_ready() -> None:
+        transition_started.set()
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE document_versions SET state='approved', "
+                    "provenance_state='ready' WHERE id=:id"
+                ),
+                {"id": evidence["version_id"]},
+            )
+        transition_finished.set()
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(mark_ready)
+            assert transition_started.wait(timeout=2)
+            assert transition_finished.wait(timeout=0.5) is False
+            mutation_transaction.commit()
+            future.result(timeout=2)
+    finally:
+        if mutation_transaction.is_active:
+            mutation_transaction.rollback()
+        mutation_connection.close()
+
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                "SELECT state, provenance_state FROM document_versions WHERE id=:id"
+            ),
+            {"id": evidence["version_id"]},
+        ).one()
+    assert tuple(row) == ("approved", "ready")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "DELETE FROM document_evidence_spans WHERE id=:span",
+        "DELETE FROM document_chunk_blocks WHERE id=:link",
+        "DELETE FROM document_blocks WHERE id=:block",
+        "DELETE FROM document_chunks WHERE id=:chunk",
+        "INSERT INTO document_blocks (id, org_id, document_version_id, ordinal, text, "
+        "page_number, locator_kind, locator_label, block_type, section_path, "
+        "extraction_method, ocr_profile_version, content_hash, created_at) VALUES "
+        "(:new, :org, :version, 1, 'late', 1, 'page', '1', 'paragraph', "
+        "'[\"Safety\"]'::jsonb, 'native', 'none/v1', :hash, now())",
+        "INSERT INTO document_chunks (id, org_id, document_version_id, ordinal, text, "
+        "token_count, page_start, page_end, section_path, content_hash, "
+        "chunking_profile_version, embedding_profile_version, created_at) VALUES "
+        "(:new, :org, :version, 1, 'late', 1, 1, 1, '[\"Safety\"]'::jsonb, "
+        ":hash, 'chunk/v2', 'embed/v2', now())",
+        "INSERT INTO document_chunk_blocks (id, org_id, document_version_id, chunk_id, "
+        "block_id, position, created_at) VALUES "
+        "(:new, :org, :version, :chunk, :block, 1, now())",
+        "INSERT INTO document_evidence_spans (id, org_id, document_version_id, chunk_id, "
+        "page_number, locator_kind, locator_label, section_path, content_hash, ordinal, "
+        "token_count, artifact_byte_start, artifact_byte_end, created_at) VALUES "
+        "(:new, :org, :version, :chunk, 1, 'page', '1', '[\"Safety\"]'::jsonb, "
+        ":hash, 1, 1, 0, 4, now())",
+    ],
+)
+def test_ready_provenance_rejects_insert_and_delete_for_every_artifact(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+    mutation: str,
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    with engine.begin() as connection:
+        evidence = _seed_authority_evidence(connection, ids)
+
+    with pytest.raises(sa.exc.DBAPIError, match="evidence artifact"):
+        with engine.begin() as connection:
+            connection.execute(
+                text(mutation),
+                {
+                    **evidence,
+                    "new": uuid4(),
+                    "org": ids.org_id,
+                    "version": evidence["version_id"],
+                    "hash": "9" * 64,
+                    "span": evidence["span_id"],
+                    "link": evidence["link_id"],
+                    "block": evidence["block_id"],
+                    "chunk": evidence["chunk_id"],
+                },
+            )
+
+
+def test_governed_ready_version_rejects_parent_cascade_delete(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    with engine.begin() as connection:
+        evidence = _seed_authority_evidence(connection, ids)
+
+    with pytest.raises(sa.exc.DBAPIError, match="governed document version"):
+        with engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM document_versions WHERE id=:id"),
+                {"id": evidence["version_id"]},
+            )
+
+
 @pytest.mark.parametrize("artifact_kind", ["block", "chunk"])
 def test_downgrade_rejects_block_or_chunk_only_derived_artifact(
     authority_db: tuple[Config, Engine, SimpleNamespace],
@@ -899,6 +1272,13 @@ def test_downgrade_rejects_block_or_chunk_only_derived_artifact(
     command.upgrade(config, AUTHORITY_REVISION)
     version_id = ids.document_ids["indexed"]
     with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE document_versions SET state='processing', provenance_state='none' "
+                "WHERE id=:id"
+            ),
+            {"id": version_id},
+        )
         if artifact_kind == "chunk":
             connection.execute(
                 text(
@@ -985,6 +1365,52 @@ def test_downgrade_rejects_multiple_document_versions(
         command.downgrade(config, "6c4a2f8b9d10")
 
 
+def test_downgrade_rejects_orphaned_document_version_inbox_event(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, _ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    event_id = uuid4()
+    inbox_id = uuid4()
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO outbox_events "
+                "(event_id, aggregate_type, aggregate_id, event_type, payload, "
+                "dedupe_key, attempts, id, created_at) VALUES "
+                "(:event, 'document_version', :aggregate, "
+                "'document.version.rebuild_requested.v1', '{}'::json, :dedupe, 0, "
+                ":id, now())"
+            ),
+            {
+                "event": event_id,
+                "aggregate": uuid4(),
+                "dedupe": str(uuid4()),
+                "id": uuid4(),
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO inbox_events (consumer, event_id, event_type, id, created_at) "
+                "VALUES ('document-start-v1', :event, "
+                "'document.version.rebuild_requested.v1', :id, now())"
+            ),
+            {"event": event_id, "id": inbox_id},
+        )
+        connection.execute(
+            text("DELETE FROM outbox_events WHERE event_id=:event"),
+            {"event": event_id},
+        )
+
+    with pytest.raises(RuntimeError, match="document version event"):
+        command.downgrade(config, "6c4a2f8b9d10")
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT event_type FROM inbox_events WHERE id=:id"),
+            {"id": inbox_id},
+        ).scalar_one() == "document.version.rebuild_requested.v1"
+
+
 @pytest.mark.parametrize(
     ("overrides"),
     [
@@ -1048,6 +1474,36 @@ def test_authority_citation_rechecks_current_policy_model_and_version_eligibilit
                     "model": evidence["model_id"],
                     "version": evidence["version_id"],
                 },
+            )
+            connection.execute(
+                text("UPDATE messages SET answer_status='grounded' WHERE id=:id"),
+                {"id": assistant},
+            )
+            _insert_authority_citation(connection, ids, evidence, assistant)
+
+
+@pytest.mark.parametrize(
+    ("effective_at", "expires_at"),
+    [
+        (datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=1), None),
+        (None, datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)),
+    ],
+)
+def test_authority_citation_rejects_version_outside_effective_window(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+    effective_at: datetime | None,
+    expires_at: datetime | None,
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, AUTHORITY_REVISION)
+    _chat, _user, assistant = _seed_legacy_parent(engine, ids)
+    with pytest.raises(sa.exc.DBAPIError, match="authority citation"):
+        with engine.begin() as connection:
+            evidence = _seed_authority_evidence(
+                connection,
+                ids,
+                effective_at=effective_at,
+                expires_at=expires_at,
             )
             connection.execute(
                 text("UPDATE messages SET answer_status='grounded' WHERE id=:id"),

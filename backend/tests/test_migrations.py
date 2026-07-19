@@ -652,6 +652,62 @@ def test_authority_upgrade_locks_all_compatibility_tables(
     }
 
 
+def test_authority_upgrade_backfills_bounded_inbox_event_identity(
+    authority_db: tuple[Config, Engine, object],
+) -> None:
+    config, engine, _ids = authority_db
+    joined_event = uuid4()
+    orphan_event = uuid4()
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO outbox_events "
+                "(event_id, aggregate_type, aggregate_id, event_type, payload, "
+                "dedupe_key, attempts, id, created_at) VALUES "
+                "(:event, 'document_version', :aggregate, "
+                "'document.version.rebuild_requested.v1', '{}'::json, :dedupe, 0, "
+                ":id, now())"
+            ),
+            {
+                "event": joined_event,
+                "aggregate": uuid4(),
+                "dedupe": str(uuid4()),
+                "id": uuid4(),
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO inbox_events (consumer, event_id, id, created_at) VALUES "
+                "('document-start-v1', :joined, :joined_id, now()), "
+                "('legacy-consumer', :orphan, :orphan_id, now())"
+            ),
+            {
+                "joined": joined_event,
+                "joined_id": uuid4(),
+                "orphan": orphan_event,
+                "orphan_id": uuid4(),
+            },
+        )
+
+    command.upgrade(config, AUTHORITY_REVISION)
+    with engine.connect() as connection:
+        rows = dict(
+            connection.execute(
+                text("SELECT event_id, event_type FROM inbox_events")
+            ).all()
+        )
+    assert rows == {
+        joined_event: "document.version.rebuild_requested.v1",
+        orphan_event: "legacy.unknown",
+    }
+    event_type_column = next(
+        column
+        for column in inspect(engine).get_columns("inbox_events")
+        if column["name"] == "event_type"
+    )
+    assert event_type_column["nullable"] is False
+
+
 def test_authority_upgrade_backfills_exact_legacy_versions_without_cutover(
     authority_db: tuple[Config, Engine, SimpleNamespace],
 ) -> None:

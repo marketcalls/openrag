@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, UniqueConstraint
+from sqlalchemy import JSON, CheckConstraint, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from openrag.core.db import Base, UUIDPk
@@ -27,7 +27,12 @@ class InboxEvent(UUIDPk, Base):
     __tablename__ = "inbox_events"
     __table_args__ = (
         UniqueConstraint("consumer", "event_id", name="uq_inbox_consumer_event"),
+        CheckConstraint(
+            "char_length(event_type) BETWEEN 1 AND 200",
+            name="ck_inbox_events_event_type_bounded",
+        ),
     )
 
     consumer: Mapped[str] = mapped_column(index=True)
     event_id: Mapped[UUID]
+    event_type: Mapped[str] = mapped_column(String(200), index=True)

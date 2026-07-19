@@ -131,8 +131,16 @@ async def test_outbox_and_inbox_dedupe_keys_are_unique(
     await session.commit()
     session.add_all(
         [
-            InboxEvent(consumer="agent-runner", event_id=event_id),
-            InboxEvent(consumer="agent-runner", event_id=event_id),
+            InboxEvent(
+                consumer="agent-runner",
+                event_id=event_id,
+                event_type="run.requested.v1",
+            ),
+            InboxEvent(
+                consumer="agent-runner",
+                event_id=event_id,
+                event_type="run.requested.v1",
+            ),
         ]
     )
     with pytest.raises(IntegrityError):
