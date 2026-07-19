@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from openrag.core.db import naive_utc
-from openrag.modules.documents.models import IngestStageAttempt
+from openrag.modules.documents.models import DocumentVersion, IngestStageAttempt
 from openrag.modules.documents.stages import (
     claim_stage,
     complete_stage,
@@ -70,6 +70,54 @@ async def test_concurrent_claimers_get_one_fenced_lease(
     assert stored.state == "running"
     assert stored.lease_token == claims[0].lease_token
     assert stored.lease_owner == claims[0].owner
+
+
+async def test_legacy_rebuild_claim_opens_approved_provenance_window(
+    engine: AsyncEngine,
+    session: AsyncSession,
+    chat_env: dict[str, object],
+) -> None:
+    document = chat_env["document"]
+    version = await session.get(DocumentVersion, document.id)  # type: ignore[attr-defined]
+    assert version is not None
+    version.source_page_count = 1
+    generation_id = uuid4()
+    attempt = IngestStageAttempt(
+        org_id=version.org_id,
+        workspace_id=version.workspace_id,
+        document_version_id=version.id,
+        pipeline_kind="rebuild",
+        stage="parse",
+        checkpoint=f"parse:rebuild:1:{generation_id.hex}",
+    )
+    session.add(attempt)
+    await session.commit()
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    claim = await claim_stage(factory, owner="rebuild-worker", lease_seconds=30)
+
+    assert claim is not None
+    assert claim.document_version_id == version.id
+    async with factory() as verify:
+        stored = await verify.get(DocumentVersion, version.id)
+    assert stored is not None
+    assert stored.state == "approved"
+    assert stored.provenance_state == "building"
+
+    terminal = await retry_stage(
+        factory,
+        claim,
+        error_code="LEGACY_REBUILD_FAILED",
+        terminal=True,
+    )
+
+    assert terminal == "failed"
+    async with factory() as verify:
+        failed = await verify.get(DocumentVersion, version.id)
+    assert failed is not None
+    assert failed.state == "approved"
+    assert failed.provenance_state == "failed"
+    assert failed.processing_error_code == "LEGACY_REBUILD_FAILED"
 
 
 async def test_expired_reclaim_fences_old_completion_and_advances_once(
@@ -173,11 +221,16 @@ async def test_retry_releases_lease_with_backoff_then_terminalizes_at_limit(
     assert terminal == "failed"
     async with factory() as verify:
         stored = await verify.get(IngestStageAttempt, attempt.id)
+        version = await verify.get(DocumentVersion, attempt.document_version_id)
         count = await verify.scalar(select(func.count()).select_from(IngestStageAttempt))
     assert stored is not None
     assert stored.state == "failed"
     assert stored.error_code == "STAGE_RETRYABLE"
     assert stored.lease_token is None
+    assert version is not None
+    assert version.state == "failed"
+    assert version.provenance_state == "failed"
+    assert version.processing_error_code == "STAGE_RETRYABLE"
     assert count == 1
 
 

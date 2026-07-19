@@ -105,7 +105,7 @@ def _active_version(row: IngestStageAttempt, version: DocumentVersion | None) ->
     return (
         row.pipeline_kind == "rebuild"
         and version.state == "approved"
-        and version.provenance_state == "legacy_pending"
+        and version.provenance_state in {"legacy_pending", "building"}
     )
 
 
@@ -196,6 +196,14 @@ async def _claim_candidate(
             and row.stage == "parse"
             and version is not None
             and version.provenance_state in {"none", "failed"}
+        ):
+            version.provenance_state = "building"
+            version.processing_error_code = None
+        elif (
+            row.pipeline_kind == "rebuild"
+            and row.stage == "parse"
+            and version is not None
+            and version.provenance_state == "legacy_pending"
         ):
             version.provenance_state = "building"
             version.processing_error_code = None
@@ -430,6 +438,20 @@ async def retry_stage(
         row.lease_expires_at = None
         if failed:
             row.finished_at = now
+            version = await session.scalar(
+                select(DocumentVersion)
+                .where(
+                    DocumentVersion.id == row.document_version_id,
+                    DocumentVersion.org_id == row.org_id,
+                    DocumentVersion.workspace_id == row.workspace_id,
+                )
+                .with_for_update()
+            )
+            if version is not None:
+                if row.pipeline_kind == "ingestion":
+                    version.state = "failed"
+                version.provenance_state = "failed"
+                version.processing_error_code = error_code
         else:
             row.available_at = now + timedelta(
                 seconds=min(2 ** row.attempts, 300)

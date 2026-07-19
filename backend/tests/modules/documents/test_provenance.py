@@ -11,6 +11,7 @@ from openrag.modules.documents.models import (
     DocumentChunk,
     DocumentChunkBlock,
     DocumentEvidenceSpan,
+    DocumentVersion,
 )
 from openrag.modules.documents.pipeline import (
     Chunk,
@@ -175,3 +176,25 @@ async def test_persistence_rejects_inexact_span_byte_range(
 
     with pytest.raises(IngestFailure, match="byte range"):
         await persist_page_provenance(session, version, blocks, chunks, invalid)
+
+
+async def test_approved_legacy_rebuild_persists_then_seals_page_provenance(
+    session: AsyncSession,
+    chat_env: dict[str, object],
+) -> None:
+    document = chat_env["document"]
+    version = await session.get(DocumentVersion, document.id)  # type: ignore[attr-defined]
+    assert version is not None
+    version.source_page_count = 2
+    version.provenance_state = "building"
+    await session.commit()
+    blocks, chunks, spans = fixture_provenance()
+
+    await persist_page_provenance(session, version, blocks, chunks, spans)
+    await session.commit()
+    version.provenance_state = "ready"
+    await session.commit()
+
+    assert await _counts(session, version.id) == (3, 1, 3, 2)
+    with pytest.raises(IngestFailure, match="not accepting"):
+        await persist_page_provenance(session, version, blocks, chunks, spans)

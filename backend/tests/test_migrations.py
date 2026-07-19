@@ -25,6 +25,7 @@ AUTHORITY_REVISION = "9d2c7a4e1f60"
 DELETION_REVISION = "4b8e0f7a3c21"
 OUTBOX_REVISION = "a4f87e62b913"
 STAGE_REVISION = "d8a4f2c91e37"
+REBUILD_REVISION = "f1c3e8a2b7d4"
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -759,15 +760,16 @@ def authority_db(
         get_settings.cache_clear()
 
 
-def test_durable_stage_revision_is_the_single_head(
+def test_legacy_rebuild_revision_is_the_single_head(
     authority_db: tuple[Config, Engine, object],
 ) -> None:
     config, _engine, _ids = authority_db
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [STAGE_REVISION]
+    assert script.get_heads() == [REBUILD_REVISION]
     assert script.get_revision(AUTHORITY_REVISION).down_revision == RBAC_REVISION
     assert script.get_revision(DELETION_REVISION).down_revision == AUTHORITY_REVISION
     assert script.get_revision(STAGE_REVISION).down_revision == OUTBOX_REVISION
+    assert script.get_revision(REBUILD_REVISION).down_revision == STAGE_REVISION
 
 
 def test_deletion_upgrade_adds_bounded_restartable_markers_and_closes_processing_delete(
@@ -1774,7 +1776,7 @@ def test_authority_upgrade_aborts_before_mutation_for_orphan_citation(
 
     with pytest.raises(RuntimeError, match="orphan or invalid legacy citation"):
         command.upgrade(config, AUTHORITY_REVISION)
-    assert ScriptDirectory.from_config(config).get_current_head() == STAGE_REVISION
+    assert ScriptDirectory.from_config(config).get_current_head() == REBUILD_REVISION
     with engine.connect() as connection:
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
@@ -2107,6 +2109,61 @@ def test_durable_stage_upgrade_fences_existing_queued_rows_and_downgrades(
     assert "lease_token" not in downgraded
     assert "available_at" not in downgraded
     assert "output_digest" not in downgraded
+
+
+def test_legacy_rebuild_revision_opens_then_seals_evidence_and_blocks_downgrade(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, REBUILD_REVISION)
+    version_id = ids.document_ids["indexed"]
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE document_versions SET provenance_state='building' "
+                "WHERE id=:id"
+            ),
+            {"id": version_id},
+        )
+        insert_document_block(connection, ids, version_id)
+        connection.execute(
+            text(
+                "UPDATE document_versions SET provenance_state='ready' "
+                "WHERE id=:id"
+            ),
+            {"id": version_id},
+        )
+
+    with engine.begin() as connection, pytest.raises(
+        sa.exc.DBAPIError,
+        match="evidence artifact mutation requires processing/building owner",
+    ):
+        insert_document_block(connection, ids, version_id)
+
+    with pytest.raises(RuntimeError, match="governed rebuild state exists"):
+        command.downgrade(config, STAGE_REVISION)
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(text("SELECT version_num FROM alembic_version"))
+            == REBUILD_REVISION
+        )
+
+
+def test_clean_legacy_rebuild_revision_downgrades_to_stage_contract(
+    authority_db: tuple[Config, Engine, object],
+) -> None:
+    config, engine, _ids = authority_db
+    command.upgrade(config, REBUILD_REVISION)
+
+    command.downgrade(config, STAGE_REVISION)
+
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(text("SELECT version_num FROM alembic_version"))
+            == STAGE_REVISION
+        )
+
 
 def test_outbox_hardening_constraints_reject_untruthful_terminal_state(
     pre_outbox_database: tuple[Config, Engine],

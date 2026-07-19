@@ -292,7 +292,18 @@ async def persist_page_provenance(
 ) -> None:
     """Persist one complete deterministic provenance result or reject conflicts."""
 
-    if version.state != "processing" or version.provenance_state != "building":
+    is_active_ingestion = (
+        version.state == "processing" and version.provenance_state == "building"
+    )
+    is_active_exact_legacy_rebuild = (
+        version.id == version.document_id
+        and version.sequence == 1
+        and version.version_label == "Legacy 1"
+        and version.version_key == "legacy 1"
+        and version.state == "approved"
+        and version.provenance_state == "building"
+    )
+    if not (is_active_ingestion or is_active_exact_legacy_rebuild):
         raise IngestFailure("version is not accepting provenance")
     _validate_contract(blocks, chunks, spans)
     expected = _expected_rows(version, blocks, chunks, spans)
