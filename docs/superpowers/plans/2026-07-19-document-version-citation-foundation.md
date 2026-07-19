@@ -609,16 +609,22 @@ git commit -m "feat: govern document lifecycle transitions"
 ### Task 4: Install event infrastructure without changing ingestion behavior
 
 **Files:**
+- Create: `backend/migrations/versions/<revision>_harden_transactional_outbox.py`
+- Modify: `backend/src/openrag/modules/events/models.py`
 - Modify: `backend/src/openrag/modules/documents/schemas.py`
 - Modify: `backend/src/openrag/api/routes/documents.py`
 - Create: `backend/src/openrag/modules/events/dispatcher.py`
 - Create: `backend/src/openrag/modules/events/envelopes.py`
+- Create: `backend/src/openrag/modules/events/streams.py`
 - Modify: `backend/src/openrag/worker/tasks.py`
+- Modify: `backend/src/openrag/worker/celery_app.py`
 - Modify: `backend/src/openrag/core/config.py`
+- Modify: `deploy/compose.yaml`
 - Modify: `backend/tests/api/test_documents_routes.py`
 - Create: `backend/tests/api/test_document_versions.py`
 - Create: `backend/tests/modules/events/test_dispatcher.py`
 - Create: `backend/tests/modules/events/test_envelopes.py`
+- Create: `backend/tests/integration/test_event_streams.py`
 - Create: `backend/tests/integration/test_upload_behavior_preserved.py`
 - Modify: `backend/tests/worker/test_celery.py`
 
@@ -633,6 +639,45 @@ git commit -m "feat: govern document lifecycle transitions"
 Cover all available routes, label normalization, client sequence rejection, bounded metadata, safe error codes, exact 404/403 behavior, transition `409`, upload compensation, and absence of storage keys/hashes/internal actor data. Assert approved/superseded content has no physical-delete action and nonlegacy version upload/retry remains unavailable until Task 6.
 
 Dispatcher tests cover bounded/versioned envelope parsing, unknown/malformed schema rejection, `SKIP LOCKED` batch claims, `lease_expires_at`, XADD outside SQL, crash after publish before mark, lease reclaim/duplicate publish, typed event-to-stream routing, payload redaction, and idempotent `XGROUP CREATE openrag:events:document-commands:v1 openrag-document-start-v1 0 MKSTREAM` plus the equivalent lifecycle command at worker startup.
+
+Before dispatcher code, add a forward migration that makes Outbox terminal and
+operational state truthful: bounded event/aggregate/dedupe/lease fields,
+`attempts >= 0`, `dead_lettered_at`, a bounded safe error code, optional published
+stream/message identifiers, and a partial claim index for unpublished,
+non-dead-lettered rows. A dead-lettered event is not marked normally published.
+The envelope and every registered payload are strict, frozen, versioned Pydantic
+contracts with timezone-aware UTC timestamps, `extra='forbid'`, deterministic
+encoding, and a 16 KiB maximum. Task 4 registers only the Task 3 lifecycle event;
+future ingestion/rebuild command types and their stream are provisioned but are
+not routable, emitted, or consumed until Task 6.
+
+The dispatcher claims at most 100 rows using database time and `FOR UPDATE SKIP
+LOCKED`, assigns a unique per-batch lease token, copies detached snapshots, and
+commits before validation or Redis I/O. XADD occurs with no SQL transaction.
+Successful rows are marked only by a conditional update matching the row ID and
+lease token. Redis outages leave valid events unpublished and reclaimable; only
+permanent contract failures enter a content-free operational DLQ. Crash after
+XADD and before the mark intentionally permits duplicate delivery, so consumers
+deduplicate by `(consumer,event_id)` and compare lifecycle revisions rather than
+trusting stream order.
+
+Use a separate `event_redis_url`, a dedicated `events` worker/queue, and an
+explicit periodic dispatcher (Celery beat or a dedicated async service).
+Provision streams/groups from the event component, not every legacy ingestion
+worker. Event readiness checks PostgreSQL, event Redis, and required groups;
+API readiness remains independent during this compatibility task. Production
+Redis enables AOF with persistent storage before any Outbox row may be treated
+as durably published. Do not trim command/lifecycle streams while pending
+consumer entries may exist; retention/pruning requires a later acknowledged
+watermark policy.
+
+Add real concurrency/crash tests for disjoint claimers, expired lease reclaim,
+lease theft, partial publish success, crash before/after XADD, duplicate publish,
+safe DLQ redaction, Inbox atomicity, ACK only after commit and outside SQL,
+idempotent/concurrent group creation, component-specific readiness, and event
+Redis failure while the separate Celery broker and direct legacy ingestion path
+remain healthy. Sentinel document text, prompts, object keys, hashes, credentials,
+and raw exception messages must appear in neither logs nor DLQ fields.
 
 The behavior-preservation integration test uploads and retries the exact Legacy-1 path through HTTP, proves the existing direct ingestion worker is invoked exactly once per attempt and still reaches the legacy expected terminal state, and asserts zero `document.version.ingestion_requested.v1`/`rebuild_requested.v1` outbox records, zero command-stream entries, and zero queued `IngestStageAttempt` rows. It also proves nonlegacy version ingestion cannot be invoked before Task 6. This prevents a half-migrated duplicate path at the Task 4 deployment boundary.
 
