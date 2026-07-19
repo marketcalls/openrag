@@ -817,6 +817,56 @@ def test_authority_upgrade_installs_scoped_version_and_signed_readiness_schema(
         for constraint in inspector.get_unique_constraints("document_versions")
     }
     assert version_uniques["uq_document_versions_org_id"] == ("org_id", "id")
+    assert version_uniques["uq_document_versions_org_workspace_document_id"] == (
+        "org_id",
+        "workspace_id",
+        "document_id",
+        "id",
+    )
+
+    decision_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("document_version_decision_records")
+    }
+    assert set(decision_columns) >= {
+        "org_id",
+        "workspace_id",
+        "document_id",
+        "document_version_id",
+        "lifecycle_revision",
+        "decision",
+        "actor_id",
+        "reason",
+        "created_at",
+    }
+    assert decision_columns["reason"]["nullable"] is True
+    decision_uniques = {
+        constraint["name"]: tuple(constraint["column_names"])
+        for constraint in inspector.get_unique_constraints(
+            "document_version_decision_records"
+        )
+    }
+    assert decision_uniques["uq_document_version_decision_records_version_revision"] == (
+        "org_id",
+        "document_version_id",
+        "lifecycle_revision",
+    )
+    decision_foreign_keys = {
+        foreign_key["name"]: tuple(foreign_key["constrained_columns"])
+        for foreign_key in inspector.get_foreign_keys(
+            "document_version_decision_records"
+        )
+    }
+    assert decision_foreign_keys["fk_document_version_decision_records_exact_version"] == (
+        "org_id",
+        "workspace_id",
+        "document_id",
+        "document_version_id",
+    )
+    assert decision_foreign_keys["fk_document_version_decision_records_org_actor"] == (
+        "org_id",
+        "actor_id",
+    )
 
     readiness_columns = {
         column["name"]: column for column in inspector.get_columns("document_authority_readiness")

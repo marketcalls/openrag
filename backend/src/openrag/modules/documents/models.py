@@ -102,6 +102,13 @@ class DocumentVersion(UUIDPk, Base):
             "id",
             name="uq_document_versions_org_workspace_id",
         ),
+        UniqueConstraint(
+            "org_id",
+            "workspace_id",
+            "document_id",
+            "id",
+            name="uq_document_versions_org_workspace_document_id",
+        ),
         UniqueConstraint("document_id", "id", name="uq_document_versions_document_id"),
         UniqueConstraint(
             "document_id", "sequence", name="uq_document_versions_document_sequence"
@@ -174,6 +181,9 @@ class DocumentVersion(UUIDPk, Base):
         ),
         CheckConstraint(
             "source_page_count IS NOT NULL OR "
+            "((version_label <> 'Legacy 1' AND version_key <> 'legacy 1') "
+            "AND state IN ('draft','processing','failed') "
+            "AND provenance_state <> 'ready') OR "
             "(sequence = 1 AND version_label = 'Legacy 1' AND version_key = 'legacy 1' "
             "AND ((state = 'approved' AND provenance_state = 'legacy_pending') "
             "OR (state = 'failed' AND provenance_state = 'none') "
@@ -257,6 +267,54 @@ class DocumentVersion(UUIDPk, Base):
     decision_at: Mapped[datetime | None] = mapped_column(default=None)
     processing_error_code: Mapped[str | None] = mapped_column(String(100), default=None)
     updated_at: Mapped[datetime] = mapped_column(default=naive_utc, onupdate=naive_utc)
+
+
+class DocumentVersionDecisionRecord(UUIDPk, Base):
+    __tablename__ = "document_version_decision_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "org_id",
+            "document_version_id",
+            "lifecycle_revision",
+            name="uq_document_version_decision_records_version_revision",
+        ),
+        CheckConstraint(
+            "lifecycle_revision > 0",
+            name="ck_document_version_decision_records_revision_positive",
+        ),
+        CheckConstraint(
+            "decision IN ('approved','rejected','obsolete','superseded')",
+            name="ck_document_version_decision_records_decision",
+        ),
+        CheckConstraint(
+            "reason IS NULL OR char_length(btrim(reason)) BETWEEN 1 AND 500",
+            name="ck_document_version_decision_records_reason_bounded",
+        ),
+        ForeignKeyConstraint(
+            ["org_id", "workspace_id", "document_id", "document_version_id"],
+            [
+                "document_versions.org_id",
+                "document_versions.workspace_id",
+                "document_versions.document_id",
+                "document_versions.id",
+            ],
+            name="fk_document_version_decision_records_exact_version",
+        ),
+        ForeignKeyConstraint(
+            ["org_id", "actor_id"],
+            ["users.org_id", "users.id"],
+            name="fk_document_version_decision_records_org_actor",
+        ),
+    )
+
+    org_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    workspace_id: Mapped[UUID] = mapped_column(index=True)
+    document_id: Mapped[UUID] = mapped_column(index=True)
+    document_version_id: Mapped[UUID] = mapped_column(index=True)
+    lifecycle_revision: Mapped[int]
+    decision: Mapped[str] = mapped_column(String(32))
+    actor_id: Mapped[UUID] = mapped_column(index=True)
+    reason: Mapped[str | None] = mapped_column(String(500), default=None)
 
 
 class DocumentBlock(UUIDPk, Base):

@@ -1,11 +1,21 @@
 import pytest
 
 from openrag.modules.documents.lifecycle import (
+    DocumentVersionDecision,
     InvalidDocumentTransition,
     ensure_transition,
     normalize_version_label,
     validate_section_path,
 )
+
+
+def test_document_version_decisions_are_explicitly_bounded() -> None:
+    assert {decision.value for decision in DocumentVersionDecision} == {
+        "approved",
+        "rejected",
+        "obsolete",
+        "superseded",
+    }
 
 
 def test_version_key_is_nfkc_casefolded_and_sequence_is_not_client_data() -> None:

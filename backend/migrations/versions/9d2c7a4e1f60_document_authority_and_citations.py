@@ -452,6 +452,19 @@ def _install_authority_triggers() -> None:
              AND OLD.provenance_state IS DISTINCT FROM NEW.provenance_state THEN
             RAISE EXCEPTION 'ready document provenance is immutable';
           END IF;
+          IF OLD.source_page_count IS DISTINCT FROM NEW.source_page_count THEN
+            IF OLD.source_page_count IS NOT NULL THEN
+              RAISE EXCEPTION 'document version page count is immutable once populated';
+            END IF;
+            IF NEW.source_page_count IS NULL OR NEW.source_page_count<=0
+               OR OLD.provenance_state='ready' OR NEW.provenance_state='ready'
+               OR NOT (
+                 OLD.state='processing'
+                 OR OLD.provenance_state IN ('building','legacy_pending')
+               ) THEN
+              RAISE EXCEPTION 'document version page count may populate only during rebuild';
+            END IF;
+          END IF;
           RETURN NEW;
         END $$;
         """
@@ -468,7 +481,8 @@ def _install_authority_triggers() -> None:
         CREATE FUNCTION openrag_validate_document_version_delete() RETURNS trigger
         LANGUAGE plpgsql AS $$
         BEGIN
-          IF OLD.state NOT IN ('draft','processing','rejected','failed') THEN
+          IF OLD.provenance_state='ready'
+             OR OLD.state NOT IN ('draft','processing','rejected','failed') THEN
             RAISE EXCEPTION 'governed document version history cannot be deleted';
           END IF;
           RETURN OLD;
@@ -480,6 +494,22 @@ def _install_authority_triggers() -> None:
         CREATE TRIGGER trg_document_versions_delete_lifecycle
         BEFORE DELETE ON document_versions FOR EACH ROW
         EXECUTE FUNCTION openrag_validate_document_version_delete();
+        """
+    )
+    op.execute(
+        """
+        CREATE FUNCTION openrag_protect_document_version_decision_record() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          RAISE EXCEPTION 'document version decision record is append-only';
+        END $$;
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_document_version_decision_records_append_only
+        BEFORE UPDATE OR DELETE ON document_version_decision_records FOR EACH ROW
+        EXECUTE FUNCTION openrag_protect_document_version_decision_record();
         """
     )
     op.execute(
@@ -720,6 +750,21 @@ def _install_authority_triggers() -> None:
         CREATE FUNCTION openrag_protect_terminal_readiness() RETURNS trigger
         LANGUAGE plpgsql AS $$
         BEGIN
+          IF TG_OP='INSERT' THEN
+            IF NEW.status<>'building' THEN
+              RAISE EXCEPTION 'readiness generation must begin in building state';
+            END IF;
+            IF NEW.payload_index_digest IS NOT NULL
+               OR NEW.provenance_digest IS NOT NULL
+               OR NEW.lifecycle_revision_digest IS NOT NULL
+               OR NEW.readiness_digest IS NOT NULL OR NEW.signature IS NOT NULL
+               OR NEW.checked_at IS NOT NULL
+               OR cardinality(NEW.blocker_codes)<>0
+               OR NEW.activated_at IS NOT NULL OR NEW.activated_by IS NOT NULL THEN
+              RAISE EXCEPTION 'building readiness initial result shape is invalid';
+            END IF;
+            RETURN NEW;
+          END IF;
           IF OLD.status IN ('stale','failed','activated') THEN
             RAISE EXCEPTION 'terminal readiness generation is immutable';
           END IF;
@@ -727,13 +772,17 @@ def _install_authority_triggers() -> None:
             IF NEW.status NOT IN ('building','passed','stale','failed') THEN
               RAISE EXCEPTION 'invalid readiness transition from building';
             END IF;
+            IF NEW.activated_at IS NOT NULL OR NEW.activated_by IS NOT NULL THEN
+              RAISE EXCEPTION 'readiness activation fields require passed-to-activated';
+            END IF;
             IF NEW.status='passed' AND (
               NEW.payload_index_digest IS NULL OR NEW.provenance_digest IS NULL
               OR NEW.lifecycle_revision_digest IS NULL
               OR NEW.readiness_digest IS NULL OR NEW.signature IS NULL
               OR NEW.checked_at IS NULL OR cardinality(NEW.blocker_codes)<>0
+              OR NEW.expires_at<=now()
             ) THEN
-              RAISE EXCEPTION 'passed readiness requires a complete signed result';
+              RAISE EXCEPTION 'passed readiness requires a complete signed result and unexpired generation';
             END IF;
           ELSIF OLD.status='passed' THEN
             IF NEW.status NOT IN ('stale','activated') THEN
@@ -770,11 +819,13 @@ def _install_authority_triggers() -> None:
             END IF;
             IF NEW.status='activated' AND (
               NEW.activated_at IS NULL OR NEW.activated_by IS NULL
+              OR NEW.expires_at<=now()
             ) THEN
-              RAISE EXCEPTION 'activated readiness requires actor and timestamp';
+              RAISE EXCEPTION 'activated readiness requires unexpired actor and timestamp';
             END IF;
-            IF NEW.status='stale' AND ROW(OLD.activated_at, OLD.activated_by)
-               IS DISTINCT FROM ROW(NEW.activated_at, NEW.activated_by) THEN
+            IF NEW.status='stale' AND (
+              NEW.activated_at IS NOT NULL OR NEW.activated_by IS NOT NULL
+            ) THEN
               RAISE EXCEPTION 'stale readiness cannot carry activation fields';
             END IF;
           ELSE
@@ -799,7 +850,7 @@ def _install_authority_triggers() -> None:
     op.execute(
         """
         CREATE TRIGGER trg_readiness_terminal_immutable
-        BEFORE UPDATE ON document_authority_readiness FOR EACH ROW
+        BEFORE INSERT OR UPDATE ON document_authority_readiness FOR EACH ROW
         EXECUTE FUNCTION openrag_protect_terminal_readiness();
         """
     )
@@ -836,7 +887,7 @@ def _install_authority_triggers() -> None:
             -- deletable state.
             RETURN OLD;
           END IF;
-          IF NOT FOUND OR NOT (
+          IF NOT FOUND OR owning_provenance='ready' OR NOT (
             owning_state='processing' OR owning_provenance='building'
           ) THEN
             RAISE EXCEPTION 'evidence artifact mutation requires processing/building owner';
@@ -882,18 +933,27 @@ def _drop_authority_triggers() -> None:
         "DROP TRIGGER IF EXISTS trg_document_versions_delete_lifecycle "
         "ON document_versions"
     )
+    op.execute(
+        "DROP TRIGGER IF EXISTS trg_document_version_decision_records_append_only "
+        "ON document_version_decision_records"
+    )
     op.execute("DROP TRIGGER IF EXISTS trg_document_versions_immutable ON document_versions")
     op.execute("DROP FUNCTION IF EXISTS openrag_protect_evidence_artifact()")
     op.execute("DROP FUNCTION IF EXISTS openrag_protect_terminal_calibration()")
     op.execute("DROP FUNCTION IF EXISTS openrag_protect_terminal_readiness()")
     op.execute("DROP FUNCTION IF EXISTS openrag_validate_message_final_state()")
     op.execute("DROP FUNCTION IF EXISTS openrag_validate_citation_write()")
+    op.execute("DROP FUNCTION IF EXISTS openrag_protect_document_version_decision_record()")
     op.execute("DROP FUNCTION IF EXISTS openrag_validate_document_version_delete()")
     op.execute("DROP FUNCTION IF EXISTS openrag_validate_document_version_update()")
 
 
 def _downgrade_preflight(connection: sa.Connection) -> None:
     checks = (
+        (
+            "SELECT EXISTS(SELECT 1 FROM document_version_decision_records)",
+            "document version decision record",
+        ),
         (
             "SELECT EXISTS(SELECT 1 FROM workspaces WHERE document_authority_enabled)",
             "enabled workspace",
@@ -1339,7 +1399,7 @@ def upgrade() -> None:
             name="ck_document_versions_provenance_state",
         ),
         sa.CheckConstraint(
-            "source_page_count IS NOT NULL OR (sequence = 1 AND version_label = 'Legacy 1' AND version_key = 'legacy 1' AND ((state = 'approved' AND provenance_state = 'legacy_pending') OR (state = 'failed' AND provenance_state = 'none') OR (state = 'processing' AND provenance_state = 'none')))",
+            "source_page_count IS NOT NULL OR ((version_label <> 'Legacy 1' AND version_key <> 'legacy 1') AND state IN ('draft','processing','failed') AND provenance_state <> 'ready') OR (sequence = 1 AND version_label = 'Legacy 1' AND version_key = 'legacy 1' AND ((state = 'approved' AND provenance_state = 'legacy_pending') OR (state = 'failed' AND provenance_state = 'none') OR (state = 'processing' AND provenance_state = 'none')))",
             name="ck_document_versions_page_count_or_exact_legacy",
         ),
         sa.CheckConstraint(
@@ -1424,6 +1484,13 @@ def upgrade() -> None:
         sa.UniqueConstraint(
             "org_id", "workspace_id", "id", name="uq_document_versions_org_workspace_id"
         ),
+        sa.UniqueConstraint(
+            "org_id",
+            "workspace_id",
+            "document_id",
+            "id",
+            name="uq_document_versions_org_workspace_document_id",
+        ),
     )
     op.create_index(
         op.f("ix_document_versions_document_id"), "document_versions", ["document_id"], unique=False
@@ -1447,6 +1514,67 @@ def upgrade() -> None:
         unique=False,
     )
     _backfill_versions_and_jobs(connection)
+    op.create_table(
+        "document_version_decision_records",
+        sa.Column("org_id", sa.Uuid(), nullable=False),
+        sa.Column("workspace_id", sa.Uuid(), nullable=False),
+        sa.Column("document_id", sa.Uuid(), nullable=False),
+        sa.Column("document_version_id", sa.Uuid(), nullable=False),
+        sa.Column("lifecycle_revision", sa.Integer(), nullable=False),
+        sa.Column("decision", sa.String(length=32), nullable=False),
+        sa.Column("actor_id", sa.Uuid(), nullable=False),
+        sa.Column("reason", sa.String(length=500), nullable=True),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.CheckConstraint(
+            "lifecycle_revision > 0",
+            name="ck_document_version_decision_records_revision_positive",
+        ),
+        sa.CheckConstraint(
+            "decision IN ('approved','rejected','obsolete','superseded')",
+            name="ck_document_version_decision_records_decision",
+        ),
+        sa.CheckConstraint(
+            "reason IS NULL OR char_length(btrim(reason)) BETWEEN 1 AND 500",
+            name="ck_document_version_decision_records_reason_bounded",
+        ),
+        sa.ForeignKeyConstraint(
+            ["org_id", "workspace_id", "document_id", "document_version_id"],
+            [
+                "document_versions.org_id",
+                "document_versions.workspace_id",
+                "document_versions.document_id",
+                "document_versions.id",
+            ],
+            name="fk_document_version_decision_records_exact_version",
+        ),
+        sa.ForeignKeyConstraint(
+            ["org_id", "actor_id"],
+            ["users.org_id", "users.id"],
+            name="fk_document_version_decision_records_org_actor",
+        ),
+        sa.ForeignKeyConstraint(["org_id"], ["organizations.id"]),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "org_id",
+            "document_version_id",
+            "lifecycle_revision",
+            name="uq_document_version_decision_records_version_revision",
+        ),
+    )
+    for column in (
+        "actor_id",
+        "document_id",
+        "document_version_id",
+        "org_id",
+        "workspace_id",
+    ):
+        op.create_index(
+            op.f(f"ix_document_version_decision_records_{column}"),
+            "document_version_decision_records",
+            [column],
+            unique=False,
+        )
     op.create_table(
         "grounding_calibration_runs",
         sa.Column("generation_id", sa.Uuid(), nullable=False),
@@ -2105,6 +2233,18 @@ def downgrade() -> None:
         op.f("ix_grounding_calibration_runs_org_id"), table_name="grounding_calibration_runs"
     )
     op.drop_table("grounding_calibration_runs")
+    for column in (
+        "actor_id",
+        "document_id",
+        "document_version_id",
+        "org_id",
+        "workspace_id",
+    ):
+        op.drop_index(
+            op.f(f"ix_document_version_decision_records_{column}"),
+            table_name="document_version_decision_records",
+        )
+    op.drop_table("document_version_decision_records")
     op.drop_index(op.f("ix_document_versions_workspace_id"), table_name="document_versions")
     op.drop_index(op.f("ix_document_versions_state"), table_name="document_versions")
     op.drop_index(op.f("ix_document_versions_provenance_state"), table_name="document_versions")

@@ -41,6 +41,13 @@ class ProvenanceState(StrEnum):
     FAILED = "failed"
 
 
+class DocumentVersionDecision(StrEnum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    OBSOLETE = "obsolete"
+    SUPERSEDED = "superseded"
+
+
 class AnswerStatus(StrEnum):
     GROUNDED = "grounded"
     CITED_CONFLICT = "cited_conflict"

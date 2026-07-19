@@ -52,14 +52,19 @@ The old path is temporary deployment compatibility, not acceptable final state. 
 - Object-ID reads/mutations first establish an authorized workspace object scope. Foreign organization, foreign workspace, or non-member object IDs return `404`.
 - Within an accessible workspace, a caller lacking the exact mutation capability receives `403` without state change.
 - `document.read`: logical document/version/provenance/history reads and cited evidence.
-- `document.upload`: create logical documents/versions, edit logical metadata, retry failed processing, and physically delete only never-approved draft/rejected/failed content.
+- `document.upload`: create logical documents/versions, edit logical metadata,
+  retry failed processing, and physically delete only never-approved
+  draft/failed content or rejected content with no retained governance decision.
+  Once a decision record exists, external source/provenance may be purged under
+  the deletion workflow but the rejected version metadata remains as a
+  governance tombstone.
 - `document.approve`: approve, reject, obsolete, and supersede through approval.
 - `rag.evaluate`: run verifier calibration and activate a passing grounding policy/cutover readiness report.
 - `model.configure`: bind an approved verifier model to a grounding policy. Binding and activation together require both `model.configure` and `rag.evaluate`.
 
 ## Lock order and race contract
 
-All mutations use this order: workspace authorization read → logical `Document FOR UPDATE` → affected `DocumentVersion` rows ordered by UUID `FOR UPDATE` → projection/policy row → message → citations. Never lock versions before the logical document. Race suites cover two successor approvals, approve-vs-obsolete, retry-vs-delete, delete-vs-approve, lifecycle event reordering, authorization revocation during generation, supersession after retrieval, and projection lag at final release.
+All mutations use this order: workspace authorization read → logical `Document FOR UPDATE` → affected `DocumentVersion` rows ordered by UUID `FOR UPDATE` → projection/policy row → message → citations. Never lock versions before the logical document. Race suites cover two successor approvals, approve-vs-obsolete, approve-vs-reject, retry-vs-delete, lifecycle event reordering, authorization revocation during generation, supersession after retrieval, and projection lag at final release.
 
 ## File boundaries
 
@@ -199,6 +204,7 @@ Add these named parent keys and composite foreign keys:
 workspaces UNIQUE(org_id,id)
 documents UNIQUE(org_id,workspace_id,id), FK(org_id,workspace_id)->workspaces
 document_versions UNIQUE(org_id,id), UNIQUE(org_id,document_id,id), UNIQUE(document_id,id),
+  UNIQUE(org_id,workspace_id,document_id,id),
   FK(org_id,workspace_id,document_id)->documents(org_id,workspace_id,id),
   FK(document_id,superseded_by_id)->document_versions(document_id,id)
 document_blocks UNIQUE(org_id,document_version_id,id), FK(org_id,document_version_id)->versions
@@ -222,6 +228,11 @@ documents FK(org_id,owner_id)->users(org_id,id), FK(org_id,created_by)->users(or
 document_versions FK(org_id,created_by)->users(org_id,id),
   FK(org_id,approved_by)->users(org_id,id), FK(org_id,rejected_by)->users(org_id,id),
   FK(org_id,obsolete_by)->users(org_id,id)
+document_version_decision_records
+  FK(org_id,workspace_id,document_id,document_version_id)->
+    document_versions(org_id,workspace_id,document_id,id),
+  FK(org_id,actor_id)->users(org_id,id),
+  UNIQUE(org_id,document_version_id,lifecycle_revision)
 ```
 
 `DocumentVersion` has database-authoritative `sequence`, immutable display `version_label`, immutable normalized `version_key`, `lifecycle_revision >= 1`, and `provenance_state`. Unique keys are `(document_id,sequence)`, `(document_id,version_key)`, and `(document_id,content_hash)`.
@@ -235,6 +246,14 @@ document_versions FK(org_id,created_by)->users(org_id,id),
 `GroundingPolicy` stores immutable policy version, verifier model ID/binding revision/credential fingerprint, entailment threshold `[0,1]`, calibration dataset version/hash, sample count, measured false-support/false-refusal rates, status `draft|passed|active|retired`, `effective_at`, `expires_at`, and timestamps. A workspace references at most one active unexpired policy.
 
 `GroundingCalibrationRun` is the durable asynchronous request/result record keyed by tenant/workspace/policy/run generation. It stores idempotency digest, requested binding/preset/credential fingerprints, state `queued|running|passed|failed`, lease/checkpoint/attempt fields, safe aggregate result fields, and timestamps; it never stores prompts, evidence text, credentials, or provider responses.
+
+`DocumentVersionDecisionRecord` is immutable tenant-scoped governance history:
+exact org/workspace/document/version identity, positive lifecycle revision,
+decision `approved|rejected|obsolete|superseded`, same-tenant actor, optional
+reason whose trimmed length is 1–500, and creation timestamp. One decision may
+exist per version lifecycle revision. Database UPDATE and DELETE are forbidden,
+the version foreign key is restrictive rather than cascading, and downgrade
+fails closed while any decision record exists.
 
 `Model` gains bounded server-validated capability booleans `supports_chat_completion`, `supports_structured_json`, and `supports_verifier`, plus immutable `provider_preset_version`. These are not accepted as arbitrary client truth: model validation sets them from the curated provider preset and a bounded live capability check.
 
@@ -408,9 +427,13 @@ workspace.document_authority_enabled -> false
 ```
 
 The version provenance constraint has exactly two mutually exclusive shapes.
-New authority versions require complete source identity, a positive page count,
-and all five explicit processing profiles (`none/v1` is the native non-OCR
-sentinel). The bounded legacy shape still requires source filename, MIME, size,
+New authority versions require complete source identity and all five explicit
+processing profiles (`none/v1` is the native non-OCR sentinel). Their page count
+may be null only while the version is `draft`, `processing`, or `failed` and
+provenance is not ready; `review`, `approved`, `rejected`, `superseded`, and
+`obsolete` require a positive page count. Parsing may set page count exactly
+once from null to a positive value while processing/building; after that it is
+immutable. The bounded legacy shape still requires source filename, MIME, size,
 canonical content hash, storage key, and all five exact `legacy/...` profile
 sentinels above, but permits a null page count only for sequence 1 with
 `Legacy 1` / `legacy 1` and exactly one of:
@@ -430,13 +453,14 @@ Retain old document source columns and `ingest_jobs.document_id` as nullable com
 
 Add `outbox_events.lease_owner` and `lease_expires_at` as nullable indexed dispatcher-claim fields, and add the composite chat/message/citation parent keys enumerated in Task 1. Backfill message org/workspace from its chat before setting non-null. Backfill ingest-job org/document/version from the legacy document before adding its composite version foreign key.
 
-Add the three model capability booleans defaulting false and nullable `provider_preset_version`; no legacy model is silently verifier-capable. Add `ingest_stage_attempts`, `legacy_rebuild_scan_checkpoints`, grounding-policy binding, `grounding_calibration_runs`, version projection, and readiness-generation tables/constraints from Task 1—including request digests, leases, attempts, policy/model snapshots, and terminal-state immutability—so later worker/API tasks require no unplanned DDL.
+Add the three model capability booleans defaulting false and nullable `provider_preset_version`; no legacy model is silently verifier-capable. Add `ingest_stage_attempts`, `legacy_rebuild_scan_checkpoints`, grounding-policy binding, `grounding_calibration_runs`, version projection, and readiness-generation tables/constraints from Task 1—including request digests, leases, attempts, policy/model snapshots, and terminal-state immutability—so later worker/API tasks require no unplanned DDL. Add an append-only tenant-scoped document-version decision record so bounded approval/rejection/obsoletion reasons are preserved as governance data rather than discarded or copied into operational audit/event payloads.
 
 - [ ] **Step 3: Add database immutability and state triggers**
 
 Create named PostgreSQL functions/triggers that:
 
-- reject updates to version org/document/sequence/label/key/source filename/MIME/size/hash/storage key/revision/effective/expiry fields;
+- reject updates to version org/document/sequence/label/key/source filename/MIME/size/hash/storage key/revision/effective/expiry fields; permit only the controlled null-to-positive page-count write described above and freeze it thereafter;
+- reject UPDATE or DELETE of document-version decision records;
 - reject updates to citation snapshots;
 - validate JSONB section/claim arrays by type, element count/length, and `pg_column_size`;
 - on `Message INSERT OR UPDATE`, require user messages to have null answer/refusal state, refused messages to have a refusal reason and zero citations, and grounded/conflict assistant messages to have at least one authority citation at transaction end; explicitly exclude `legacy_unverified` rows from this count;
@@ -504,16 +528,21 @@ git commit -m "feat: migrate authoritative document history"
 **Files:**
 - Create: `backend/src/openrag/modules/documents/events.py`
 - Modify: `backend/src/openrag/modules/documents/service.py`
+- Modify: `backend/src/openrag/modules/documents/ingest.py`
+- Modify: `backend/src/openrag/api/routes/documents.py`
+- Modify: `backend/src/openrag/worker/tasks.py`
 - Test: `backend/tests/modules/documents/test_service.py`
 - Create: `backend/tests/isolation/test_document_version_isolation.py`
+- Modify: `backend/tests/modules/documents/test_ingest.py`
+- Modify: `backend/tests/api/test_documents_routes.py`
 
 **Interfaces:**
-- Produces `PreparedUpload`, `authorize_upload_scope`, `create_document_record`, `create_version_record`, `approve_version`, `reject_version`, `obsolete_version`, `retry_version`, and checked read/list functions.
+- Produces `PreparedUpload`, `authorize_upload_scope`, `create_document_record`, `create_version_record`, `approve_version`, `reject_version`, `obsolete_version`, `retry_version`, `request_document_deletion`, and checked read/list functions.
 - Produces content-free `DocumentVersionEventV1` with lifecycle revision.
 
 - [ ] **Step 1: Write RED service, oracle, capability, and race tests**
 
-Test the authorization matrix above and explicit races: two successors approved concurrently; approve-vs-obsolete; retry-vs-delete; delete-vs-approve. Assert one legal result, one `ConflictError`, consistent supersession, monotonic revisions, deterministic lock order, and no partial audit/outbox rows.
+Test the authorization matrix above and explicit races: two successors approved concurrently; approve-vs-obsolete; approve-vs-reject for the same review candidate; and retry-vs-delete. Each contender captures the same pre-lock lifecycle/incumbent revision snapshot. Assert one legal result, one `ConflictError`, consistent supersession, monotonic revisions, deterministic lock order, and no partial decision/audit/outbox rows.
 
 ```python
 async def test_accessible_object_without_approve_is_403(session):
@@ -534,9 +563,11 @@ Expected: FAIL on missing services.
 
 - [ ] **Step 2: Implement short transaction commands**
 
-Use the global lock order. Approval requires a locked `review` candidate, `effective_at <= now` when present, and non-expired state. It increments both changed versions’ lifecycle revisions, supersedes the old approved row, approves the candidate, writes audit/outbox rows, and commits. Sequence is allocated as `max(sequence)+1` under the document lock; clients never provide it. Normalize/reject duplicate/confusable version labels before object I/O.
+Use the global lock order. Commands capture candidate lifecycle revision and the current-approved ID/revision before waiting for the document lock, then reject drift after locking; serialization alone must not turn two stale competing commands into two valid sequential decisions. Approval requires a locked `review` candidate, ready provenance, a positive page count, `effective_at <= now` when present, and non-expired state. It increments both changed versions’ lifecycle revisions, supersedes the old approved row, approves the candidate, writes immutable decision/audit/outbox rows, and commits. Sequence is allocated as `max(sequence)+1` under the document lock; clients never provide it. Normalize/reject duplicate/confusable version labels before object I/O.
 
-Upload flow is authorize in a short transaction → release session transaction → object write to `{org}/{workspace}/{document}/{version}/source` → reauthorize and create record in a new short transaction → compensate object deletion after rollback on failure. Tests assert `session.in_transaction()` is false at storage calls.
+Upload flow is authorize in a short transaction → release session transaction → object write to `{org}/{workspace}/{document}/{version}/source` → reauthorize and create a processing record with unknown page count in a new short transaction → compensate object deletion after rollback on failure. Tests assert `session.in_transaction()` is false at storage calls. Page count is populated only by the parser through the controlled one-way write before review.
+
+Replace the legacy document-delete escape hatch in this task. Object-ID deletion requires `document.upload`, marks only never-approved draft/rejected/failed content as deleting in a committed short transaction, performs Qdrant/object cleanup without an open SQL transaction, and then removes rows in a second locked transaction. Retries resume the deleting marker; governed/processing content is never physically removed, and external cleanup can never run before authorization/state is durably captured. A rejected version with an append-only decision record is governance history: purge its external object, vector projection, and derived provenance, but retain a metadata tombstone because the restrictive decision FK must never be bypassed or cascaded. Before implementing that path, Task 3 must add an explicit bounded deletion/tombstone marker (for example `source_deleted_at`) through a reviewed forward migration; it must not overload lifecycle state or fabricate source identity.
 
 - [ ] **Step 3: Add durable content-free events**
 
@@ -556,6 +587,8 @@ class DocumentVersionEventV1(BaseModel):
 
 Deduplicate by `document-version:{version_id}:{lifecycle_revision}`. Events contain no name, filename, reason text, source hash, or content. Audit actions use identifiers only.
 
+Bounded decision reasons are written only to append-only governance decision records. They are never copied into audit records, outbox events, logs, or operational errors.
+
 This task introduces lifecycle event types only. It deliberately leaves the existing ingestion scheduling path unchanged so an intermediate deployment cannot create both a legacy task and a dormant start command. Task 4 installs behavior-preserving event infrastructure; Task 6 atomically adds the start consumer and runnable executor, inserts ingestion-request outbox commands, and removes direct enqueue in one green commit.
 
 Run: `cd backend && uv run pytest tests/modules/documents/test_service.py tests/isolation/test_document_version_isolation.py -q`
@@ -566,8 +599,10 @@ Expected: PASS.
 
 ```bash
 git add backend/src/openrag/modules/documents/events.py \
-  backend/src/openrag/modules/documents/service.py backend/tests/modules/documents/test_service.py \
-  backend/tests/isolation/test_document_version_isolation.py
+  backend/src/openrag/modules/documents/service.py backend/src/openrag/modules/documents/ingest.py \
+  backend/src/openrag/api/routes/documents.py backend/src/openrag/worker/tasks.py \
+  backend/tests/modules/documents/test_service.py backend/tests/modules/documents/test_ingest.py \
+  backend/tests/api/test_documents_routes.py backend/tests/isolation/test_document_version_isolation.py
 git commit -m "feat: govern document lifecycle transitions"
 ```
 
@@ -589,17 +624,17 @@ git commit -m "feat: govern document lifecycle transitions"
 
 **Interfaces:**
 - Produces safe `DocumentOut`, `DocumentDetailOut`, `DocumentVersionOut`, `DocumentPatch`, and `DocumentVersionDecision`.
-- Routes: document list/detail/patch, version list/detail/upload, approve/reject/obsolete/retry.
+- Routes: document list/detail/patch, version list/detail, and approve/reject/obsolete. New nonlegacy version upload/retry routes are enabled only in Task 6 with the runnable version-aware pipeline.
 - Produces generic bounded event-envelope parsing, transactional-outbox dispatch, typed stream routing, and idempotent Redis stream/group provisioning.
 - Is behavior-preserving for ingestion: the existing direct ingestion path remains enabled and no ingestion/rebuild start command is emitted or consumed in this task.
 
 - [ ] **Step 1: Write RED API, dispatcher, envelope, and behavior-preservation tests**
 
-Cover all routes, label normalization, client sequence rejection, bounded metadata, safe error codes, exact 404/403 behavior, transition `409`, upload compensation, and absence of storage keys/hashes/internal actor data. Assert approved/superseded content has no physical-delete action.
+Cover all available routes, label normalization, client sequence rejection, bounded metadata, safe error codes, exact 404/403 behavior, transition `409`, upload compensation, and absence of storage keys/hashes/internal actor data. Assert approved/superseded content has no physical-delete action and nonlegacy version upload/retry remains unavailable until Task 6.
 
 Dispatcher tests cover bounded/versioned envelope parsing, unknown/malformed schema rejection, `SKIP LOCKED` batch claims, `lease_expires_at`, XADD outside SQL, crash after publish before mark, lease reclaim/duplicate publish, typed event-to-stream routing, payload redaction, and idempotent `XGROUP CREATE openrag:events:document-commands:v1 openrag-document-start-v1 0 MKSTREAM` plus the equivalent lifecycle command at worker startup.
 
-The behavior-preservation integration test uploads and retries through HTTP, proves the existing direct ingestion worker is invoked exactly once per attempt and still reaches the legacy expected terminal state, and asserts zero `document.version.ingestion_requested.v1`/`rebuild_requested.v1` outbox records, zero command-stream entries, and zero queued `IngestStageAttempt` rows. This prevents a half-migrated duplicate path at the Task 4 deployment boundary.
+The behavior-preservation integration test uploads and retries the exact Legacy-1 path through HTTP, proves the existing direct ingestion worker is invoked exactly once per attempt and still reaches the legacy expected terminal state, and asserts zero `document.version.ingestion_requested.v1`/`rebuild_requested.v1` outbox records, zero command-stream entries, and zero queued `IngestStageAttempt` rows. It also proves nonlegacy version ingestion cannot be invoked before Task 6. This prevents a half-migrated duplicate path at the Task 4 deployment boundary.
 
 Run: `cd backend && uv run pytest tests/api/test_documents_routes.py tests/api/test_document_versions.py tests/modules/events/test_dispatcher.py tests/modules/events/test_envelopes.py tests/integration/test_upload_behavior_preserved.py tests/worker/test_celery.py -q`
 
@@ -615,7 +650,7 @@ At worker startup, `ensure_event_streams` idempotently creates `openrag:events:d
 
 `DocumentVersionDecision.reason` is optional and ≤500 characters. `DocumentPatch` bounds name 255, department/type 120, and external identifier 255. `DocumentVersionOut` exposes sequence, display label, state, provenance/readiness, safe error code, dates, page count, and lifecycle revision; it excludes object keys, hashes, projection internals, and raw parser errors.
 
-Routes use the existing service/direct-ingestion orchestration unchanged for initial upload, new version, and retry. Do not write an ingestion/rebuild start outbox event, do not add a start consumer, and do not remove or bypass the working direct enqueue. Task 6 performs that behavior change only after page-local persistence, authority storage, start consumption, and runnable stage execution all exist in the same commit.
+Routes use the existing service/direct-ingestion orchestration unchanged only for initial Legacy-1 upload/retry. They do not expose new nonlegacy version ingestion yet. Do not write an ingestion/rebuild start outbox event, do not add a start consumer, and do not remove or bypass the working direct enqueue. Task 6 atomically exposes nonlegacy version upload/retry and performs the behavior change only after page-local persistence, authority storage, start consumption, and runnable version-aware stage execution all exist in the same commit.
 
 Run: `cd backend && uv run pytest tests/api/test_documents_routes.py tests/api/test_document_versions.py tests/modules/events/test_dispatcher.py tests/modules/events/test_envelopes.py tests/integration/test_upload_behavior_preserved.py tests/worker/test_celery.py -q`
 

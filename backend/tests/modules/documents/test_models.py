@@ -15,6 +15,7 @@ from openrag.modules.documents.models import (
     DocumentChunkBlock,
     DocumentEvidenceSpan,
     DocumentVersion,
+    DocumentVersionDecisionRecord,
     DocumentVersionProjection,
     IngestJob,
     IngestStageAttempt,
@@ -85,6 +86,53 @@ def test_legacy_mirrors_match_task_two_expand_target() -> None:
     assert "uq_documents_workspace_hash" not in {
         constraint.name for constraint in document_table.constraints
     }
+
+
+def test_version_decision_model_declares_exact_scope_and_append_ledger_shape() -> None:
+    table = DocumentVersionDecisionRecord.__table__
+    assert set(table.c.keys()) >= {
+        "org_id",
+        "workspace_id",
+        "document_id",
+        "document_version_id",
+        "lifecycle_revision",
+        "decision",
+        "actor_id",
+        "reason",
+        "id",
+        "created_at",
+    }
+    assert table.c.reason.type.length == 500
+    assert table.c.reason.nullable is True
+    constraints = {constraint.name: constraint for constraint in table.constraints}
+    assert set(constraints) >= {
+        "uq_document_version_decision_records_version_revision",
+        "ck_document_version_decision_records_revision_positive",
+        "ck_document_version_decision_records_decision",
+        "ck_document_version_decision_records_reason_bounded",
+        "fk_document_version_decision_records_exact_version",
+        "fk_document_version_decision_records_org_actor",
+    }
+    assert str(
+        constraints["ck_document_version_decision_records_reason_bounded"].sqltext
+    ) == "reason IS NULL OR char_length(btrim(reason)) BETWEEN 1 AND 500"
+    assert [
+        column.name
+        for column in constraints[
+            "fk_document_version_decision_records_exact_version"
+        ].columns
+    ] == ["org_id", "workspace_id", "document_id", "document_version_id"]
+    assert [
+        element.target_fullname
+        for element in constraints[
+            "fk_document_version_decision_records_exact_version"
+        ].elements
+    ] == [
+        "document_versions.org_id",
+        "document_versions.workspace_id",
+        "document_versions.document_id",
+        "document_versions.id",
+    ]
 
 
 async def seed_document_version(
