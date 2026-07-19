@@ -8,12 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from openrag.core.db import naive_utc
 from openrag.modules.auth.models import User
+from openrag.modules.documents import start_events
 from openrag.modules.documents.models import (
     Document,
     DocumentVersion,
     IngestStageAttempt,
 )
-from openrag.modules.documents.start_events import consume_document_start
+from openrag.modules.documents.start_events import (
+    consume_document_start,
+    consume_document_start_batch,
+)
 from openrag.modules.events.consumer import StreamDelivery
 from openrag.modules.events.envelopes import (
     DocumentVersionIngestionRequestedV1,
@@ -253,3 +257,112 @@ async def test_stale_start_is_not_queued_and_terminal_delivery_uses_command_dlq(
         b"source_stream",
     }
     assert [name for name, _ in redis.calls] == ["xadd", "waitaof", "xack"]
+
+
+class BatchRedis:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def xautoclaim(self, **kwargs: object) -> tuple[bytes, list[object], list[object]]:
+        self.calls.append("xautoclaim")
+        assert kwargs["min_idle_time"] == 30_000
+        return (
+            b"0-0",
+            [(b"1700000000000-0", {b"envelope_bytes": b"a", b"envelope_digest": b"b"})],
+            [],
+        )
+
+    async def xreadgroup(self, **kwargs: object) -> list[object]:
+        self.calls.append("xreadgroup")
+        assert kwargs["streams"] == {DOCUMENT_COMMANDS_STREAM: ">"}
+        return [
+            (
+                DOCUMENT_COMMANDS_STREAM.encode(),
+                [
+                    (
+                        b"1700000000001-0",
+                        {b"envelope_bytes": b"c", b"envelope_digest": b"d"},
+                    )
+                ],
+            )
+        ]
+
+    async def xpending_range(self, **kwargs: object) -> list[dict[str, object]]:
+        self.calls.append("xpending_range")
+        return [
+            {"message_id": b"1700000000000-0", "times_delivered": 8},
+            {"message_id": b"1700000000001-0", "times_delivered": 1},
+        ]
+
+    async def xadd(self, name: str, fields: dict[bytes, bytes]) -> bytes:
+        raise AssertionError((name, fields))
+
+    async def waitaof(
+        self, num_local: int, num_replicas: int, timeout: int
+    ) -> object:
+        raise AssertionError((num_local, num_replicas, timeout))
+
+    async def xack(self, name: str, groupname: str, *ids: str) -> object:
+        raise AssertionError((name, groupname, ids))
+
+
+async def test_batch_reader_reclaims_before_fresh_and_preserves_delivery_counts(
+    engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis = BatchRedis()
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    deliveries: list[StreamDelivery] = []
+
+    async def consume(
+        _factory: async_sessionmaker[AsyncSession],
+        _redis: object,
+        delivery: StreamDelivery,
+    ) -> str:
+        deliveries.append(delivery)
+        return "processed"
+
+    monkeypatch.setattr(start_events, "consume_document_start", consume)
+
+    result = await consume_document_start_batch(
+        factory,
+        redis,  # type: ignore[arg-type]
+        consumer="worker-a",
+        batch_size=2,
+        reclaim_idle_ms=30_000,
+    )
+
+    assert redis.calls == ["xautoclaim", "xreadgroup", "xpending_range"]
+    assert [delivery.message_id for delivery in deliveries] == [
+        "1700000000000-0",
+        "1700000000001-0",
+    ]
+    assert [delivery.delivery_count for delivery in deliveries] == [8, 1]
+    assert result == {
+        "claimed": 1,
+        "fresh": 1,
+        "processed": 2,
+        "duplicate": 0,
+        "pending": 0,
+        "deferred": 0,
+        "rejected": 0,
+    }
+
+
+@pytest.mark.parametrize(
+    ("batch_size", "reclaim_idle_ms"),
+    [(0, 30_000), (101, 30_000), (1, 29_999)],
+)
+async def test_batch_reader_rejects_unbounded_configuration(
+    engine: AsyncEngine,
+    batch_size: int,
+    reclaim_idle_ms: int,
+) -> None:
+    with pytest.raises(ValueError, match="invalid"):
+        await consume_document_start_batch(
+            async_sessionmaker(engine, expire_on_commit=False),
+            BatchRedis(),  # type: ignore[arg-type]
+            consumer="worker-a",
+            batch_size=batch_size,
+            reclaim_idle_ms=reclaim_idle_ms,
+        )

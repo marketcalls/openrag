@@ -1,6 +1,7 @@
 """Replay-safe transaction boundary for document ingestion start commands."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from typing import Protocol
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -33,6 +34,15 @@ from openrag.modules.events.streams import (
 )
 
 DOCUMENT_START_CONSUMER = "document-starts-v1"
+_MAX_START_BATCH = 100
+
+
+class DocumentStartRedis(ConsumerRedis, Protocol):
+    async def xautoclaim(self, **kwargs: object) -> object: ...
+
+    async def xreadgroup(self, **kwargs: object) -> object: ...
+
+    async def xpending_range(self, **kwargs: object) -> object: ...
 
 
 def _parse_start_command(encoded: bytes) -> EventEnvelopeBase:
@@ -165,3 +175,159 @@ async def consume_document_start(
         expected_group=DOCUMENT_COMMANDS_GROUP,
         dlq_stream=DOCUMENT_COMMANDS_DLQ_STREAM,
     )
+
+
+def _text(value: object) -> str:
+    if isinstance(value, bytes):
+        try:
+            return value.decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError("document_start_stream_invalid") from exc
+    if isinstance(value, str):
+        return value
+    raise RuntimeError("document_start_stream_invalid")
+
+
+def _messages(value: object) -> list[tuple[str, Mapping[bytes, bytes]]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise RuntimeError("document_start_stream_invalid")
+    messages: list[tuple[str, Mapping[bytes, bytes]]] = []
+    for item in value:
+        if (
+            not isinstance(item, Sequence)
+            or isinstance(item, (str, bytes))
+            or len(item) != 2
+            or not isinstance(item[1], Mapping)
+        ):
+            raise RuntimeError("document_start_stream_invalid")
+        fields = item[1]
+        if not all(
+            isinstance(key, bytes) and isinstance(field, bytes)
+            for key, field in fields.items()
+        ):
+            raise RuntimeError("document_start_stream_invalid")
+        messages.append((_text(item[0]), fields))
+    return messages
+
+
+def _claimed_messages(value: object) -> list[tuple[str, Mapping[bytes, bytes]]]:
+    if (
+        not isinstance(value, Sequence)
+        or isinstance(value, (str, bytes))
+        or len(value) < 2
+    ):
+        raise RuntimeError("document_start_stream_invalid")
+    return _messages(value[1])
+
+
+def _fresh_messages(value: object) -> list[tuple[str, Mapping[bytes, bytes]]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise RuntimeError("document_start_stream_invalid")
+    messages: list[tuple[str, Mapping[bytes, bytes]]] = []
+    for stream_result in value:
+        if (
+            not isinstance(stream_result, Sequence)
+            or isinstance(stream_result, (str, bytes))
+            or len(stream_result) != 2
+            or _text(stream_result[0]) != DOCUMENT_COMMANDS_STREAM
+        ):
+            raise RuntimeError("document_start_stream_invalid")
+        messages.extend(_messages(stream_result[1]))
+    return messages
+
+
+def _delivery_counts(value: object) -> dict[str, int]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise RuntimeError("document_start_pending_invalid")
+    counts: dict[str, int] = {}
+    for row in value:
+        if not isinstance(row, Mapping):
+            raise RuntimeError("document_start_pending_invalid")
+        message_id = row.get("message_id", row.get(b"message_id"))
+        delivered = row.get("times_delivered", row.get(b"times_delivered"))
+        if not isinstance(delivered, int) or delivered < 1:
+            raise RuntimeError("document_start_pending_invalid")
+        counts[_text(message_id)] = delivered
+    return counts
+
+
+async def consume_document_start_batch(
+    session_factory: async_sessionmaker[AsyncSession],
+    redis: DocumentStartRedis,
+    *,
+    consumer: str,
+    batch_size: int = 20,
+    reclaim_idle_ms: int = 30_000,
+) -> dict[str, int]:
+    """Reclaim stale commands first, then process a bounded fresh batch."""
+
+    if not 1 <= len(consumer) <= 120:
+        raise ValueError("consumer_invalid")
+    if not 1 <= batch_size <= _MAX_START_BATCH:
+        raise ValueError("batch_size_invalid")
+    if not 30_000 <= reclaim_idle_ms <= 3_600_000:
+        raise ValueError("reclaim_idle_ms_invalid")
+
+    claimed = _claimed_messages(
+        await redis.xautoclaim(
+            name=DOCUMENT_COMMANDS_STREAM,
+            groupname=DOCUMENT_COMMANDS_GROUP,
+            consumername=consumer,
+            min_idle_time=reclaim_idle_ms,
+            start_id="0-0",
+            count=batch_size,
+        )
+    )
+    fresh: list[tuple[str, Mapping[bytes, bytes]]] = []
+    remaining = batch_size - len(claimed)
+    if remaining > 0:
+        fresh = _fresh_messages(
+            await redis.xreadgroup(
+                groupname=DOCUMENT_COMMANDS_GROUP,
+                consumername=consumer,
+                streams={DOCUMENT_COMMANDS_STREAM: ">"},
+                count=remaining,
+                block=1,
+            )
+        )
+    combined = claimed + fresh
+    counts = {
+        "claimed": len(claimed),
+        "fresh": len(fresh),
+        "processed": 0,
+        "duplicate": 0,
+        "pending": 0,
+        "deferred": 0,
+        "rejected": 0,
+    }
+    if not combined:
+        return counts
+
+    pending = _delivery_counts(
+        await redis.xpending_range(
+            name=DOCUMENT_COMMANDS_STREAM,
+            groupname=DOCUMENT_COMMANDS_GROUP,
+            min="-",
+            max="+",
+            count=batch_size,
+            consumername=consumer,
+        )
+    )
+    seen: set[str] = set()
+    for message_id, fields in combined:
+        if message_id in seen:
+            continue
+        seen.add(message_id)
+        result = await consume_document_start(
+            session_factory,
+            redis,
+            StreamDelivery(
+                stream=DOCUMENT_COMMANDS_STREAM,
+                group=DOCUMENT_COMMANDS_GROUP,
+                message_id=message_id,
+                fields=fields,
+                delivery_count=pending.get(message_id, 1),
+            ),
+        )
+        counts[result] += 1
+    return counts

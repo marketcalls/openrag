@@ -34,7 +34,12 @@ def build_celery() -> Celery:
                 "task": "events.dispatch_outbox",
                 "schedule": 2.0,
                 "options": {"queue": "events", "expires": 5},
-            }
+            },
+            "consume-document-starts": {
+                "task": "events.consume_document_starts",
+                "schedule": 1.0,
+                "options": {"queue": "events", "expires": 5},
+            },
         },
         broker_connection_retry_on_startup=True,
     )

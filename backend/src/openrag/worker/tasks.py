@@ -10,7 +10,10 @@ from openrag.core.config import get_settings
 from openrag.modules.documents import ingest
 from openrag.modules.documents.pipeline import IngestFailure
 from openrag.worker.celery_app import celery_app
-from openrag.worker.event_runtime import dispatch_outbox_once
+from openrag.worker.event_runtime import (
+    consume_document_starts_once,
+    dispatch_outbox_once,
+)
 
 _MAX_RETRIES = 3
 
@@ -25,6 +28,21 @@ def dispatch_outbox_task() -> dict[str, int]:
     """Run one bounded relay tick; DB leases make duplicate ticks safe."""
 
     return asyncio.run(dispatch_outbox_once())
+
+
+@celery_app.task(
+    bind=True,
+    name="events.consume_document_starts",
+    ignore_result=True,
+    soft_time_limit=20,
+    time_limit=25,
+)
+def consume_document_starts_task(task: Task) -> dict[str, int]:
+    """Run one bounded command-consumer tick on a stable worker identity."""
+
+    hostname = str(getattr(task.request, "hostname", None) or "event-worker")
+    consumer = f"document-start:{hostname}"[:120]
+    return asyncio.run(consume_document_starts_once(consumer=consumer))
 
 
 class IngestTask(Task):  # type: ignore[misc]
