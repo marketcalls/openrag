@@ -35,6 +35,7 @@ from openrag.modules.documents.models import (
 )
 from openrag.modules.documents.pipeline import (
     Chunk,
+    EvidenceSpan,
     IngestFailure,
     PageBlock,
     chunk_blocks,
@@ -292,14 +293,20 @@ async def run_chunk(document_id: UUID, expected_revision: int) -> None:
             raise
         raw = await storage.get(storage_key + ".blocks.json")
         blocks = [PageBlock(**block) for block in json.loads(raw)]
-        chunks = chunk_blocks(blocks)
+        chunks, evidence_spans = chunk_blocks(blocks)
         if not chunks:
             reason = "chunking produced no chunks"
             await _fail_jobs(session, document, (job,), reason, expected_revision)
             raise IngestFailure(reason)
         await storage.put(
             storage_key + ".chunks.json",
-            json.dumps([asdict(chunk) for chunk in chunks]).encode(),
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "chunks": [asdict(chunk) for chunk in chunks],
+                    "evidence_spans": [asdict(span) for span in evidence_spans],
+                }
+            ).encode(),
             content_type="application/json",
         )
         await _lock_active_attempt(session, document, expected_revision)
@@ -323,7 +330,7 @@ async def run_embed_upsert(document_id: UUID, expected_revision: int) -> None:
             )
             raise
         raw = await _storage().get(storage_key + ".chunks.json")
-        chunks = [Chunk(**chunk) for chunk in json.loads(raw)]
+        chunks, _evidence_spans = _decode_chunk_artifact(raw)
         await ensure_collection()
         dense_embedder = get_dense_embedder()
         completed = 0
@@ -381,6 +388,61 @@ async def run_embed_upsert(document_id: UUID, expected_revision: int) -> None:
             session, document, legacy_version, previous_state, now
         )
         await session.commit()
+
+
+def _decode_chunk_artifact(raw: bytes) -> tuple[list[Chunk], list[EvidenceSpan]]:
+    """Read current artifacts while tolerating in-flight legacy stage output."""
+
+    decoded: object = json.loads(raw)
+    if isinstance(decoded, list):
+        chunks = [
+            Chunk(
+                text=str(item["text"]),
+                page_start=int(item["page"]),
+                page_end=int(item["page"]),
+                chunk_index=int(item["chunk_index"]),
+                section_path=("Document",),
+                block_ordinals=(),
+            )
+            for item in decoded
+            if isinstance(item, dict)
+        ]
+        return chunks, []
+    if not isinstance(decoded, dict) or decoded.get("schema_version") != 2:
+        raise IngestFailure("chunk artifact schema is unsupported")
+    raw_chunks = decoded.get("chunks")
+    raw_spans = decoded.get("evidence_spans")
+    if not isinstance(raw_chunks, list) or not isinstance(raw_spans, list):
+        raise IngestFailure("chunk artifact is incomplete")
+    chunks = [
+        Chunk(
+            text=str(item["text"]),
+            page_start=int(item["page_start"]),
+            page_end=int(item["page_end"]),
+            chunk_index=int(item["chunk_index"]),
+            section_path=tuple(str(value) for value in item["section_path"]),
+            block_ordinals=tuple(int(value) for value in item["block_ordinals"]),
+        )
+        for item in raw_chunks
+        if isinstance(item, dict)
+    ]
+    spans = [
+        EvidenceSpan(
+            text=str(item["text"]),
+            page_number=int(item["page_number"]),
+            locator_kind=str(item["locator_kind"]),
+            locator_label=str(item["locator_label"]),
+            section_path=tuple(str(value) for value in item["section_path"]),
+            chunk_index=int(item["chunk_index"]),
+            span_index=int(item["span_index"]),
+            artifact_byte_start=int(item["artifact_byte_start"]),
+            artifact_byte_end=int(item["artifact_byte_end"]),
+            block_ordinals=tuple(int(value) for value in item["block_ordinals"]),
+        )
+        for item in raw_spans
+        if isinstance(item, dict)
+    ]
+    return chunks, spans
 
 
 async def _load_deletion_plan(
