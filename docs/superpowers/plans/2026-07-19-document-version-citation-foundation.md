@@ -626,6 +626,9 @@ git commit -m "feat: govern document lifecycle transitions"
 - Create: `backend/tests/modules/events/test_envelopes.py`
 - Create: `backend/tests/integration/test_event_streams.py`
 - Create: `backend/tests/integration/test_upload_behavior_preserved.py`
+- Modify: `backend/tests/core/test_config.py`
+- Modify: `backend/tests/test_compose.py`
+- Modify: `backend/tests/test_migrations.py`
 - Modify: `backend/tests/worker/test_celery.py`
 
 **Interfaces:**
@@ -681,7 +684,7 @@ and raw exception messages must appear in neither logs nor DLQ fields.
 
 The behavior-preservation integration test uploads and retries the exact Legacy-1 path through HTTP, proves the existing direct ingestion worker is invoked exactly once per attempt and still reaches the legacy expected terminal state, and asserts zero `document.version.ingestion_requested.v1`/`rebuild_requested.v1` outbox records, zero command-stream entries, and zero queued `IngestStageAttempt` rows. It also proves nonlegacy version ingestion cannot be invoked before Task 6. This prevents a half-migrated duplicate path at the Task 4 deployment boundary.
 
-Run: `cd backend && uv run pytest tests/api/test_documents_routes.py tests/api/test_document_versions.py tests/modules/events/test_dispatcher.py tests/modules/events/test_envelopes.py tests/integration/test_upload_behavior_preserved.py tests/worker/test_celery.py -q`
+Run: `cd backend && uv run pytest tests/api/test_documents_routes.py tests/api/test_document_versions.py tests/modules/events/test_dispatcher.py tests/modules/events/test_envelopes.py tests/integration/test_event_streams.py tests/integration/test_upload_behavior_preserved.py tests/core/test_config.py tests/test_compose.py tests/test_migrations.py tests/worker/test_celery.py -q`
 
 Expected: FAIL because the generic dispatcher/envelope/provisioner and governance contracts do not exist; the existing direct-ingestion regression remains green.
 
@@ -697,19 +700,41 @@ At worker startup, `ensure_event_streams` idempotently creates `openrag:events:d
 
 Routes use the existing service/direct-ingestion orchestration unchanged only for initial Legacy-1 upload/retry. They do not expose new nonlegacy version ingestion yet. Do not write an ingestion/rebuild start outbox event, do not add a start consumer, and do not remove or bypass the working direct enqueue. Task 6 atomically exposes nonlegacy version upload/retry and performs the behavior change only after page-local persistence, authority storage, start consumption, and runnable version-aware stage execution all exist in the same commit.
 
-Run: `cd backend && uv run pytest tests/api/test_documents_routes.py tests/api/test_document_versions.py tests/modules/events/test_dispatcher.py tests/modules/events/test_envelopes.py tests/integration/test_upload_behavior_preserved.py tests/worker/test_celery.py -q`
+Run: `cd backend && uv run pytest tests/api/test_documents_routes.py tests/api/test_document_versions.py tests/modules/events/test_dispatcher.py tests/modules/events/test_envelopes.py tests/integration/test_event_streams.py tests/integration/test_upload_behavior_preserved.py tests/core/test_config.py tests/test_compose.py tests/test_migrations.py tests/worker/test_celery.py -q`
 
-Expected: PASS.
+Then run the task-wide static, migration, and deployment-contract gates:
+
+```bash
+cd backend
+uv run ruff check src tests
+uv run mypy src/openrag
+uv run lint-imports
+uv run alembic upgrade head
+uv run alembic current --check-heads
+uv run alembic check
+cd ..
+docker compose -f deploy/compose.yaml config --quiet
+```
+
+Expected: PASS with one Alembic head, no uncommitted schema operations, and a
+valid Compose graph containing the dedicated event component and persistent
+event Redis configuration.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add backend/src/openrag/modules/documents/schemas.py backend/src/openrag/api/routes/documents.py \
+git add backend/migrations/versions/<revision>_harden_transactional_outbox.py \
+  backend/src/openrag/modules/events/models.py \
+  backend/src/openrag/modules/documents/schemas.py backend/src/openrag/api/routes/documents.py \
   backend/src/openrag/modules/events/dispatcher.py backend/src/openrag/modules/events/envelopes.py \
-  backend/src/openrag/worker/tasks.py backend/src/openrag/core/config.py \
+  backend/src/openrag/modules/events/streams.py backend/src/openrag/worker/tasks.py \
+  backend/src/openrag/worker/celery_app.py backend/src/openrag/core/config.py deploy/compose.yaml \
   backend/tests/api/test_documents_routes.py backend/tests/api/test_document_versions.py \
   backend/tests/modules/events/test_dispatcher.py backend/tests/modules/events/test_envelopes.py \
-  backend/tests/integration/test_upload_behavior_preserved.py backend/tests/worker/test_celery.py
+  backend/tests/integration/test_event_streams.py \
+  backend/tests/integration/test_upload_behavior_preserved.py \
+  backend/tests/core/test_config.py backend/tests/test_compose.py \
+  backend/tests/test_migrations.py backend/tests/worker/test_celery.py
 git commit -m "feat: install behavior preserving event transport"
 ```
 
