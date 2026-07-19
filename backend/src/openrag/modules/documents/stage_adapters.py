@@ -1,9 +1,12 @@
 """External-I/O adapters for replay-safe document parse and chunk stages."""
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
+
+from qdrant_client import models
 
 from openrag.modules.documents.pipeline import (
     Chunk,
@@ -16,17 +19,23 @@ from openrag.modules.documents.pipeline import (
 )
 from openrag.modules.documents.stage_artifacts import (
     ArtifactIdentity,
+    EvidenceVector,
     StageArtifact,
     artifact_key,
+    decode_chunk_artifact,
     decode_parsed_artifact,
     encode_chunk_artifact,
     encode_parsed_artifact,
+    encode_vector_artifact,
 )
 from openrag.modules.documents.stages import (
     StageCheckpoint,
     StageClaim,
     parse_stage_checkpoint,
 )
+from openrag.modules.retrieval.embeddings import DenseEmbedder, embed_sparse
+
+SparseEmbedder = Callable[[list[str]], Awaitable[list[models.SparseVector]]]
 
 
 class StageObjectStorage(Protocol):
@@ -48,12 +57,15 @@ class StageSourcePlan:
     source_storage_key: str
     source_filename: str
     source_mime: str
+    embedding_profile_version: str
+    dense_dimension: int
 
     def __post_init__(self) -> None:
         bounded = (
             (self.source_storage_key, 1024),
             (self.source_filename, 500),
             (self.source_mime, 255),
+            (self.embedding_profile_version, 100),
         )
         if any(
             not value
@@ -63,6 +75,8 @@ class StageSourcePlan:
             for value, limit in bounded
         ):
             raise ValueError("stage source plan is invalid")
+        if self.dense_dimension < 1:
+            raise ValueError("stage dense dimension is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +93,13 @@ class ChunkStageResult:
     parsed: ParsedDocument
     chunks: list[Chunk]
     evidence_spans: list[EvidenceSpan]
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddedStageResult:
+    identity: ArtifactIdentity
+    artifact: StageArtifact
+    vectors: list[EvidenceVector]
 
 
 def _identity(
@@ -193,4 +214,84 @@ async def chunk_stage_external(
         parsed=parsed,
         chunks=chunks,
         evidence_spans=evidence_spans,
+    )
+
+
+async def _default_sparse_embedder(texts: list[str]) -> list[models.SparseVector]:
+    return await asyncio.to_thread(embed_sparse, texts)
+
+
+async def embed_stage_external(
+    claim: StageClaim,
+    plan: StageSourcePlan,
+    storage: StageObjectStorage,
+    *,
+    chunks_digest: str,
+    dense_embedder: DenseEmbedder,
+    sparse_embedder: SparseEmbedder = _default_sparse_embedder,
+    batch_size: int = 32,
+) -> EmbeddedStageResult:
+    """Embed exact evidence spans and persist profile-bound vector output."""
+
+    if not 1 <= batch_size <= 256:
+        raise ValueError("embedding batch size is invalid")
+    identity = _identity(claim, plan, expected_stage="embed")
+    chunk_identity = _identity(
+        claim,
+        plan,
+        expected_stage="embed",
+        artifact_stage="chunk",
+    )
+    try:
+        chunks_key = artifact_key(chunk_identity, "chunks", chunks_digest)
+        chunks_raw = await storage.get(chunks_key)
+        _chunks, evidence_spans = decode_chunk_artifact(
+            chunks_raw,
+            expected=chunk_identity,
+            expected_digest=chunks_digest,
+        )
+    except (KeyError, ValueError) as exc:
+        raise IngestFailure("chunk artifact is invalid") from exc
+
+    vectors: list[EvidenceVector] = []
+    for start in range(0, len(evidence_spans), batch_size):
+        batch = evidence_spans[start : start + batch_size]
+        texts = [span.text for span in batch]
+        dense_batch, sparse_batch = await asyncio.gather(
+            dense_embedder.embed(texts),
+            sparse_embedder(texts),
+        )
+        if len(dense_batch) != len(batch) or len(sparse_batch) != len(batch):
+            raise IngestFailure("embedding provider cardinality mismatch")
+        for span, dense, sparse in zip(
+            batch,
+            dense_batch,
+            sparse_batch,
+            strict=True,
+        ):
+            if len(dense) != plan.dense_dimension:
+                raise IngestFailure("embedding provider dimension mismatch")
+            vectors.append(
+                EvidenceVector(
+                    span_index=span.span_index,
+                    dense=tuple(float(value) for value in dense),
+                    sparse_indices=tuple(int(value) for value in sparse.indices),
+                    sparse_values=tuple(float(value) for value in sparse.values),
+                )
+            )
+    try:
+        artifact = encode_vector_artifact(
+            identity,
+            parent_digest=chunks_digest,
+            embedding_profile_version=plan.embedding_profile_version,
+            dense_dimension=plan.dense_dimension,
+            vectors=vectors,
+        )
+    except ValueError as exc:
+        raise IngestFailure("vector artifact is invalid") from exc
+    await storage.put(artifact.key, artifact.data, content_type="application/json")
+    return EmbeddedStageResult(
+        identity=identity,
+        artifact=artifact,
+        vectors=vectors,
     )

@@ -2,17 +2,20 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 import pytest
+from qdrant_client import models
 
 from openrag.modules.documents.pipeline import IngestFailure, ParseProfile
 from openrag.modules.documents.stage_adapters import (
     StageSourcePlan,
     chunk_stage_external,
+    embed_stage_external,
     parse_stage_external,
 )
 from openrag.modules.documents.stage_artifacts import (
     artifact_key,
     decode_chunk_artifact,
     decode_parsed_artifact,
+    decode_vector_artifact,
 )
 from openrag.modules.documents.stages import StageClaim
 
@@ -66,6 +69,8 @@ def _plan() -> StageSourcePlan:
         source_storage_key="immutable/source.txt",
         source_filename="source.txt",
         source_mime="text/plain",
+        embedding_profile_version="test-embedding/v1",
+        dense_dimension=3,
     )
 
 
@@ -136,6 +141,8 @@ async def test_stage_adapter_rejects_cross_wired_claim_before_object_io() -> Non
         source_storage_key=plan.source_storage_key,
         source_filename=plan.source_filename,
         source_mime=plan.source_mime,
+        embedding_profile_version=plan.embedding_profile_version,
+        dense_dimension=plan.dense_dimension,
     )
 
     with pytest.raises(IngestFailure, match="identity"):
@@ -163,3 +170,94 @@ async def test_chunk_stage_rejects_corrupted_parent_digest() -> None:
             storage,
             parsed_digest=parsed.artifact.digest,
         )
+
+
+class RecordingDenseEmbedder:
+    def __init__(self, dimension: int) -> None:
+        self.dimension = dimension
+        self.texts: list[str] = []
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self.texts.extend(texts)
+        return [
+            [float(index + 1) / self.dimension for index in range(self.dimension)]
+            for _text in texts
+        ]
+
+
+async def _sparse(texts: list[str]) -> list[models.SparseVector]:
+    return [models.SparseVector(indices=[1, 3], values=[0.2, 0.8]) for _ in texts]
+
+
+async def test_embed_stage_vectors_page_local_evidence_with_profile_lineage() -> None:
+    plan = _plan()
+    storage = MemoryStorage({plan.source_storage_key: b"First page fact.\n\nSecond fact."})
+    generation_id = uuid4()
+    parsed = await parse_stage_external(
+        _claim(plan, "parse", generation_id=generation_id),
+        plan,
+        storage,
+        ParseProfile(),
+    )
+    chunked = await chunk_stage_external(
+        _claim(plan, "chunk", generation_id=generation_id),
+        plan,
+        storage,
+        parsed_digest=parsed.artifact.digest,
+    )
+    dense = RecordingDenseEmbedder(plan.dense_dimension)
+
+    embedded = await embed_stage_external(
+        _claim(plan, "embed", generation_id=generation_id),
+        plan,
+        storage,
+        chunks_digest=chunked.artifact.digest,
+        dense_embedder=dense,
+        sparse_embedder=_sparse,
+        batch_size=1,
+    )
+
+    assert dense.texts == [span.text for span in chunked.evidence_spans]
+    decoded = decode_vector_artifact(
+        storage.objects[embedded.artifact.key],
+        expected=embedded.identity,
+        expected_digest=embedded.artifact.digest,
+        expected_parent_digest=chunked.artifact.digest,
+        expected_embedding_profile=plan.embedding_profile_version,
+        expected_dense_dimension=plan.dense_dimension,
+    )
+    assert len(decoded.vectors) == len(chunked.evidence_spans)
+    assert [vector.span_index for vector in decoded.vectors] == list(
+        range(len(decoded.vectors))
+    )
+
+
+async def test_embed_stage_rejects_provider_dimension_drift_before_write() -> None:
+    plan = _plan()
+    storage = MemoryStorage({plan.source_storage_key: b"Grounded fact."})
+    generation_id = uuid4()
+    parsed = await parse_stage_external(
+        _claim(plan, "parse", generation_id=generation_id),
+        plan,
+        storage,
+        ParseProfile(),
+    )
+    chunked = await chunk_stage_external(
+        _claim(plan, "chunk", generation_id=generation_id),
+        plan,
+        storage,
+        parsed_digest=parsed.artifact.digest,
+    )
+    prior_puts = len(storage.puts)
+
+    with pytest.raises(IngestFailure, match="dimension"):
+        await embed_stage_external(
+            _claim(plan, "embed", generation_id=generation_id),
+            plan,
+            storage,
+            chunks_digest=chunked.artifact.digest,
+            dense_embedder=RecordingDenseEmbedder(2),
+            sparse_embedder=_sparse,
+        )
+
+    assert len(storage.puts) == prior_puts
