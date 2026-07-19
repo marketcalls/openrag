@@ -5,9 +5,11 @@ from sqlalchemy import (
     CheckConstraint,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, validates
@@ -109,6 +111,12 @@ class DocumentVersion(UUIDPk, Base):
         ),
         UniqueConstraint(
             "document_id", "content_hash", name="uq_document_versions_document_hash"
+        ),
+        Index(
+            "uq_document_versions_one_approved",
+            "document_id",
+            unique=True,
+            postgresql_where=text("state='approved' AND superseded_by_id IS NULL"),
         ),
         CheckConstraint("sequence > 0", name="ck_document_versions_sequence_positive"),
         CheckConstraint(

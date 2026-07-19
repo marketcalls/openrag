@@ -12,6 +12,7 @@ from openrag.modules.chat.service import (
     _persist_assistant,
     active_leaf,
     add_message,
+    build_tree,
     create_chat,
     delete_chat,
     get_chat,
@@ -391,6 +392,22 @@ async def test_legacy_assistant_and_citation_commit_atomically_with_exact_snapsh
         None,
         "legacy_unverified",
     )
+    serialized = build_tree([parent, assistant], {assistant.id: [citation]})
+    source = serialized[0].children[0].citations[0].model_dump()
+    assert source == {
+        "marker": 1,
+        "document_id": document.id,
+        "chunk_ref": f"{document.id}:4:0",
+        "page": 4,
+        "score": 0.9,
+        "document_name": "Legacy handbook.pdf",
+        "version_label": "Legacy 1",
+        "section_label": "Legacy import",
+        "section_path": ["Legacy import"],
+        "locator_kind": "page",
+        "locator_label": "4",
+        "verification_state": "legacy_unverified",
+    }
 
 
 async def test_legacy_citation_failure_rolls_back_assistant(

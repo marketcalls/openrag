@@ -39,6 +39,13 @@ class CitationOut(BaseModel):
     chunk_ref: str
     page: int
     score: float
+    document_name: str | None
+    version_label: str | None
+    section_label: str | None
+    section_path: list[str] | None
+    locator_kind: str | None
+    locator_label: str | None
+    verification_state: str | None
 
     model_config = ConfigDict(from_attributes=True)
 

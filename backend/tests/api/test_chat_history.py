@@ -61,6 +61,15 @@ async def test_history_crud_and_tree_shape(
         assert child["parent_message_id"] == root["id"]
         assert child["children"] == []
         assert [citation["marker"] for citation in child["citations"]] == [1]
+        source = child["citations"][0]
+        assert source["document_name"]
+        assert source["version_label"] == "Legacy 1"
+        assert source["section_label"] == "Legacy import"
+        assert source["section_path"] == ["Legacy import"]
+        assert source["locator_kind"] == "page"
+        assert source["locator_label"] == str(source["page"])
+        assert source["verification_state"] == "legacy_unverified"
+        assert "content_hash" not in source
 
     response = await chat_client.patch(
         f"/api/v1/chats/{chat_id}",
