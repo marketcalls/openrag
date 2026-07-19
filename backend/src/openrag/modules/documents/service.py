@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
@@ -13,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.core.config import get_settings
 from openrag.core.db import naive_utc
 from openrag.core.errors import ConflictError, NotFoundError, WorkspaceAccessDenied
-from openrag.core.storage import build_storage
+from openrag.core.storage import ObjectStorage, build_storage
 from openrag.modules.audit.service import record_audit
 from openrag.modules.documents.lifecycle import (
     LEGACY_CHUNKING_PROFILE_VERSION,
@@ -35,6 +36,7 @@ from openrag.modules.documents.models import (
     DocumentVersionDecisionRecord,
     IngestJob,
 )
+from openrag.modules.documents.uploads import QuarantinedUpload
 from openrag.modules.events.envelopes import DocumentVersionLifecycleV1
 from openrag.modules.events.outbox import add_registered_event
 from openrag.modules.tenancy.context import TenantContext
@@ -71,7 +73,7 @@ class PreparedUpload:
     version_key: str
     filename: str
     mime: str
-    data: bytes = field(repr=False)
+    data: bytes | None = field(repr=False)
     size_bytes: int
     content_hash: str = field(repr=False)
     storage_key: str = field(repr=False)
@@ -140,7 +142,9 @@ async def authorize_upload_scope(
     version_label: str | None = None,
     filename: str,
     mime: str,
-    data: bytes,
+    data: bytes | None = None,
+    size_bytes: int | None = None,
+    content_hash: str | None = None,
     parser_profile_version: str | None = None,
     ocr_profile_version: str | None = None,
     chunking_profile_version: str | None = None,
@@ -170,7 +174,20 @@ async def authorize_upload_scope(
             if document is not None
             else await get_workspace_checked(session, context, workspace_id, "document.upload")
         )
-        content_hash = hashlib.sha256(data).hexdigest()
+        if data is not None:
+            resolved_size = len(data)
+            resolved_hash = hashlib.sha256(data).hexdigest()
+        elif (
+            size_bytes is not None
+            and size_bytes > 0
+            and content_hash is not None
+            and len(content_hash) == 64
+            and all(character in "0123456789abcdef" for character in content_hash)
+        ):
+            resolved_size = size_bytes
+            resolved_hash = content_hash
+        else:
+            raise ConflictError("validated upload identity is required")
         if document is None:
             display, key = LEGACY_VERSION_LABEL, LEGACY_VERSION_KEY
             logical_id = uuid4()
@@ -186,7 +203,7 @@ async def authorize_upload_scope(
                 await session.execute(
                     select(Document.id).where(
                         Document.workspace_id == workspace.id,
-                        Document.content_hash == content_hash,
+                        Document.content_hash == resolved_hash,
                     )
                 )
             ).scalar_one_or_none()
@@ -214,7 +231,7 @@ async def authorize_upload_scope(
                         DocumentVersion.document_id == document.id,
                         (
                             (DocumentVersion.version_key == key)
-                            | (DocumentVersion.content_hash == content_hash)
+                            | (DocumentVersion.content_hash == resolved_hash)
                         ),
                     )
                 )
@@ -235,8 +252,8 @@ async def authorize_upload_scope(
             filename=filename,
             mime=mime,
             data=data,
-            size_bytes=len(data),
-            content_hash=content_hash,
+            size_bytes=resolved_size,
+            content_hash=resolved_hash,
             storage_key=(f"{context.org_id}/{workspace.id}/{logical_id}/{version_id}/source"),
             parser_profile_version=profiles[0],
             ocr_profile_version=profiles[1],
@@ -379,6 +396,57 @@ async def create_from_upload(
         mime=mime,
         data=data,
     )
+
+    async def write_source(storage: ObjectStorage, key: str) -> None:
+        if prepared.data is None:
+            raise RuntimeError("in-memory upload source is missing")
+        await storage.put(key, prepared.data, content_type=prepared.mime)
+
+    return await _persist_prepared_upload(
+        session,
+        context,
+        prepared,
+        write_source,
+    )
+
+
+async def create_from_quarantined_upload(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+    upload: QuarantinedUpload,
+) -> Document:
+    """Persist a validated quarantine file without loading it into memory."""
+
+    prepared = await authorize_upload_scope(
+        session,
+        context,
+        workspace_id,
+        filename=upload.filename,
+        mime=upload.mime,
+        size_bytes=upload.size_bytes,
+        content_hash=upload.content_hash,
+    )
+
+    async def write_source(storage: ObjectStorage, key: str) -> None:
+        await storage.put_file(key, upload.path, content_type=prepared.mime)
+
+    return await _persist_prepared_upload(
+        session,
+        context,
+        prepared,
+        write_source,
+    )
+
+
+async def _persist_prepared_upload(
+    session: AsyncSession,
+    context: TenantContext,
+    prepared: PreparedUpload,
+    write_source: Callable[[ObjectStorage, str], Awaitable[None]],
+) -> Document:
+    """Perform object I/O outside SQL, then atomically record its authority."""
+
     storage = build_storage(get_settings())
 
     async def compensate() -> None:
@@ -389,7 +457,7 @@ async def create_from_upload(
 
     try:
         await storage.ensure_bucket()
-        await storage.put(prepared.storage_key, data, content_type=mime)
+        await write_source(storage, prepared.storage_key)
     except Exception:
         await session.rollback()
         await compensate()

@@ -1,4 +1,6 @@
 import hashlib
+import io
+import zipfile
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -108,6 +110,60 @@ async def test_upload_list_delete_flow(
     await session.refresh(version)
     assert version.source_delete_requested_at is not None
     assert version.source_deleted_at is None
+
+
+async def test_upload_rejects_mime_magic_mismatch_before_record_or_enqueue(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    session: AsyncSession,
+    stack_env: None,
+    captured_enqueues: dict[str, list[tuple[Any, ...]]],
+) -> None:
+    headers = await auth(client, seeded_user.email)
+    workspace_id = await make_workspace(client, headers)
+
+    response = await client.post(
+        f"/api/v1/workspaces/{workspace_id}/documents",
+        headers=headers,
+        files={"file": ("forged.pdf", b"not a pdf", "application/pdf")},
+    )
+
+    assert response.status_code == 415
+    assert response.json()["title"] == "Unsupported media type"
+    assert captured_enqueues["ingest"] == []
+    assert list((await session.scalars(select(Document))).all()) == []
+
+
+async def test_powerpoint_upload_is_supported_after_ooxml_validation(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    stack_env: None,
+    captured_enqueues: dict[str, list[tuple[Any, ...]]],
+) -> None:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", b"<Types/>")
+        archive.writestr("ppt/presentation.xml", b"<presentation/>")
+    headers = await auth(client, seeded_user.email)
+    workspace_id = await make_workspace(client, headers)
+
+    response = await client.post(
+        f"/api/v1/workspaces/{workspace_id}/documents",
+        headers=headers,
+        files={
+            "file": (
+                "briefing.pptx",
+                buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["mime"] == (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
+    assert len(captured_enqueues["ingest"]) == 1
 
 
 async def test_document_detail_patch_is_strict_bounded_and_safe(

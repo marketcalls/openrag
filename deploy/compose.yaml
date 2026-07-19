@@ -9,6 +9,7 @@ x-openrag-environment: &openrag-environment
   OPENRAG_MINIO_ACCESS_KEY: openrag
   OPENRAG_MINIO_SECRET_KEY: openrag123
   OPENRAG_MINIO_BUCKET: openrag-documents
+  OPENRAG_UPLOAD_QUARANTINE_DIR: /tmp/openrag-quarantine
   OPENRAG_TEI_URL: http://tei:80
   OPENRAG_EMBEDDING_BACKEND: ${OPENRAG_EMBEDDING_BACKEND:-hash}
   OPENRAG_EMBEDDING_DIM: ${OPENRAG_EMBEDDING_DIM:-1024}

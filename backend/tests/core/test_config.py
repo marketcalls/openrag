@@ -53,6 +53,11 @@ def test_ingestion_settings_defaults() -> None:
     assert settings.embedding_backend == "tei"
     assert settings.embedding_dim == 1024
     assert settings.interactive_upload_mb == 10
+    assert settings.upload_quarantine_dir == "./data/quarantine"
+    assert settings.upload_stream_chunk_kb == 1024
+    assert settings.upload_archive_max_entries == 10_000
+    assert settings.upload_archive_max_uncompressed_mb == 500
+    assert settings.upload_archive_max_ratio == 100
 
 
 def test_gateway_settings_defaults() -> None:

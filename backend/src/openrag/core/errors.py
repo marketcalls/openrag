@@ -43,6 +43,11 @@ class PayloadTooLarge(OpenRAGError):
     title = "Payload too large"
 
 
+class UnsupportedMediaType(OpenRAGError):
+    status_code = 415
+    title = "Unsupported media type"
+
+
 class SecretsError(OpenRAGError):
     status_code = 500
     title = "Secrets subsystem error"

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.api.deps import get_session
 from openrag.core.config import get_settings
-from openrag.core.errors import ConflictError, PayloadTooLarge
+from openrag.core.errors import ConflictError
 from openrag.modules.documents import service
 from openrag.modules.documents.lifecycle import LEGACY_VERSION_KEY, LEGACY_VERSION_LABEL
 from openrag.modules.documents.schemas import (
@@ -17,6 +17,7 @@ from openrag.modules.documents.schemas import (
     DocumentVersionDecision,
     DocumentVersionOut,
 )
+from openrag.modules.documents.uploads import quarantine_upload
 from openrag.modules.tenancy.context import TenantContext, get_tenant_context
 from openrag.worker.tasks import enqueue_delete, enqueue_ingest
 
@@ -41,19 +42,14 @@ async def upload_document(
 ) -> DocumentOut:
     if sequence is not None:
         raise HTTPException(status_code=422, detail="sequence is server assigned")
-    data = await file.read()
     settings = get_settings()
-    max_bytes = settings.max_upload_mb * 1024 * 1024
-    if len(data) > max_bytes:
-        raise PayloadTooLarge(f"file exceeds {settings.max_upload_mb} MB limit")
-    document = await service.create_from_upload(
-        session,
-        context,
-        workspace_id,
-        filename=file.filename or "upload.bin",
-        mime=file.content_type or "application/octet-stream",
-        data=data,
-    )
+    async with quarantine_upload(file, settings) as quarantined:
+        document = await service.create_from_quarantined_upload(
+            session,
+            context,
+            workspace_id,
+            quarantined,
+        )
     if document.size_bytes is None:
         raise RuntimeError("new upload is missing its compatibility size mirror")
     try:

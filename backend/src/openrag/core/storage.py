@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any
 
 import aioboto3
@@ -51,6 +52,22 @@ class ObjectStorage:
                 Key=key,
                 Body=data,
                 ContentType=content_type,
+            )
+
+    async def put_file(
+        self,
+        key: str,
+        path: Path,
+        content_type: str = "application/octet-stream",
+    ) -> None:
+        """Stream a validated local file through the S3 transfer manager."""
+
+        async with self._client() as s3:
+            await s3.upload_file(
+                str(path),
+                self.bucket,
+                key,
+                ExtraArgs={"ContentType": content_type},
             )
 
     async def get(self, key: str) -> bytes:
