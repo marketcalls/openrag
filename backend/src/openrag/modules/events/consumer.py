@@ -28,6 +28,7 @@ from openrag.modules.events.streams import (
     DOCUMENT_EVENTS_STREAM,
     EVENT_TRANSPORT_FIELDS,
     stream_for_aggregate_type,
+    stream_for_event_type,
 )
 from openrag.modules.tenancy.models import Organization, Workspace
 
@@ -133,10 +134,15 @@ DEFAULT_SCHEMA_PARSERS: Mapping[tuple[int, str], SchemaParser] = {
 }
 
 
-def _delivery_identity_valid(delivery: StreamDelivery) -> bool:
+def _delivery_identity_valid(
+    delivery: StreamDelivery,
+    *,
+    expected_stream: str,
+    expected_group: str,
+) -> bool:
     return (
-        delivery.stream == DOCUMENT_EVENTS_STREAM
-        and delivery.group == DOCUMENT_EVENTS_GROUP
+        delivery.stream == expected_stream
+        and delivery.group == expected_group
         and 1 <= delivery.delivery_count <= 2_147_483_647
         and len(delivery.message_id) <= 64
         and _MESSAGE_ID_PATTERN.fullmatch(delivery.message_id) is not None
@@ -182,12 +188,13 @@ async def _reject(
     error_code: str,
     poison_delivery_limit: int,
     waitaof_timeout_ms: int,
+    dlq_stream: str,
 ) -> ConsumerResult:
     if delivery.delivery_count < poison_delivery_limit:
         return "pending"
     try:
         await redis.xadd(
-            DOCUMENT_EVENTS_DLQ_STREAM,
+            dlq_stream,
             {
                 b"error_code": error_code.encode("ascii"),
                 b"source_message_id": delivery.message_id.encode("ascii"),
@@ -241,9 +248,12 @@ def _outbox_attests(
     try:
         authoritative = _canonical_payload_bytes(dict(row.payload))
         authoritative_base = parse_base_envelope(authoritative)
-        expected_stream = stream_for_aggregate_type(
-            authoritative_base.aggregate_type
-        )
+        try:
+            expected_stream = stream_for_event_type(authoritative_base.event_type)
+        except ValueError:
+            expected_stream = stream_for_aggregate_type(
+                authoritative_base.aggregate_type
+            )
     except ValueError:
         return False
     computed_digest = hashlib.sha256(encoded).hexdigest().encode("ascii")
@@ -270,12 +280,19 @@ async def consume_one(
     poison_delivery_limit: int = 5,
     waitaof_timeout_ms: int = 5000,
     schema_parsers: Mapping[tuple[int, str], SchemaParser] | None = None,
+    expected_stream: str = DOCUMENT_EVENTS_STREAM,
+    expected_group: str = DOCUMENT_EVENTS_GROUP,
+    dlq_stream: str = DOCUMENT_EVENTS_DLQ_STREAM,
 ) -> ConsumerResult:
     """Attest, transact idempotently, commit, and only then acknowledge."""
 
     if not 1 <= len(consumer) <= 120:
         raise ValueError("consumer_invalid")
-    if not _delivery_identity_valid(delivery):
+    if not _delivery_identity_valid(
+        delivery,
+        expected_stream=expected_stream,
+        expected_group=expected_group,
+    ):
         raise ValueError("delivery_identity_invalid")
     if not 1 <= poison_delivery_limit <= 100:
         raise ValueError("poison_delivery_limit_invalid")
@@ -288,6 +305,7 @@ async def consume_one(
             error_code="contract_invalid",
             poison_delivery_limit=poison_delivery_limit,
             waitaof_timeout_ms=waitaof_timeout_ms,
+            dlq_stream=dlq_stream,
         )
     encoded, transport_digest = parts
     try:
@@ -299,6 +317,7 @@ async def consume_one(
             error_code="contract_invalid",
             poison_delivery_limit=poison_delivery_limit,
             waitaof_timeout_ms=waitaof_timeout_ms,
+            dlq_stream=dlq_stream,
         )
 
     outcome: ConsumerResult = "pending"
@@ -371,6 +390,7 @@ async def consume_one(
             ),
             poison_delivery_limit=poison_delivery_limit,
             waitaof_timeout_ms=waitaof_timeout_ms,
+            dlq_stream=dlq_stream,
         )
     await _ack(redis, delivery)
     return outcome
