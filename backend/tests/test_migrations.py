@@ -27,6 +27,7 @@ OUTBOX_REVISION = "a4f87e62b913"
 STAGE_REVISION = "d8a4f2c91e37"
 REBUILD_REVISION = "f1c3e8a2b7d4"
 RUNTIME_REVISION = "a2d4f6b8c0e1"
+EMBEDDING_PROFILE_REVISION = "b3e5f7a9c1d2"
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -761,17 +762,18 @@ def authority_db(
         get_settings.cache_clear()
 
 
-def test_legacy_rebuild_revision_is_the_single_head(
+def test_embedding_profile_revision_is_the_single_head(
     authority_db: tuple[Config, Engine, object],
 ) -> None:
     config, _engine, _ids = authority_db
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [RUNTIME_REVISION]
+    assert script.get_heads() == [EMBEDDING_PROFILE_REVISION]
     assert script.get_revision(AUTHORITY_REVISION).down_revision == RBAC_REVISION
     assert script.get_revision(DELETION_REVISION).down_revision == AUTHORITY_REVISION
     assert script.get_revision(STAGE_REVISION).down_revision == OUTBOX_REVISION
     assert script.get_revision(REBUILD_REVISION).down_revision == STAGE_REVISION
     assert script.get_revision(RUNTIME_REVISION).down_revision == REBUILD_REVISION
+    assert script.get_revision(EMBEDDING_PROFILE_REVISION).down_revision == RUNTIME_REVISION
 
 
 def test_deletion_upgrade_adds_bounded_restartable_markers_and_closes_processing_delete(
@@ -1778,7 +1780,7 @@ def test_authority_upgrade_aborts_before_mutation_for_orphan_citation(
 
     with pytest.raises(RuntimeError, match="orphan or invalid legacy citation"):
         command.upgrade(config, AUTHORITY_REVISION)
-    assert ScriptDirectory.from_config(config).get_current_head() == RUNTIME_REVISION
+    assert ScriptDirectory.from_config(config).get_current_head() == EMBEDDING_PROFILE_REVISION
     with engine.connect() as connection:
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()

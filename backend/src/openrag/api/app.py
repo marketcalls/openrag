@@ -14,6 +14,7 @@ from openrag.api.routes.admin_secrets import router as admin_secrets_router
 from openrag.api.routes.auth import router as auth_router
 from openrag.api.routes.chats import router as chats_router
 from openrag.api.routes.documents import router as documents_router
+from openrag.api.routes.embedding_profiles import router as embedding_profiles_router
 from openrag.api.routes.health import router as health_router
 from openrag.api.routes.models import router as models_router
 from openrag.api.routes.roles import router as roles_router
@@ -134,6 +135,7 @@ def create_app(
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(chats_router, prefix="/api/v1")
     app.include_router(documents_router, prefix="/api/v1")
+    app.include_router(embedding_profiles_router, prefix="/api/v1")
     app.include_router(health_router)
     app.include_router(models_router, prefix="/api/v1")
     app.include_router(roles_router, prefix="/api/v1")
