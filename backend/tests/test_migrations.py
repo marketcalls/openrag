@@ -29,6 +29,7 @@ REBUILD_REVISION = "f1c3e8a2b7d4"
 RUNTIME_REVISION = "a2d4f6b8c0e1"
 EMBEDDING_PROFILE_REVISION = "b3e5f7a9c1d2"
 EMBEDDING_DEPLOYMENT_REVISION = "c4f6a8b0d2e3"
+REINDEX_STAGE_REVISION = "d5a7c9e1f3b4"
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -768,7 +769,7 @@ def test_embedding_profile_revision_is_the_single_head(
 ) -> None:
     config, _engine, _ids = authority_db
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [EMBEDDING_DEPLOYMENT_REVISION]
+    assert script.get_heads() == [REINDEX_STAGE_REVISION]
     assert script.get_revision(AUTHORITY_REVISION).down_revision == RBAC_REVISION
     assert script.get_revision(DELETION_REVISION).down_revision == AUTHORITY_REVISION
     assert script.get_revision(STAGE_REVISION).down_revision == OUTBOX_REVISION
@@ -778,6 +779,10 @@ def test_embedding_profile_revision_is_the_single_head(
     assert (
         script.get_revision(EMBEDDING_DEPLOYMENT_REVISION).down_revision
         == EMBEDDING_PROFILE_REVISION
+    )
+    assert (
+        script.get_revision(REINDEX_STAGE_REVISION).down_revision
+        == EMBEDDING_DEPLOYMENT_REVISION
     )
 
 

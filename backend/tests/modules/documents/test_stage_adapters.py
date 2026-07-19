@@ -57,6 +57,8 @@ def _claim(
         org_id=plan.org_id,
         workspace_id=plan.workspace_id,
         document_version_id=plan.document_version_id,
+        embedding_deployment_id=None,
+        embedding_profile_version=None,
         pipeline_kind="ingestion",
         stage=stage,
         checkpoint=f"{stage}:ingestion:1:{selected_generation.hex}",

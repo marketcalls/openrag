@@ -9,7 +9,12 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from openrag.core.db import naive_utc
-from openrag.modules.documents.models import DocumentVersion, IngestStageAttempt
+from openrag.modules.documents.models import (
+    DocumentVersion,
+    DocumentVersionProjection,
+    IngestStageAttempt,
+)
+from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
 from openrag.modules.events.consumer import (
     ConsumerRedis,
     ConsumerResult,
@@ -21,8 +26,10 @@ from openrag.modules.events.consumer import (
 from openrag.modules.events.envelopes import (
     INGESTION_REQUESTED_EVENT_TYPE,
     REBUILD_REQUESTED_EVENT_TYPE,
+    REINDEX_REQUESTED_EVENT_TYPE,
     DocumentVersionIngestionRequestedV1,
     DocumentVersionRebuildRequestedV1,
+    DocumentVersionReindexRequestedV1,
     EventEnvelopeBase,
     parse_base_envelope,
     parse_registered_envelope,
@@ -49,6 +56,7 @@ def _parse_start_command(encoded: bytes) -> EventEnvelopeBase:
     envelope = parse_registered_envelope(encoded)
     if envelope.event_type not in {
         INGESTION_REQUESTED_EVENT_TYPE,
+        REINDEX_REQUESTED_EVENT_TYPE,
         REBUILD_REQUESTED_EVENT_TYPE,
     }:
         raise ValueError("schema_not_registered")
@@ -57,6 +65,7 @@ def _parse_start_command(encoded: bytes) -> EventEnvelopeBase:
 
 START_SCHEMA_PARSERS: Mapping[tuple[int, str], SchemaParser] = {
     (1, INGESTION_REQUESTED_EVENT_TYPE): _parse_start_command,
+    (1, REINDEX_REQUESTED_EVENT_TYPE): _parse_start_command,
     (1, REBUILD_REQUESTED_EVENT_TYPE): _parse_start_command,
 }
 
@@ -65,7 +74,11 @@ def _command_payload(
     envelope: EventEnvelopeBase,
 ) -> tuple[
     str,
-    DocumentVersionIngestionRequestedV1 | DocumentVersionRebuildRequestedV1,
+    (
+        DocumentVersionIngestionRequestedV1
+        | DocumentVersionRebuildRequestedV1
+        | DocumentVersionReindexRequestedV1
+    ),
 ]:
     if envelope.event_type == INGESTION_REQUESTED_EVENT_TYPE:
         return (
@@ -76,6 +89,11 @@ def _command_payload(
         return (
             "rebuild",
             DocumentVersionRebuildRequestedV1.model_validate(envelope.payload),
+        )
+    if envelope.event_type == REINDEX_REQUESTED_EVENT_TYPE:
+        return (
+            "reindex",
+            DocumentVersionReindexRequestedV1.model_validate(envelope.payload),
         )
     raise EventAuthorityError("event_not_authoritative")
 
@@ -96,6 +114,38 @@ async def revalidate_document_start(
         )
         .with_for_update()
     )
+    reindex_authorized = False
+    if isinstance(payload, DocumentVersionReindexRequestedV1):
+        deployment = await session.scalar(
+            select(EmbeddingDeployment).where(
+                EmbeddingDeployment.id == payload.deployment_id,
+                EmbeddingDeployment.generation_id
+                == payload.authority_generation_id,
+                EmbeddingDeployment.status == "building",
+            )
+        )
+        profile = (
+            await session.get(EmbeddingProfile, deployment.profile_id)
+            if deployment is not None
+            else None
+        )
+        projection = await session.scalar(
+            select(DocumentVersionProjection).where(
+                DocumentVersionProjection.org_id == envelope.org_id,
+                DocumentVersionProjection.workspace_id == envelope.workspace_id,
+                DocumentVersionProjection.document_version_id
+                == envelope.aggregate_id,
+                DocumentVersionProjection.is_current_eligible.is_(True),
+            )
+        )
+        reindex_authorized = (
+            deployment is not None
+            and profile is not None
+            and profile.enabled
+            and payload.embedding_profile_version
+            == f"embedding/v1/{profile.config_digest}"
+            and projection is not None
+        )
     valid_state = (
         version is not None
         and version.document_id == payload.document_id
@@ -112,6 +162,12 @@ async def revalidate_document_start(
                 pipeline_kind == "rebuild"
                 and version.state == "approved"
                 and version.provenance_state == "legacy_pending"
+            )
+            or (
+                pipeline_kind == "reindex"
+                and version.state == "approved"
+                and version.provenance_state == "ready"
+                and reindex_authorized
             )
         )
     )
@@ -143,6 +199,16 @@ async def queue_first_ingest_stage(
             org_id=envelope.org_id,
             workspace_id=envelope.workspace_id,
             document_version_id=envelope.aggregate_id,
+            embedding_deployment_id=(
+                payload.deployment_id
+                if isinstance(payload, DocumentVersionReindexRequestedV1)
+                else None
+            ),
+            embedding_profile_version=(
+                payload.embedding_profile_version
+                if isinstance(payload, DocumentVersionReindexRequestedV1)
+                else None
+            ),
             pipeline_kind=pipeline_kind,
             stage="parse",
             state="queued",

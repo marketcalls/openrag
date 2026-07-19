@@ -59,6 +59,7 @@ from openrag.modules.documents.stages import (
     parse_stage_checkpoint,
     retry_stage,
 )
+from openrag.modules.embeddings.models import EmbeddingDeployment
 from openrag.modules.embeddings.runtime import (
     EmbeddingRuntime,
     resolve_generation_runtime,
@@ -118,10 +119,15 @@ def _version_is_active(pipeline_kind: str, version: DocumentVersion) -> bool:
         return False
     if pipeline_kind == "ingestion":
         return version.state == "processing" and version.provenance_state == "building"
+    if pipeline_kind == "rebuild":
+        return (
+            version.state == "approved"
+            and version.provenance_state == "building"
+        )
     return (
-        pipeline_kind == "rebuild"
+        pipeline_kind == "reindex"
         and version.state == "approved"
-        and version.provenance_state == "building"
+        and version.provenance_state == "ready"
     )
 
 
@@ -197,7 +203,10 @@ async def load_stage_execution_plan(
                 source_storage_key=version.source_storage_key,
                 source_filename=version.source_filename,
                 source_mime=version.source_mime,
-                embedding_profile_version=version.embedding_profile_version,
+                embedding_profile_version=(
+                    claim.embedding_profile_version
+                    or version.embedding_profile_version
+                ),
                 dense_dimension=dense_dimension,
             )
         except ValueError as exc:
@@ -324,6 +333,10 @@ def _parse_applier(
         _checkpoint: StageCheckpoint,
     ) -> None:
         version = await _locked_active_version(session, row, source)
+        if row.pipeline_kind == "reindex":
+            if version.source_page_count != page_count:
+                raise IngestFailure("reindex parse changed the approved page count")
+            return
         document = await _locked_document(session, version)
         version.source_page_count = page_count
         document.page_count = page_count
@@ -345,6 +358,8 @@ def _chunk_applier(
         version = await _locked_active_version(session, row, source)
         if version.source_page_count != result.parsed.page_count:
             raise IngestFailure("parsed page count changed before chunk completion")
+        if row.pipeline_kind == "reindex":
+            return
         await persist_page_provenance(
             session,
             version,
@@ -360,9 +375,40 @@ def _authority_applier(source: StageSourcePlan) -> StageResultApplier:
     async def apply(
         session: AsyncSession,
         row: IngestStageAttempt,
-        _checkpoint: StageCheckpoint,
+        checkpoint: StageCheckpoint,
     ) -> None:
         version = await _locked_active_version(session, row, source)
+        if row.pipeline_kind == "reindex":
+            deployment = await session.scalar(
+                select(EmbeddingDeployment)
+                .where(
+                    EmbeddingDeployment.id == row.embedding_deployment_id,
+                    EmbeddingDeployment.generation_id
+                    == checkpoint.authority_generation_id,
+                    EmbeddingDeployment.status == "building",
+                )
+                .with_for_update()
+            )
+            if deployment is None:
+                raise IngestFailure("embedding deployment is no longer building")
+            deployment.completed_versions += 1
+            if deployment.completed_versions > deployment.total_versions:
+                raise IngestFailure("embedding deployment progress is invalid")
+            if (
+                deployment.scan_complete
+                and deployment.completed_versions == deployment.total_versions
+                and deployment.failed_versions == 0
+            ):
+                deployment.status = "ready"
+            await record_audit(
+                session,
+                org_id=version.org_id,
+                actor_id=deployment.requested_by,
+                action="document.version.reindexed",
+                target_type="document_version",
+                target_id=str(version.id),
+            )
+            return
         document = await _locked_document(session, version)
         version.processing_error_code = None
         if row.pipeline_kind == "ingestion":
@@ -388,11 +434,13 @@ def _authority_applier(source: StageSourcePlan) -> StageResultApplier:
             document.status = "review"
             document.error = None
             action = "document.version.review"
-        else:
+        elif row.pipeline_kind == "rebuild":
             version.provenance_state = "ready"
             document.status = "indexed"
             document.error = None
             action = "document.version.rebuilt"
+        else:
+            raise IngestFailure("stage pipeline kind is invalid")
         await record_audit(
             session,
             org_id=version.org_id,
@@ -550,6 +598,11 @@ async def run_claimed_stage_once(
             )
         else:
             raise IngestFailure("embedding runtime is unavailable")
+        if (
+            claim.embedding_profile_version is not None
+            and claim.embedding_profile_version != embedding_runtime.profile_version
+        ):
+            raise IngestFailure("embedding runtime profile does not match the command")
         plan = await load_stage_execution_plan(
             session_factory,
             claim,

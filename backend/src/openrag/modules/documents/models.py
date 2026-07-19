@@ -777,8 +777,17 @@ class IngestStageAttempt(UUIDPk, Base):
             name="uq_ingest_stage_attempts_checkpoint",
         ),
         CheckConstraint(
-            "pipeline_kind IN ('ingestion','rebuild')",
+            "pipeline_kind IN ('ingestion','rebuild','reindex')",
             name="ck_ingest_stage_attempts_pipeline_kind",
+        ),
+        CheckConstraint(
+            "(pipeline_kind = 'reindex' "
+            "AND embedding_deployment_id IS NOT NULL "
+            "AND embedding_profile_version IS NOT NULL) OR "
+            "(pipeline_kind <> 'reindex' "
+            "AND embedding_deployment_id IS NULL "
+            "AND embedding_profile_version IS NULL)",
+            name="ck_ingest_stage_attempts_reindex_identity",
         ),
         CheckConstraint(
             "stage IN ('parse','chunk','embed','authority_upsert')",
@@ -828,6 +837,15 @@ class IngestStageAttempt(UUIDPk, Base):
     org_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
     workspace_id: Mapped[UUID] = mapped_column(index=True)
     document_version_id: Mapped[UUID] = mapped_column(index=True)
+    embedding_deployment_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("embedding_deployments.id", ondelete="CASCADE"),
+        default=None,
+        index=True,
+    )
+    embedding_profile_version: Mapped[str | None] = mapped_column(
+        String(100),
+        default=None,
+    )
     pipeline_kind: Mapped[str] = mapped_column(String(32))
     stage: Mapped[str] = mapped_column(String(64))
     state: Mapped[str] = mapped_column(default="queued", index=True)

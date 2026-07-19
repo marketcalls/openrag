@@ -193,7 +193,13 @@ async def seed_document_version(
 def test_ingest_stage_attempt_has_fenced_resumable_shape() -> None:
     columns = set(inspect(IngestStageAttempt).columns.keys())
 
-    assert {"lease_token", "available_at", "output_digest"} <= columns
+    assert {
+        "lease_token",
+        "available_at",
+        "output_digest",
+        "embedding_deployment_id",
+        "embedding_profile_version",
+    } <= columns
 
 
 async def test_ingest_stage_attempt_defaults_to_claimable_unleased_state(

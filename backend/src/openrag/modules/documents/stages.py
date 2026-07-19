@@ -12,10 +12,11 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from openrag.modules.documents.models import DocumentVersion, IngestStageAttempt
+from openrag.modules.embeddings.models import EmbeddingDeployment
 
 _STAGES = ("parse", "chunk", "embed", "authority_upsert")
 _CHECKPOINT = re.compile(
-    r"^(parse|chunk|embed|authority_upsert):(ingestion|rebuild):"
+    r"^(parse|chunk|embed|authority_upsert):(ingestion|rebuild|reindex):"
     r"([1-9][0-9]{0,7}):([0-9a-f]{32})$"
 )
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -51,6 +52,8 @@ class StageClaim:
     org_id: UUID
     workspace_id: UUID
     document_version_id: UUID
+    embedding_deployment_id: UUID | None
+    embedding_profile_version: str | None
     pipeline_kind: str
     stage: str
     checkpoint: str
@@ -109,6 +112,10 @@ def _active_version(row: IngestStageAttempt, version: DocumentVersion | None) ->
         row.pipeline_kind == "rebuild"
         and version.state == "approved"
         and version.provenance_state in {"legacy_pending", "building"}
+    ) or (
+        row.pipeline_kind == "reindex"
+        and version.state == "approved"
+        and version.provenance_state == "ready"
     )
 
 
@@ -226,6 +233,8 @@ async def _claim_candidate(
             org_id=row.org_id,
             workspace_id=row.workspace_id,
             document_version_id=row.document_version_id,
+            embedding_deployment_id=row.embedding_deployment_id,
+            embedding_profile_version=row.embedding_profile_version,
             pipeline_kind=row.pipeline_kind,
             stage=row.stage,
             checkpoint=row.checkpoint,
@@ -369,6 +378,8 @@ async def complete_stage(
                 org_id=row.org_id,
                 workspace_id=row.workspace_id,
                 document_version_id=row.document_version_id,
+                embedding_deployment_id=row.embedding_deployment_id,
+                embedding_profile_version=row.embedding_profile_version,
                 pipeline_kind=row.pipeline_kind,
                 stage=next_stage,
                 state="queued",
@@ -453,11 +464,24 @@ async def retry_stage(
                 )
                 .with_for_update()
             )
-            if version is not None:
+            if version is not None and row.pipeline_kind != "reindex":
                 if row.pipeline_kind == "ingestion":
                     version.state = "failed"
                 version.provenance_state = "failed"
                 version.processing_error_code = error_code
+            if row.pipeline_kind == "reindex":
+                deployment = await session.scalar(
+                    select(EmbeddingDeployment)
+                    .where(
+                        EmbeddingDeployment.id == row.embedding_deployment_id,
+                        EmbeddingDeployment.status == "building",
+                    )
+                    .with_for_update()
+                )
+                if deployment is not None:
+                    deployment.failed_versions += 1
+                    deployment.status = "failed"
+                    deployment.failure_code = "REINDEX_STAGE_FAILED"
         else:
             row.available_at = now + timedelta(
                 seconds=min(2 ** row.attempts, 300)
