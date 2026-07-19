@@ -69,6 +69,29 @@ class EventEnvelopeV1(BaseModel):
         return value.astimezone(UTC)
 
 
+class EventEnvelopeBase(BaseModel):
+    """Schema-agnostic stable base used before payload-specific parsing."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: int = Field(ge=1, le=2_147_483_647)
+    event_id: UUID
+    event_type: Annotated[str, Field(min_length=1, max_length=200)]
+    aggregate_type: Annotated[str, Field(min_length=1, max_length=120)]
+    aggregate_id: UUID
+    org_id: UUID
+    workspace_id: UUID
+    lifecycle_revision: int = Field(gt=0)
+    correlation_id: UUID
+    occurred_at: AwareDatetime
+    payload: dict[str, object]
+
+    @field_validator("occurred_at")
+    @classmethod
+    def normalize_utc(cls, value: datetime) -> datetime:
+        return value.astimezone(UTC)
+
+
 def _registration(payload: object) -> tuple[str, str]:
     if type(payload) is DocumentVersionLifecycleV1:
         return LIFECYCLE_EVENT_TYPE, "document_version"
@@ -101,7 +124,7 @@ def build_envelope(
     )
 
 
-def canonical_envelope_bytes(envelope: EventEnvelopeV1) -> bytes:
+def _canonical_model_bytes(envelope: BaseModel) -> bytes:
     encoded = json.dumps(
         envelope.model_dump(mode="json"),
         ensure_ascii=False,
@@ -113,7 +136,15 @@ def canonical_envelope_bytes(envelope: EventEnvelopeV1) -> bytes:
     return encoded
 
 
-def parse_registered_envelope(encoded: bytes) -> EventEnvelopeV1:
+def canonical_envelope_bytes(envelope: EventEnvelopeV1) -> bytes:
+    return _canonical_model_bytes(envelope)
+
+
+def canonical_base_envelope_bytes(envelope: EventEnvelopeBase) -> bytes:
+    return _canonical_model_bytes(envelope)
+
+
+def _decode_envelope(encoded: bytes) -> dict[str, object]:
     if len(encoded) > MAX_ENVELOPE_BYTES:
         raise ValueError("event envelope exceeds 16 KiB")
     try:
@@ -123,7 +154,25 @@ def parse_registered_envelope(encoded: bytes) -> EventEnvelopeV1:
         )
     except (UnicodeDecodeError, json.JSONDecodeError, _DuplicateKeyError) as exc:
         raise ValueError("contract_invalid") from exc
-    if not isinstance(raw, dict) or raw.get("event_type") != LIFECYCLE_EVENT_TYPE:
+    if not isinstance(raw, dict):
+        raise ValueError("contract_invalid")
+    return raw
+
+
+def parse_base_envelope(encoded: bytes) -> EventEnvelopeBase:
+    raw = _decode_envelope(encoded)
+    try:
+        envelope = EventEnvelopeBase.model_validate(raw)
+    except ValidationError as exc:
+        raise ValueError("contract_invalid") from exc
+    if canonical_base_envelope_bytes(envelope) != encoded:
+        raise ValueError("contract_invalid")
+    return envelope
+
+
+def parse_registered_envelope(encoded: bytes) -> EventEnvelopeV1:
+    raw = _decode_envelope(encoded)
+    if raw.get("event_type") != LIFECYCLE_EVENT_TYPE:
         raise ValueError("schema_not_registered")
     try:
         envelope = EventEnvelopeV1.model_validate(raw)

@@ -8,9 +8,11 @@ from openrag.modules.documents.lifecycle import DocumentVersionState
 from openrag.modules.events.envelopes import (
     MAX_ENVELOPE_BYTES,
     DocumentVersionLifecycleV1,
+    EventEnvelopeBase,
     EventEnvelopeV1,
     build_envelope,
     canonical_envelope_bytes,
+    parse_base_envelope,
     parse_registered_envelope,
 )
 
@@ -137,3 +139,35 @@ def test_envelope_rejects_duplicate_json_keys() -> None:
 
     with pytest.raises(ValueError, match="contract_invalid"):
         parse_registered_envelope(duplicated)
+
+
+def test_base_envelope_accepts_attestable_future_schema() -> None:
+    values = lifecycle_envelope().model_dump(mode="json")
+    values["schema_version"] = 2
+    values["event_type"] = "document.version.future.v2"
+    encoded = __import__("json").dumps(
+        values,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+
+    base = parse_base_envelope(encoded)
+
+    assert isinstance(base, EventEnvelopeBase)
+    assert base.schema_version == 2
+    assert base.event_type == "document.version.future.v2"
+
+
+@pytest.mark.parametrize(
+    "encoded",
+    [
+        b'{"schema_version":1,"schema_version":1}',
+        b'{"schema_version": 1}',
+        b"\xff",
+    ],
+)
+def test_base_envelope_rejects_duplicate_noncanonical_or_invalid_utf8(
+    encoded: bytes,
+) -> None:
+    with pytest.raises(ValueError, match="contract_invalid"):
+        parse_base_envelope(encoded)

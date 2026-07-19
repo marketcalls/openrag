@@ -22,6 +22,14 @@ def stream_for_event_type(event_type: str) -> str:
     raise ValueError("schema_not_registered")
 
 
+def stream_for_aggregate_type(aggregate_type: str) -> str:
+    """Route future schemas by their stable, Outbox-attested aggregate type."""
+
+    if aggregate_type == "document_version":
+        return DOCUMENT_EVENTS_STREAM
+    raise ValueError("schema_not_registered")
+
+
 class StreamAdminRedis(Protocol):
     async def xgroup_create(
         self,
