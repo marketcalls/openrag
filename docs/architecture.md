@@ -48,7 +48,9 @@ flowchart TB
 ## Ingestion flow
 
 1. The API authorizes the user and workspace, stores the original file in MinIO, creates document metadata in PostgreSQL, and enqueues a Celery chain.
-2. A worker parses supported documents with Docling, preserving page and table context.
+2. A bounded worker parses supported documents with Docling, applies local
+   RapidOCR per page for scanned or mixed PDFs, and preserves page, section,
+   table, extraction-method, and OCR-confidence provenance.
 3. The worker creates searchable chunks, generates dense and sparse representations, and upserts them to Qdrant with organization and workspace identifiers.
 4. Document status moves through queued, processing, indexed, or failed; the frontend polls active documents and displays the transition without a reload.
 5. Deletion is asynchronous and propagates to PostgreSQL metadata, object storage, and Qdrant.
@@ -71,4 +73,4 @@ flowchart TB
 
 ## Current deployment shape
 
-The development stack exposes the React app and FastAPI service directly. A production deployment should put them behind TLS ingress/load balancing and add OpenTelemetry, Prometheus, and Grafana. OCR, external connectors, Kubernetes/Helm packaging, public CLI/SDK packages, and high-availability topology are roadmap items rather than hidden assumptions in the current stack.
+The development stack exposes the React app and FastAPI service directly. A production deployment should put them behind TLS ingress/load balancing and add OpenTelemetry, Prometheus, and Grafana. Local bounded OCR is included; malware scanning/CDR, external connectors, Kubernetes/Helm packaging, public CLI/SDK packages, and high-availability topology remain explicit roadmap items rather than hidden assumptions in the current stack.

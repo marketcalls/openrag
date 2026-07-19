@@ -28,6 +28,11 @@ def test_celery_config() -> None:
     assert dispatch_schedule["task"] == "events.dispatch_outbox"
     assert dispatch_schedule["options"]["queue"] == "events"
     assert dispatch_schedule["options"]["expires"] <= 10
+    parse_limits = celery_app.conf.task_annotations["documents.parse"]
+    assert parse_limits["soft_time_limit"] == 305
+    assert parse_limits["time_limit"] == 330
+    assert celery_app.conf.worker_max_tasks_per_child == 25
+    assert celery_app.conf.worker_max_memory_per_child == 3 * 1024 * 1024
 
 
 def test_event_tasks_are_isolated_to_the_events_queue() -> None:

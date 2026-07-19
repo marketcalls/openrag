@@ -73,6 +73,9 @@ def test_backend_services_use_the_prebuilt_virtualenv_at_runtime() -> None:
     assert services["event-worker"]["command"][0] == "/app/.venv/bin/celery"
     assert services["event-scheduler"]["command"][0] == "/app/.venv/bin/celery"
     assert services["api"]["healthcheck"]["test"][1] == "/app/.venv/bin/python"
+    assert services["worker"]["mem_limit"] == "4294967296"
+    assert services["worker"]["pids_limit"] == 256
+    assert services["worker"]["security_opt"] == ["no-new-privileges:true"]
 
 
 def test_event_transport_is_private_durable_and_failure_isolated() -> None:

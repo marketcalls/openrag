@@ -20,6 +20,7 @@ dependencies = [
     "argon2-cffi>=23.1",
     "pyjwt>=2.8",
     "python-multipart>=0.0.9",
+    "pypdfium2>=5.12",
     "qdrant-client>=1.12",
     "redis>=5.0",
     "structlog>=24.1",
@@ -90,6 +91,7 @@ module = [
     "docling_core.*",
     "fastembed.*",
     "kombu.*",
+    "pypdfium2.*",
 ]
 ignore_missing_imports = true
 

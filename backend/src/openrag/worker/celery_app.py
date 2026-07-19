@@ -18,6 +18,17 @@ def build_celery() -> Celery:
         task_default_queue="default",
         task_queues=(Queue("default"), Queue("interactive"), Queue("events")),
         task_routes={"events.*": {"queue": "events"}},
+        task_annotations={
+            "documents.parse": {
+                "soft_time_limit": settings.parser_timeout_seconds + 5,
+                "time_limit": (
+                    settings.parser_timeout_seconds
+                    + settings.parser_hard_timeout_grace_seconds
+                ),
+            }
+        },
+        worker_max_memory_per_child=settings.parser_worker_max_memory_mb * 1024,
+        worker_max_tasks_per_child=settings.parser_worker_max_tasks,
         beat_schedule={
             "dispatch-outbox": {
                 "task": "events.dispatch_outbox",

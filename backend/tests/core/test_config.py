@@ -59,6 +59,21 @@ def test_ingestion_settings_defaults() -> None:
     assert settings.upload_archive_max_entries == 10_000
     assert settings.upload_archive_max_uncompressed_mb == 500
     assert settings.upload_archive_max_ratio == 100
+    assert settings.parser_max_pages == 1000
+    assert settings.parser_max_page_pixels == 40_000_000
+    assert settings.parser_render_dpi == 200
+    assert settings.parser_timeout_seconds == 300
+    assert settings.parser_max_blocks == 100_000
+    assert settings.parser_max_output_chars == 10_000_000
+    assert settings.ocr_mode == "auto"
+    assert settings.ocr_languages == "english"
+    assert settings.ocr_min_confidence == 0.5
+    assert settings.ocr_text_score == 0.3
+    assert settings.ocr_bitmap_area_threshold == 0.05
+    assert settings.ocr_batch_size == 2
+    assert settings.parser_hard_timeout_grace_seconds == 30
+    assert settings.parser_worker_max_memory_mb == 3072
+    assert settings.parser_worker_max_tasks == 25
 
 
 def test_gateway_settings_defaults() -> None:

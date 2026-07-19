@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -37,6 +38,21 @@ class Settings(BaseSettings):
     upload_archive_max_entries: int = Field(default=10_000, ge=1, le=100_000)
     upload_archive_max_uncompressed_mb: int = Field(default=500, ge=1, le=5000)
     upload_archive_max_ratio: int = Field(default=100, ge=1, le=1000)
+    parser_max_pages: int = Field(default=1000, ge=1, le=10_000)
+    parser_max_page_pixels: int = Field(default=40_000_000, ge=1_000_000, le=250_000_000)
+    parser_render_dpi: int = Field(default=200, ge=72, le=600)
+    parser_timeout_seconds: int = Field(default=300, ge=10, le=3600)
+    parser_hard_timeout_grace_seconds: int = Field(default=30, ge=5, le=300)
+    parser_worker_max_memory_mb: int = Field(default=3072, ge=512, le=16_384)
+    parser_worker_max_tasks: int = Field(default=25, ge=1, le=1000)
+    parser_max_blocks: int = Field(default=100_000, ge=1, le=1_000_000)
+    parser_max_output_chars: int = Field(default=10_000_000, ge=1000, le=100_000_000)
+    ocr_mode: Literal["auto", "force", "disabled"] = "auto"
+    ocr_languages: str = "english"
+    ocr_min_confidence: float = Field(default=0.5, ge=0, le=1)
+    ocr_text_score: float = Field(default=0.3, ge=0, le=1)
+    ocr_bitmap_area_threshold: float = Field(default=0.05, ge=0, le=1)
+    ocr_batch_size: int = Field(default=2, ge=1, le=16)
     interactive_upload_mb: int = 10
     # Keep direct v2 dispatch disabled until every legacy worker is drained.
     ingest_revision_protocol_v2_enabled: bool = False

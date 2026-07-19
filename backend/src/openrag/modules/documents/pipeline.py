@@ -1,12 +1,18 @@
 """Pure ingestion pipeline stages shared by workers and integration tests."""
 
+from __future__ import annotations
+
 import asyncio
+import math
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 from uuid import UUID, uuid5
 
+import pypdfium2 as pdfium
+from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
 from qdrant_client import models
 
 from openrag.modules.documents.lifecycle import validate_section_path
@@ -18,6 +24,58 @@ _CHUNK_NAMESPACE = UUID("6c7d9a52-3e1f-4b8a-9c0d-2f5e8b1a7d43")
 
 class IngestFailure(Exception):
     """Terminal ingestion failure caused by invalid or unsupported input."""
+
+
+@dataclass(frozen=True)
+class ParseProfile:
+    max_file_bytes: int = 100 * 1024 * 1024
+    max_pages: int = 1000
+    max_page_pixels: int = 40_000_000
+    render_dpi: int = 200
+    timeout_seconds: int = 300
+    max_blocks: int = 100_000
+    max_output_chars: int = 10_000_000
+    ocr_mode: Literal["auto", "force", "disabled"] = "auto"
+    ocr_languages: tuple[str, ...] = ("english",)
+    ocr_min_confidence: float = 0.5
+    ocr_text_score: float = 0.3
+    ocr_bitmap_area_threshold: float = 0.05
+    ocr_batch_size: int = 2
+
+    def __post_init__(self) -> None:
+        positive = (
+            self.max_file_bytes,
+            self.max_pages,
+            self.max_page_pixels,
+            self.render_dpi,
+            self.timeout_seconds,
+            self.max_blocks,
+            self.max_output_chars,
+            self.ocr_batch_size,
+        )
+        if any(value <= 0 for value in positive):
+            raise ValueError("parse profile limits must be positive")
+        if not self.ocr_languages or any(
+            not language
+            or len(language) > 20
+            or not language.replace("-", "").replace("_", "").isalnum()
+            for language in self.ocr_languages
+        ):
+            raise ValueError("OCR languages are invalid")
+        if not 0 <= self.ocr_min_confidence <= 1:
+            raise ValueError("OCR confidence must be between zero and one")
+        if not 0 <= self.ocr_text_score <= self.ocr_min_confidence:
+            raise ValueError("OCR text score must not exceed the review threshold")
+        if not 0 <= self.ocr_bitmap_area_threshold <= 1:
+            raise ValueError("OCR bitmap threshold must be between zero and one")
+
+
+@dataclass(frozen=True)
+class ParsedDocument:
+    blocks: list[PageBlock]
+    page_count: int
+    ocr_pages: tuple[int, ...] = ()
+    low_confidence_ocr_pages: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -88,25 +146,126 @@ class _Piece:
     block_ordinal: int
 
 
-def parse_bytes(data: bytes, filename: str) -> list[PageBlock]:
+def build_pdf_pipeline_options(profile: ParseProfile) -> PdfPipelineOptions:
+    """Build one explicit, local-only Docling OCR profile."""
+
+    return PdfPipelineOptions(
+        document_timeout=float(profile.timeout_seconds),
+        enable_remote_services=False,
+        allow_external_plugins=False,
+        do_ocr=profile.ocr_mode != "disabled",
+        ocr_options=RapidOcrOptions(
+            lang=list(profile.ocr_languages),
+            force_full_page_ocr=profile.ocr_mode == "force",
+            bitmap_area_threshold=profile.ocr_bitmap_area_threshold,
+            text_score=profile.ocr_text_score,
+            backend="onnxruntime",
+            print_verbose=False,
+        ),
+        generate_page_images=False,
+        generate_picture_images=False,
+        generate_parsed_pages=True,
+        ocr_batch_size=profile.ocr_batch_size,
+    )
+
+
+def _preflight_pdf(data: bytes, profile: ParseProfile) -> None:
+    try:
+        document = pdfium.PdfDocument(data)
+    except Exception as exc:
+        raise IngestFailure("PDF preflight failed") from exc
+    try:
+        if len(document) > profile.max_pages:
+            raise IngestFailure("document exceeds page limit")
+        for index in range(len(document)):
+            page = document[index]
+            try:
+                width, height = page.get_size()
+            finally:
+                page.close()
+            pixel_width = math.ceil(width * profile.render_dpi / 72)
+            pixel_height = math.ceil(height * profile.render_dpi / 72)
+            if pixel_width <= 0 or pixel_height <= 0:
+                raise IngestFailure("PDF page dimensions are invalid")
+            if pixel_width * pixel_height > profile.max_page_pixels:
+                raise IngestFailure("PDF page exceeds rendered pixel limit")
+    finally:
+        document.close()
+
+
+def _source_coordinates(provenance: object | None) -> dict[str, object] | None:
+    bbox = getattr(provenance, "bbox", None)
+    if bbox is None:
+        return None
+    dump = getattr(bbox, "model_dump", None)
+    if not callable(dump):
+        return None
+    raw = dump(mode="json", exclude_none=True)
+    return dict(raw) if isinstance(raw, dict) else None
+
+
+def _page_ocr_metadata(result: object) -> dict[int, tuple[str, float]]:
+    metadata: dict[int, tuple[str, float]] = {}
+    for page in getattr(result, "pages", []):
+        parsed_page = getattr(page, "parsed_page", None)
+        cells = getattr(parsed_page, "textline_cells", []) if parsed_page else []
+        ocr_cells = [cell for cell in cells if bool(getattr(cell, "from_ocr", False))]
+        if not ocr_cells:
+            continue
+        native_cells = [cell for cell in cells if not bool(getattr(cell, "from_ocr", False))]
+        scores = [
+            float(cell.confidence)
+            for cell in ocr_cells
+            if math.isfinite(float(getattr(cell, "confidence", math.nan)))
+        ]
+        confidence = sum(scores) / len(scores) if scores else 0.0
+        metadata[int(page.page_no)] = (
+            "mixed" if native_cells else "ocr",
+            max(0.0, min(1.0, confidence)),
+        )
+    return metadata
+
+
+def _section_heading(text: str) -> str:
+    normalized = " ".join(text.split()).strip()
+    return (normalized[:200].strip() or "Document")
+
+
+def parse_document(
+    data: bytes,
+    filename: str,
+    profile: ParseProfile | None = None,
+) -> ParsedDocument:
+    profile = profile or ParseProfile()
     if not data:
         raise IngestFailure("file is empty")
+    if len(data) > profile.max_file_bytes:
+        raise IngestFailure("file exceeds parser byte limit")
     suffix = Path(filename).suffix.lower()
-    if suffix == ".txt":
+    if suffix in {".txt", ".md", ".csv"}:
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise IngestFailure("text file is not valid UTF-8") from exc
+        if len(text) > profile.max_output_chars:
+            raise IngestFailure("document exceeds extracted text limit")
         text_blocks = [
-            PageBlock(page=1, text=paragraph.strip(), kind="text")
+            PageBlock(
+                page=1,
+                text=paragraph.strip(),
+                kind="table" if suffix == ".csv" else "text",
+            )
             for paragraph in text.split("\n\n")
             if paragraph.strip()
         ]
         if not text_blocks:
             raise IngestFailure("document contains no extractable text")
-        return text_blocks
+        if len(text_blocks) > profile.max_blocks:
+            raise IngestFailure("document exceeds block limit")
+        return ParsedDocument(blocks=text_blocks, page_count=1)
 
-    from docling.document_converter import DocumentConverter
+    from docling.datamodel.base_models import InputFormat
+    from docling.document_converter import DocumentConverter, PdfFormatOption
     from docling_core.types.doc import (  # type: ignore[attr-defined]
         DocItemLabel,
         TableItem,
@@ -114,24 +273,37 @@ def parse_bytes(data: bytes, filename: str) -> list[PageBlock]:
     )
 
     heading_labels = {DocItemLabel.TITLE, DocItemLabel.SECTION_HEADER}
+    if suffix == ".pdf":
+        _preflight_pdf(data, profile)
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temporary:
         temporary.write(data)
         temporary_path = Path(temporary.name)
     try:
         try:
-            result = DocumentConverter().convert(
+            converter = DocumentConverter(
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(
+                        pipeline_options=build_pdf_pipeline_options(profile)
+                    )
+                }
+            )
+            result = converter.convert(
                 temporary_path,
                 raises_on_error=True,
+                max_num_pages=profile.max_pages,
+                max_file_size=profile.max_file_bytes,
             )
         except Exception as exc:
-            raise IngestFailure(
-                f"unsupported or unparsable document: {exc}"
-            ) from exc
+            raise IngestFailure("unsupported or unparsable document") from exc
     finally:
         temporary_path.unlink(missing_ok=True)
 
+    ocr_metadata = _page_ocr_metadata(result)
+    locator_kind = "slide" if suffix == ".pptx" else "sheet" if suffix == ".xlsx" else "page"
     blocks: list[PageBlock] = []
-    for item, _level in result.document.iterate_items():
+    section_path: list[str] = ["Document"]
+    total_chars = 0
+    for item, level in result.document.iterate_items():
         provenance = getattr(item, "prov", None)
         page = provenance[0].page_no if provenance else 1
         if isinstance(item, TableItem):
@@ -143,12 +315,58 @@ def parse_bytes(data: bytes, filename: str) -> list[PageBlock]:
         else:
             continue
         if text.strip():
-            blocks.append(
-                PageBlock(page=page, text=text.strip(), kind=kind)
+            normalized_text = text.strip()
+            if kind == "heading":
+                depth = max(1, min(8, int(level or 1)))
+                section_path = section_path[: depth - 1] + [
+                    _section_heading(normalized_text)
+                ]
+            extraction_method, confidence = ocr_metadata.get(
+                page,
+                ("parser", None),
             )
+            blocks.append(
+                PageBlock(
+                    page=page,
+                    text=normalized_text,
+                    kind=kind,
+                    section_path=tuple(section_path),
+                    locator_kind=locator_kind,
+                    locator_label=str(page),
+                    source_coordinates=_source_coordinates(
+                        provenance[0] if provenance else None
+                    ),
+                    extraction_method=extraction_method,
+                    ocr_confidence=confidence,
+                )
+            )
+            total_chars += len(normalized_text)
+            if len(blocks) > profile.max_blocks:
+                raise IngestFailure("document exceeds block limit")
+            if total_chars > profile.max_output_chars:
+                raise IngestFailure("document exceeds extracted text limit")
     if not blocks:
         raise IngestFailure("document contains no extractable text")
-    return blocks
+    pages = [int(page.page_no) for page in result.pages]
+    page_count = max(pages) if pages else max(block.page for block in blocks)
+    ocr_pages = tuple(sorted(ocr_metadata))
+    low_confidence = tuple(
+        page
+        for page in ocr_pages
+        if ocr_metadata[page][1] < profile.ocr_min_confidence
+    )
+    return ParsedDocument(
+        blocks=blocks,
+        page_count=page_count,
+        ocr_pages=ocr_pages,
+        low_confidence_ocr_pages=low_confidence,
+    )
+
+
+def parse_bytes(data: bytes, filename: str) -> list[PageBlock]:
+    """Compatibility wrapper for callers that only consume normalized blocks."""
+
+    return parse_document(data, filename).blocks
 
 
 def _split_text(text: str, limit: int) -> list[str]:

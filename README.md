@@ -111,7 +111,7 @@ The platform uses a modular monolith with independently scalable API and worker 
 | Background jobs | Celery and Redis |
 | Model gateway | LiteLLM Proxy |
 | Embeddings | Text Embeddings Inference with BGE-M3 |
-| Document parsing | Docling |
+| Document parsing and OCR | Docling with local RapidOCR |
 | Observability | OpenTelemetry, Prometheus, and Grafana |
 
 The design follows five foundational rules: tenant filtering has one enforced path per data store, document permissions are applied inside retrieval, secrets have one controlled decryption path, authorization is declared at API boundaries, and all document content and model output are treated as untrusted data.
@@ -121,6 +121,13 @@ See the [high-level architecture](docs/architecture.md) for service boundaries a
 ## Deploy with Docker Compose
 
 Docker Compose is the supported single-node evaluation and development deployment. It starts PostgreSQL, isolated broker and durable event Redis services, Qdrant, MinIO, the model gateway, database migrations, bootstrap, the FastAPI service, ingestion and event workers, the event scheduler, and the React web application.
+
+Uploads are streamed through an owner-only quarantine and validated by extension,
+declared MIME, file signature, and bounded Office archive expansion. PDF parsing
+enforces byte, page, rendered-pixel, extracted-block, text-output, worker-memory,
+and wall-time budgets. Scanned and mixed PDFs use local per-page OCR by default;
+set `OPENRAG_OCR_MODE` to `auto`, `force`, or `disabled` and configure comma-separated
+RapidOCR languages with `OPENRAG_OCR_LANGUAGES`.
 
 ### 1. Prepare the host
 

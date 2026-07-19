@@ -38,9 +38,11 @@ from openrag.modules.documents.pipeline import (
     EvidenceSpan,
     IngestFailure,
     PageBlock,
+    ParsedDocument,
+    ParseProfile,
     chunk_blocks,
     embed_batch,
-    parse_bytes,
+    parse_document,
     upsert_points,
 )
 from openrag.modules.events.envelopes import DocumentVersionLifecycleV1
@@ -189,6 +191,29 @@ def _storage() -> ObjectStorage:
     return build_storage(get_settings())
 
 
+def _parse_profile() -> ParseProfile:
+    settings = get_settings()
+    return ParseProfile(
+        max_file_bytes=settings.max_upload_mb * 1024 * 1024,
+        max_pages=settings.parser_max_pages,
+        max_page_pixels=settings.parser_max_page_pixels,
+        render_dpi=settings.parser_render_dpi,
+        timeout_seconds=settings.parser_timeout_seconds,
+        max_blocks=settings.parser_max_blocks,
+        max_output_chars=settings.parser_max_output_chars,
+        ocr_mode=settings.ocr_mode,
+        ocr_languages=tuple(
+            language.strip()
+            for language in settings.ocr_languages.split(",")
+            if language.strip()
+        ),
+        ocr_min_confidence=settings.ocr_min_confidence,
+        ocr_text_score=settings.ocr_text_score,
+        ocr_bitmap_area_threshold=settings.ocr_bitmap_area_threshold,
+        ocr_batch_size=settings.ocr_batch_size,
+    )
+
+
 def _legacy_ingest_source(document: Document) -> tuple[str, str, str]:
     """Return compatibility source fields required by the legacy ingest path."""
 
@@ -262,21 +287,30 @@ async def run_parse(document_id: UUID, expected_revision: int) -> None:
         try:
             storage_key, filename, _mime = _legacy_ingest_source(document)
             data = await storage.get(storage_key)
-            blocks = await asyncio.to_thread(
-                parse_bytes,
+            parsed = await asyncio.to_thread(
+                parse_document,
                 data,
                 filename,
+                _parse_profile(),
             )
         except IngestFailure as exc:
             await _fail_jobs(session, document, (job,), str(exc), expected_revision)
             raise
         await storage.put(
             storage_key + ".blocks.json",
-            json.dumps([asdict(block) for block in blocks]).encode(),
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "page_count": parsed.page_count,
+                    "ocr_pages": parsed.ocr_pages,
+                    "low_confidence_ocr_pages": parsed.low_confidence_ocr_pages,
+                    "blocks": [asdict(block) for block in parsed.blocks],
+                }
+            ).encode(),
             content_type="application/json",
         )
         legacy_version = await _lock_active_attempt(session, document, expected_revision)
-        document.page_count = max(block.page for block in blocks)
+        document.page_count = parsed.page_count
         legacy_version.source_page_count = document.page_count
         await _finish_stage(session, job)
 
@@ -292,7 +326,8 @@ async def run_chunk(document_id: UUID, expected_revision: int) -> None:
             await _fail_jobs(session, document, (job,), str(exc), expected_revision)
             raise
         raw = await storage.get(storage_key + ".blocks.json")
-        blocks = [PageBlock(**block) for block in json.loads(raw)]
+        parsed = _decode_block_artifact(raw)
+        blocks = parsed.blocks
         chunks, evidence_spans = chunk_blocks(blocks)
         if not chunks:
             reason = "chunking produced no chunks"
@@ -311,6 +346,81 @@ async def run_chunk(document_id: UUID, expected_revision: int) -> None:
         )
         await _lock_active_attempt(session, document, expected_revision)
         await _finish_stage(session, job)
+
+
+def _artifact_int(value: object, field: str) -> int:
+    if type(value) is not int:
+        raise IngestFailure(f"block artifact {field} is invalid")
+    return value
+
+
+def _artifact_float(value: object, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise IngestFailure(f"block artifact {field} is invalid")
+    return float(value)
+
+
+def _page_block(item: dict[str, object]) -> PageBlock:
+    section = item.get("section_path", ["Document"])
+    if not isinstance(section, list):
+        raise IngestFailure("block artifact section is invalid")
+    coordinates = item.get("source_coordinates")
+    if coordinates is not None and not isinstance(coordinates, dict):
+        raise IngestFailure("block artifact coordinates are invalid")
+    confidence = item.get("ocr_confidence")
+    text = item.get("text")
+    kind = item.get("kind")
+    if not isinstance(text, str) or not isinstance(kind, str):
+        raise IngestFailure("block artifact text is invalid")
+    page = _artifact_int(item.get("page"), "page")
+    return PageBlock(
+        page=page,
+        text=text,
+        kind=kind,
+        section_path=tuple(str(value) for value in section),
+        locator_kind=str(item.get("locator_kind", "page")),
+        locator_label=str(item.get("locator_label", page)),
+        source_coordinates=coordinates,
+        extraction_method=str(item.get("extraction_method", "parser")),
+        ocr_confidence=(
+            _artifact_float(confidence, "OCR confidence")
+            if confidence is not None
+            else None
+        ),
+    )
+
+
+def _decode_block_artifact(raw: bytes) -> ParsedDocument:
+    decoded: object = json.loads(raw)
+    if isinstance(decoded, list):
+        blocks = [_page_block(item) for item in decoded if isinstance(item, dict)]
+        if not blocks:
+            raise IngestFailure("block artifact is empty")
+        return ParsedDocument(
+            blocks=blocks,
+            page_count=max(block.page for block in blocks),
+        )
+    if not isinstance(decoded, dict) or decoded.get("schema_version") != 2:
+        raise IngestFailure("block artifact schema is unsupported")
+    raw_blocks = decoded.get("blocks")
+    if not isinstance(raw_blocks, list):
+        raise IngestFailure("block artifact is incomplete")
+    blocks = [_page_block(item) for item in raw_blocks if isinstance(item, dict)]
+    if not blocks:
+        raise IngestFailure("block artifact is empty")
+    ocr_pages = decoded.get("ocr_pages", [])
+    low_confidence = decoded.get("low_confidence_ocr_pages", [])
+    if not isinstance(ocr_pages, list) or not isinstance(low_confidence, list):
+        raise IngestFailure("block artifact OCR metadata is invalid")
+    return ParsedDocument(
+        blocks=blocks,
+        page_count=_artifact_int(decoded.get("page_count"), "page count"),
+        ocr_pages=tuple(_artifact_int(page, "OCR page") for page in ocr_pages),
+        low_confidence_ocr_pages=tuple(
+            _artifact_int(page, "low-confidence OCR page")
+            for page in low_confidence
+        ),
+    )
 
 
 async def run_embed_upsert(document_id: UUID, expected_revision: int) -> None:
