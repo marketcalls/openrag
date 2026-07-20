@@ -26,7 +26,7 @@ This choice is:
 5. Rehydrate those citation identities through a dedicated retrieval boundary:
    - Authority citations are reconstructed only after PostgreSQL revalidates organization, workspace, current approved version, provenance readiness, effective/expiry dates, source presence, ACL policy, and content hash.
    - Legacy citation chunk references are parsed defensively and fetched from Qdrant only under organization, workspace, and document filters. Their document IDs are then checked against the same current SQL eligibility used by legacy retrieval.
-6. Merge fresh and backfilled evidence in priority order, deduplicate by stable evidence identity, and cap the result at `top_k`.
+6. Merge and deduplicate by stable evidence identity, then cap the result at `top_k`. Sufficient fresh evidence remains first. When fresh retrieval is explicitly insufficient, authorized backfill is ordered first so weak candidates cannot consume diversity caps and crowd out the contextual evidence that rescues the turn.
 7. A surviving authorized backfill is sufficient grounding even when the isolated follow-up has low similarity. It is marked with score `0.0` so the UI and audit trail never misrepresent it as a fresh similarity hit.
 8. Build the normal grounded prompt, stream the answer, validate citations, and persist the answer through the existing strict release gate.
 
@@ -61,7 +61,7 @@ Automated coverage must prove:
 - edited branches use only their own ancestor citations;
 - malformed and cross-tenant legacy references are rejected;
 - authority references are revalidated and stale versions are rejected;
-- fresh evidence outranks backfilled evidence and duplicates are removed;
+- sufficient fresh evidence outranks backfill, while backfill outranks explicitly insufficient fresh candidates, and duplicates are removed;
 - the final source list never exceeds `top_k`;
 - direct greetings still avoid retrieval;
 - `prev` conversation-history wording routes to the conversation path rather than RAG.
