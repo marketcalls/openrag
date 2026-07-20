@@ -369,6 +369,41 @@ export interface paths {
         patch: operations["patch_embedding_profile_api_v1_admin_embedding_profiles__profile_id__patch"];
         trace?: never;
     };
+    "/api/v1/admin/embedding-deployments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Embedding Deployments */
+        get: operations["list_embedding_deployments_api_v1_admin_embedding_deployments_get"];
+        put?: never;
+        /** Request Embedding Deployment */
+        post: operations["request_embedding_deployment_api_v1_admin_embedding_deployments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/embedding-deployments/{deployment_id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate Embedding Deployment */
+        post: operations["activate_embedding_deployment_api_v1_admin_embedding_deployments__deployment_id__activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -889,6 +924,59 @@ export interface components {
             updated_at: string;
             /** Lifecycle Revision */
             lifecycle_revision: number;
+        };
+        /** EmbeddingDeploymentCreate */
+        EmbeddingDeploymentCreate: {
+            /**
+             * Profile Id
+             * Format: uuid
+             */
+            profile_id: string;
+        };
+        /** EmbeddingDeploymentOut */
+        EmbeddingDeploymentOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Profile Id
+             * Format: uuid
+             */
+            profile_id: string;
+            /**
+             * Generation Id
+             * Format: uuid
+             */
+            generation_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "building" | "ready" | "active" | "failed" | "retired";
+            /** Total Versions */
+            total_versions: number;
+            /** Completed Versions */
+            completed_versions: number;
+            /** Failed Versions */
+            failed_versions: number;
+            /** Scan Complete */
+            scan_complete: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Activated At */
+            activated_at: string | null;
+            /** Failure Code */
+            failure_code: string | null;
         };
         /** EmbeddingProfileCreate */
         EmbeddingProfileCreate: {
@@ -2191,6 +2279,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EmbeddingProfileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_embedding_deployments_api_v1_admin_embedding_deployments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbeddingDeploymentOut"][];
+                };
+            };
+        };
+    };
+    request_embedding_deployment_api_v1_admin_embedding_deployments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmbeddingDeploymentCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbeddingDeploymentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activate_embedding_deployment_api_v1_admin_embedding_deployments__deployment_id__activate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbeddingDeploymentOut"];
                 };
             };
             /** @description Validation Error */

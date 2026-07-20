@@ -1,7 +1,7 @@
-import { Fingerprint, Gauge, Pencil, Plus, Route, ShieldCheck } from 'lucide-react';
+import { Activity, Fingerprint, Gauge, Pencil, Plus, Rocket, Route, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 
-import type { EmbeddingProfileOut } from '@/api/types';
+import type { EmbeddingDeploymentOut, EmbeddingProfileOut } from '@/api/types';
 import { TopBar } from '@/components/layout/top-bar';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -9,7 +9,13 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { toast } from '@/components/ui/toaster';
 
 import { EmbeddingProfileDialog } from './embedding-profile-dialog';
-import { useEmbeddingProfiles, usePatchEmbeddingProfile } from './queries';
+import {
+  useActivateEmbeddingDeployment,
+  useEmbeddingDeployments,
+  useEmbeddingProfiles,
+  usePatchEmbeddingProfile,
+  useRequestEmbeddingDeployment,
+} from './queries';
 
 function providerLabel(provider: EmbeddingProfileOut['provider_kind']): string {
   if (provider === 'litellm') return 'LiteLLM gateway';
@@ -17,9 +23,19 @@ function providerLabel(provider: EmbeddingProfileOut['provider_kind']): string {
   return 'Development hash';
 }
 
+function deploymentTone(status: EmbeddingDeploymentOut['status']) {
+  if (status === 'active' || status === 'ready') return 'success' as const;
+  if (status === 'failed') return 'danger' as const;
+  if (status === 'building') return 'accent' as const;
+  return 'warning' as const;
+}
+
 export function EmbeddingProfilesPage() {
   const profiles = useEmbeddingProfiles();
+  const deployments = useEmbeddingDeployments();
   const patch = usePatchEmbeddingProfile();
+  const deploy = useRequestEmbeddingDeployment();
+  const activate = useActivateEmbeddingDeployment();
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<EmbeddingProfileOut | null>(null);
 
@@ -48,6 +64,76 @@ export function EmbeddingProfilesPage() {
                 Provider, model, dimensions, and limits are immutable after registration. A model change creates a new profile and a new authority generation—never an in-place vector reset.
               </p>
             </div>
+          </section>
+
+          <section className="rounded-xl border border-line bg-surface p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-accent" aria-hidden />
+                  <h2 className="text-[14px] font-semibold text-ink">Generation rollout</h2>
+                </div>
+                <p className="mt-1 text-[12px] text-secondary">
+                  Reindex runs beside the live generation. Activation stays locked until every current approved version is verified.
+                </p>
+              </div>
+              {deployments.isFetching ? <Spinner label="Refreshing rollout…" /> : null}
+            </div>
+
+            {deployments.isError ? (
+              <p role="alert" className="mt-3 rounded-md border border-danger bg-danger-soft p-3 text-[13px] text-danger">
+                {deployments.error.message}
+              </p>
+            ) : null}
+            {deployments.data?.length === 0 ? (
+              <div className="mt-4 rounded-lg border border-dashed border-line px-4 py-6 text-center text-[12px] text-secondary">
+                No governed generation has been deployed yet. Choose an enabled profile below to build one.
+              </div>
+            ) : null}
+            {deployments.data?.length ? (
+              <div className="mt-4 space-y-2">
+                {deployments.data.map((deployment) => {
+                  const profile = profiles.data?.find((candidate) => candidate.id === deployment.profile_id);
+                  const finished = deployment.completed_versions + deployment.failed_versions;
+                  const percent = deployment.total_versions === 0
+                    ? (deployment.scan_complete ? 100 : 0)
+                    : Math.min(100, Math.round((finished / deployment.total_versions) * 100));
+                  return (
+                    <article key={deployment.id} className="rounded-lg border border-line-faint bg-subtle p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-[13px] font-medium text-ink">{profile?.name ?? 'Embedding profile'}</span>
+                            <StatusPill tone={deploymentTone(deployment.status)}>{deployment.status}</StatusPill>
+                          </div>
+                          <p className="mt-1 font-mono text-[10px] text-muted">generation {deployment.generation_id.slice(0, 12)}…</p>
+                        </div>
+                        {deployment.status === 'ready' ? (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            disabled={activate.isPending}
+                            onClick={() => activate.mutate(deployment.id, {
+                              onSuccess: () => toast.success('Embedding generation activated'),
+                              onError: (error) => toast.error(error.message),
+                            })}
+                          >
+                            <Rocket className="h-3.5 w-3.5" aria-hidden /> Activate
+                          </Button>
+                        ) : null}
+                      </div>
+                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-line">
+                        <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${percent}%` }} />
+                      </div>
+                      <div className="mt-1.5 flex justify-between text-[10px] text-muted">
+                        <span>{finished} / {deployment.total_versions} versions</span>
+                        <span>{deployment.failure_code ?? (deployment.scan_complete ? 'discovery complete' : 'discovering corpus')}</span>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : null}
           </section>
 
           {profiles.isPending ? <Spinner label="Loading embedding profiles…" /> : null}
@@ -137,6 +223,17 @@ export function EmbeddingProfilesPage() {
                       />
                     </label>
                   </div>
+                  <Button
+                    className="mt-3 w-full"
+                    size="sm"
+                    disabled={!profile.enabled || deploy.isPending || deployments.data?.some((item) => item.status === 'building' || item.status === 'ready')}
+                    onClick={() => deploy.mutate({ profile_id: profile.id }, {
+                      onSuccess: () => toast.success('Safe reindex deployment started'),
+                      onError: (error) => toast.error(error.message),
+                    })}
+                  >
+                    <Rocket className="h-3.5 w-3.5" aria-hidden /> Deploy and reindex
+                  </Button>
                 </article>
               ))}
             </div>

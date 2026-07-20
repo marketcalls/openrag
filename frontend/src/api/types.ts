@@ -23,6 +23,8 @@ export type ModelPublic = components['schemas']['ModelPublic'];
 export type EmbeddingProfileCreate = components['schemas']['EmbeddingProfileCreate'];
 export type EmbeddingProfileOut = components['schemas']['EmbeddingProfileOut'];
 export type EmbeddingProfilePatch = components['schemas']['EmbeddingProfilePatch'];
+export type EmbeddingDeploymentCreate = components['schemas']['EmbeddingDeploymentCreate'];
+export type EmbeddingDeploymentOut = components['schemas']['EmbeddingDeploymentOut'];
 
 export type DocumentStatus = DocumentOut['status'];
 
