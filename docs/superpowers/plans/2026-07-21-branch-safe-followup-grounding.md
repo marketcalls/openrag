@@ -60,7 +60,7 @@ Expected: FAIL because `CitationEvidenceIdentity` and `backfill_citation_evidenc
 
 - [ ] **Step 3: Implement the bounded identity and legacy rehydration path**
 
-Add a frozen identity dataclass with bounded `chunk_ref` and optional authority fields. Parse legacy references as exactly `UUID:positive_page:nonnegative_chunk_index`, deduplicate them, check legacy document eligibility in PostgreSQL, then resolve Qdrant payloads under `_tenant_filter(org_id=..., workspace_id=..., document_id=...)`. Return at most `top_k` chunks and mark them score `0.0`.
+Add a frozen identity dataclass with bounded `chunk_ref` and optional authority fields. Parse legacy references as exactly `UUID:positive_page:nonnegative_chunk_index`, deduplicate them, check legacy document eligibility in PostgreSQL, then resolve Qdrant payloads under `_tenant_filter(org_id=context.org_id, workspace_id=workspace_id, document_id=document_id)`. Return at most `top_k` chunks and mark them score `0.0`.
 
 ```python
 @dataclass(frozen=True, slots=True)
