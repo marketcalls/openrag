@@ -26,6 +26,13 @@ class Settings(BaseSettings):
         le=7200,
     )
     event_waitaof_timeout_ms: int = Field(default=5000, ge=100, le=30_000)
+    run_event_max_events: int = Field(default=4096, ge=1, le=65_536)
+    run_event_retention_seconds: int = Field(
+        default=3600,
+        ge=60,
+        le=604_800,
+    )
+    run_event_block_ms: int = Field(default=15_000, ge=100, le=60_000)
     environment: str = "dev"
     kek_file: str = "./data/openrag_kek"
     access_token_ttl_seconds: int = 900

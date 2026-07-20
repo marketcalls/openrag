@@ -63,6 +63,8 @@ def new_run_event(
     workspace_id: UUID,
     chat_id: UUID,
     payload: dict[str, Any],
+    event_id: UUID | None = None,
+    occurred_at: datetime | None = None,
 ) -> RunEventEnvelope:
     encoded_payload = json.dumps(
         payload,
@@ -73,14 +75,14 @@ def new_run_event(
         raise ValueError("event payload exceeds 65536 bytes")
 
     return RunEventEnvelope(
-        event_id=uuid4(),
+        event_id=event_id or uuid4(),
         sequence=sequence,
         event_type=event_type,
         run_id=run_id,
         org_id=org_id,
         workspace_id=workspace_id,
         chat_id=chat_id,
-        occurred_at=datetime.now(UTC),
+        occurred_at=occurred_at or datetime.now(UTC),
         payload=payload,
     )
 

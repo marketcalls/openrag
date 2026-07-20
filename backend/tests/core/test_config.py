@@ -43,6 +43,9 @@ def test_event_transport_settings_are_distinct_and_injected(monkeypatch) -> None
     assert settings.event_dispatch_batch_size == 100
     assert settings.event_dispatch_lease_seconds == 30
     assert settings.event_waitaof_timeout_ms == 5000
+    assert settings.run_event_max_events == 4096
+    assert settings.run_event_retention_seconds == 3600
+    assert settings.run_event_block_ms == 15_000
 
 
 def test_ingestion_settings_defaults() -> None:
