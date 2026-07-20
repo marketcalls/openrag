@@ -60,9 +60,18 @@ def test_thread_meta_questions_use_conversation_context(query: str) -> None:
     assert decision.retrieval_query is None
 
 
-def test_referential_followup_is_rewritten_with_latest_user_question() -> None:
-    decision = decide_route(
+@pytest.mark.parametrize(
+    "query",
+    [
         "Tell me more about it",
+        "provide the above in table format",
+    ],
+)
+def test_referential_followup_is_rewritten_with_latest_user_question(
+    query: str,
+) -> None:
+    decision = decide_route(
+        query,
         history=[
             ("user", "What is time series clustering?"),
             ("assistant", "It groups similar time series [1]."),
@@ -73,7 +82,7 @@ def test_referential_followup_is_rewritten_with_latest_user_question() -> None:
     assert decision.reason_code == "referential_followup"
     assert decision.retrieval_query == (
         "Earlier user question: What is time series clustering?\n"
-        "Follow-up question: Tell me more about it"
+        f"Follow-up question: {query}"
     )
 
 

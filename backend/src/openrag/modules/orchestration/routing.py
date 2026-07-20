@@ -62,6 +62,11 @@ _REFERENTIAL_FOLLOWUPS = tuple(
         r"(?:why is|how does) that(?: work)?",
         r"continue",
         r"go on",
+        r"(?:provide|show|put|present|format|convert|rewrite|reformat) "
+        r"(?:(?:the )?(?:above|previous|last)"
+        r"(?: (?:answer|response|information|details))?|(?:it|that|this))"
+        r"(?: (?:as|in|into))? (?:a )?"
+        r"(?:table|chart|list|summary|bullets?|json|csv|markdown)(?: format)?",
     )
 )
 _ANALYTICS_VERB = re.compile(

@@ -548,6 +548,7 @@ def _merge_retrieval_with_backfill(
     backfill: RetrievalResult,
     *,
     top_k: int,
+    prefer_backfill: bool = False,
 ) -> RetrievalResult:
     if not 1 <= top_k <= 32:
         raise ValueError("top_k must be between 1 and 32")
@@ -557,7 +558,7 @@ def _merge_retrieval_with_backfill(
     if primary.evidence or backfill.evidence:
         ordered = (
             (*backfill.evidence, *primary.evidence)
-            if primary.no_answer
+            if primary.no_answer or prefer_backfill
             else (*primary.evidence, *backfill.evidence)
         )
         selected = select_final_evidence(
@@ -587,7 +588,7 @@ def _merge_retrieval_with_backfill(
 
     ordered_chunks = (
         [*backfill.chunks, *primary.chunks]
-        if primary.no_answer
+        if primary.no_answer or prefer_backfill
         else [*primary.chunks, *backfill.chunks]
     )
     selected_chunks: list[RetrievedChunk] = []
@@ -1367,7 +1368,8 @@ async def stream_reply(
         except Exception:  # noqa: BLE001 - planner details remain private
             finish_reason = "planner_failed"
         yield agent_completed_event(finish_reason)
-    if result.no_answer or len(result.chunks) < retrieval_top_k:
+    referential_followup = decision.reason_code == "referential_followup"
+    if referential_followup or result.no_answer or len(result.chunks) < retrieval_top_k:
         identities = await _previous_citation_identities(
             session,
             previous_assistant_id,
@@ -1384,6 +1386,7 @@ async def stream_reply(
                 result,
                 backfill,
                 top_k=retrieval_top_k,
+                prefer_backfill=referential_followup,
             )
     sources = await _source_refs(session, context, result)
     yield sources_event(sources)

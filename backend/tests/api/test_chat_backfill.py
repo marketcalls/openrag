@@ -86,6 +86,19 @@ async def test_weak_table_format_followup_backfills_nearest_grounded_citations(
         ],
         no_answer=True,
     )
+    full_but_unhelpful = RetrievalResult(
+        chunks=[
+            RetrievedChunk(
+                document_id=document.id,
+                page=1,
+                chunk_index=chunk_index,
+                text=f"Unrelated full-result candidate {chunk_index}.",
+                score=0.5 - (chunk_index * 0.01),
+            )
+            for chunk_index in range(10, 15)
+        ],
+        no_answer=False,
+    )
     backfilled = RetrievalResult(
         chunks=[
             RetrievedChunk(
@@ -105,7 +118,7 @@ async def test_weak_table_format_followup_backfills_nearest_grounded_citations(
     app = create_app(
         session_factory=build_session_factory(engine),
         redis_client=redis_client,
-        retriever=SequenceRetriever([first, weak, weak]),
+        retriever=SequenceRetriever([first, full_but_unhelpful, weak]),
         citation_backfiller=backfiller,
         llm_streamer=streamer,
     )
