@@ -6,8 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.modules.auth.models import User
 from openrag.modules.chat.models import Chat, Message
 from openrag.modules.events.models import OutboxEvent
-from openrag.modules.runs.schemas import RunCreate
-from openrag.modules.runs.service import accept_run, request_cancel
+from openrag.modules.runs.schemas import RunCreate, RunRegenerate
+from openrag.modules.runs.service import (
+    accept_regeneration,
+    accept_run,
+    request_cancel,
+)
 from openrag.modules.tenancy.authorization import AuthorizationSnapshot
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Workspace, WorkspaceMember
@@ -116,3 +120,39 @@ async def test_cancel_is_idempotent_and_emits_one_command(
         )
         == 1
     )
+
+
+async def test_regeneration_reuses_user_turn_without_duplicating_message(
+    session: AsyncSession,
+    seeded_user: User,
+) -> None:
+    context, chat = await _run_context(session, seeded_user)
+    original = await accept_run(
+        session,
+        context,
+        chat.id,
+        RunCreate(content="hello", client_request_id=uuid4()),
+    )
+    assistant = Message(
+        org_id=context.org_id,
+        workspace_id=chat.workspace_id,
+        chat_id=chat.id,
+        parent_message_id=original.run.input_message_id,
+        sibling_index=0,
+        role="assistant",
+        content="first answer",
+    )
+    session.add(assistant)
+    await session.commit()
+
+    regenerated = await accept_regeneration(
+        session,
+        context,
+        assistant.id,
+        RunRegenerate(client_request_id=uuid4()),
+    )
+
+    assert regenerated.run.id != original.run.id
+    assert regenerated.run.input_message_id == original.run.input_message_id
+    assert await session.scalar(select(func.count()).select_from(Message)) == 2
+    assert await session.scalar(select(func.count()).select_from(OutboxEvent)) == 2

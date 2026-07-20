@@ -3,8 +3,13 @@ import { useCallback, useRef, useState } from 'react';
 
 import type { ChatRoute, CitationRef, SourceRef } from '@/api/types';
 
-import { acceptDurableRun, cancelDurableRun, streamDurableRun } from './durable-stream';
-import { streamChatSse, type ChatSseEvent } from './stream';
+import {
+  acceptDurableRegeneration,
+  acceptDurableRun,
+  cancelDurableRun,
+  streamDurableRun,
+} from './durable-stream';
+import type { ChatSseEvent } from './stream';
 
 export type StreamStatus =
   'idle' | 'routing' | 'retrieving' | 'generating' | 'streaming' | 'done' | 'error';
@@ -70,28 +75,6 @@ export function useChatStream(chatId: string | null) {
   const abortController = useRef<AbortController | null>(null);
   const activeRunId = useRef<string | null>(null);
 
-  const run = useCallback(
-    (url: string, body: unknown, pendingUserContent: string | null) => {
-      abortController.current?.abort();
-      const controller = new AbortController();
-      abortController.current = controller;
-      setState({ ...IDLE, status: 'routing', pendingUserContent });
-      void streamChatSse(
-        url,
-        body,
-        (event) => {
-          setState((current) => reduceStream(current, event));
-          if (event.type === 'done') {
-            void queryClient.invalidateQueries({ queryKey: ['chat', chatId] });
-            void queryClient.invalidateQueries({ queryKey: ['chats'] });
-          }
-        },
-        controller.signal,
-      );
-    },
-    [chatId, queryClient],
-  );
-
   const send = useCallback(
     (content: string, parentMessageId?: string | null, modelId?: string | null) => {
       if (!chatId) return;
@@ -139,8 +122,41 @@ export function useChatStream(chatId: string | null) {
   );
 
   const regenerate = useCallback(
-    (messageId: string) => run(`/api/v1/messages/${messageId}/regenerate`, {}, null),
-    [run],
+    (messageId: string) => {
+      if (!chatId) return;
+      abortController.current?.abort();
+      const controller = new AbortController();
+      abortController.current = controller;
+      activeRunId.current = null;
+      setState({ ...IDLE, status: 'routing', pendingUserContent: null });
+      void (async () => {
+        try {
+          const accepted = await acceptDurableRegeneration(messageId, null, controller.signal);
+          activeRunId.current = accepted.run_id;
+          await streamDurableRun(
+            accepted,
+            (event) => {
+              setState((current) => reduceStream(current, event));
+              if (event.type === 'done') {
+                activeRunId.current = null;
+                void queryClient.invalidateQueries({ queryKey: ['chat', chatId] });
+                void queryClient.invalidateQueries({ queryKey: ['chats'] });
+              }
+            },
+            controller.signal,
+          );
+        } catch (error) {
+          if (!controller.signal.aborted) {
+            setState((current) => ({
+              ...current,
+              status: 'error',
+              errorDetail: error instanceof Error ? error.message : 'Request failed',
+            }));
+          }
+        }
+      })();
+    },
+    [chatId, queryClient],
   );
 
   const abort = useCallback(() => {

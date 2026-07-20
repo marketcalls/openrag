@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.core.db import naive_utc
 from openrag.core.errors import ConflictError, NotFoundError
 from openrag.modules.chat import service as chat_service
-from openrag.modules.chat.models import Chat
+from openrag.modules.chat.models import Chat, Message
 from openrag.modules.events.envelopes import (
     RunCancelRequestedV1,
     RunRequestedV1,
@@ -19,7 +19,7 @@ from openrag.modules.events.envelopes import (
 from openrag.modules.events.outbox import add_registered_event
 from openrag.modules.models import service as models_service
 from openrag.modules.runs.models import AgentRun
-from openrag.modules.runs.schemas import RunCreate
+from openrag.modules.runs.schemas import RunCreate, RunRegenerate
 from openrag.modules.tenancy import service as tenancy_service
 from openrag.modules.tenancy.context import TenantContext
 
@@ -167,6 +167,101 @@ async def accept_run(
             "chat.use",
         )
         return _same_chat(raced, chat_id)
+    return AcceptedRun(run=run, created=True)
+
+
+async def accept_regeneration(
+    session: AsyncSession,
+    context: TenantContext,
+    assistant_message_id: UUID,
+    command: RunRegenerate,
+) -> AcceptedRun:
+    """Create a new run for an existing user turn without duplicating it."""
+
+    chat, assistant = await chat_service.get_message(
+        session,
+        context,
+        assistant_message_id,
+    )
+    if assistant.role != chat_service.ROLE_ASSISTANT or assistant.parent_message_id is None:
+        raise ConflictError("only assistant messages can be regenerated")
+
+    existing = await _existing_request(session, context, command.client_request_id)
+    if existing is not None:
+        await tenancy_service.get_workspace(
+            session,
+            context,
+            existing.workspace_id,
+            "chat.use",
+        )
+        if existing.chat_id != chat.id or existing.input_message_id != assistant.parent_message_id:
+            raise ConflictError("client request id already used")
+        return AcceptedRun(run=existing, created=False)
+
+    workspace = await tenancy_service.get_workspace(
+        session,
+        context,
+        chat.workspace_id,
+        "chat.use",
+    )
+    user_message = await session.scalar(
+        select(Message).where(
+            Message.id == assistant.parent_message_id,
+            Message.chat_id == chat.id,
+            Message.org_id == context.org_id,
+            Message.workspace_id == chat.workspace_id,
+            Message.role == chat_service.ROLE_USER,
+        )
+    )
+    if user_message is None:
+        raise ConflictError("assistant parent is not a user message")
+    chat_id = chat.id
+    user_message_id = user_message.id
+
+    resolved_model_id = command.model_id
+    if resolved_model_id is not None:
+        model = await models_service.resolve_model(
+            session,
+            requested_model_id=resolved_model_id,
+            default_model_id=workspace.default_model_id,
+        )
+        resolved_model_id = model.id
+    run = AgentRun(
+        org_id=context.org_id,
+        workspace_id=chat.workspace_id,
+        user_id=context.user_id,
+        chat_id=chat_id,
+        input_message_id=user_message_id,
+        model_id=resolved_model_id,
+        client_request_id=command.client_request_id,
+    )
+    session.add(run)
+    await session.flush()
+    add_registered_event(
+        session,
+        payload=RunRequestedV1(
+            run_id=run.id,
+            user_id=context.user_id,
+            chat_id=chat_id,
+            input_message_id=user_message_id,
+            client_request_id=command.client_request_id,
+            model_id=resolved_model_id,
+        ),
+        org_id=context.org_id,
+        workspace_id=chat.workspace_id,
+        aggregate_id=run.id,
+        lifecycle_revision=1,
+        correlation_id=command.client_request_id,
+        occurred_at=datetime.now(UTC),
+    )
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raced = await _existing_request(session, context, command.client_request_id)
+        if raced is None or raced.chat_id != chat_id or raced.input_message_id != user_message_id:
+            raise
+        return AcceptedRun(run=raced, created=False)
     return AcceptedRun(run=run, created=True)
 
 

@@ -25,6 +25,13 @@ class RunCreate(BaseModel):
     model_id: UUID | None = None
 
 
+class RunRegenerate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_request_id: UUID
+    model_id: UUID | None = None
+
+
 class RunAccepted(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

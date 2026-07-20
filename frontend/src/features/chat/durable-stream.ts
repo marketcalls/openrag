@@ -70,12 +70,39 @@ export async function acceptDurableRun(
   body: { content: string; parent_message_id?: string | null; model_id?: string },
   signal: AbortSignal,
 ): Promise<AcceptedRun> {
+  return acceptRunAt(
+    `/api/v1/chats/${chatId}/runs`,
+    { ...body, client_request_id: crypto.randomUUID() },
+    signal,
+  );
+}
+
+export async function acceptDurableRegeneration(
+  messageId: string,
+  modelId: string | null,
+  signal: AbortSignal,
+): Promise<AcceptedRun> {
+  return acceptRunAt(
+    `/api/v1/messages/${messageId}/runs`,
+    {
+      client_request_id: crypto.randomUUID(),
+      ...(modelId ? { model_id: modelId } : {}),
+    },
+    signal,
+  );
+}
+
+async function acceptRunAt(
+  url: string,
+  body: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<AcceptedRun> {
   const response = await authFetch(
-    new Request(new URL(`/api/v1/chats/${chatId}/runs`, window.location.origin), {
+    new Request(new URL(url, window.location.origin), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ ...body, client_request_id: crypto.randomUUID() }),
+      body: JSON.stringify(body),
       signal,
     }),
   );

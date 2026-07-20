@@ -21,6 +21,7 @@ from openrag.modules.runs.replay import RunEventScope, stream_run_events
 from openrag.modules.runs.schemas import (
     RunAccepted,
     RunCreate,
+    RunRegenerate,
     RunStatus,
     RunStatusOut,
 )
@@ -87,6 +88,33 @@ async def accept_run(
     )
 
 
+@router.post(
+    "/messages/{message_id}/runs",
+    status_code=202,
+    response_model=RunAccepted,
+)
+async def accept_regeneration(
+    message_id: UUID,
+    body: RunRegenerate,
+    session: SessionDep,
+    context: AcceptContextDep,
+) -> RunAccepted:
+    accepted = await service.accept_regeneration(
+        session,
+        context,
+        message_id,
+        body,
+    )
+    run = accepted.run
+    return RunAccepted(
+        run_id=run.id,
+        input_message_id=run.input_message_id,
+        status=cast(RunStatus, run.status),
+        created=accepted.created,
+        events_url=f"/api/v1/runs/{run.id}/events",
+    )
+
+
 @router.get("/runs/{run_id}", response_model=RunStatusOut)
 async def get_run(
     run_id: UUID,
@@ -124,9 +152,7 @@ async def replay_run_events(
         try:
             cursor = UUID(last_event_id)
         except ValueError as exc:
-            raise ConflictError(
-                "event cursor expired; reload run status and reconnect"
-            ) from exc
+            raise ConflictError("event cursor expired; reload run status and reconnect") from exc
     bus = RedisEventBus(
         as_event_bus_redis(request.app.state.event_redis),
         max_events=settings.run_event_max_events,
@@ -135,9 +161,7 @@ async def replay_run_events(
     try:
         initial = await bus.read(run_id, after_event_id=cursor)
     except RunEventCursorExpired as exc:
-        raise ConflictError(
-            "event cursor expired; reload run status and reconnect"
-        ) from exc
+        raise ConflictError("event cursor expired; reload run status and reconnect") from exc
 
     return StreamingResponse(
         stream_run_events(

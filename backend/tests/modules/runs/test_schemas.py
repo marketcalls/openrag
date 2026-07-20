@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from openrag.modules.runs.schemas import RunCreate, RunStatusOut
+from openrag.modules.runs.schemas import RunCreate, RunRegenerate, RunStatusOut
 
 
 def test_run_create_requires_bounded_content_and_idempotency_key() -> None:
@@ -41,3 +41,12 @@ def test_run_status_contains_only_safe_operational_fields() -> None:
     assert "trace_id" not in status.model_dump()
     with pytest.raises(ValidationError):
         RunStatusOut.model_validate({**values, "status": "unknown"})
+
+
+def test_run_regenerate_requires_idempotency_and_rejects_content() -> None:
+    request_id = uuid4()
+    command = RunRegenerate(client_request_id=request_id)
+
+    assert command.client_request_id == request_id
+    with pytest.raises(ValidationError):
+        RunRegenerate(client_request_id=request_id, content="duplicate")

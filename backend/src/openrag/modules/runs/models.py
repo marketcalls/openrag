@@ -39,7 +39,7 @@ class AgentRun(UUIDPk, Base):
     )
     input_message_id: Mapped[UUID] = mapped_column(
         ForeignKey("messages.id"),
-        unique=True,
+        index=True,
     )
     assistant_message_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("messages.id"),
