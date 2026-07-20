@@ -7,8 +7,10 @@ versioned specifications and plans under `docs/superpowers/`.
 
 - The product name is **OpenRAG**. Never use RAGHub in product copy, code, docs,
   images, metadata, or deployment names.
-- Use local `anything-llm/` and `openui/` only as read-only design benchmarks.
-  Never modify or commit either directory.
+- Use local `anything-llm/` and `openui/` only as read-only design benchmarks,
+  and `raghub/docs/superpowers/` only as a read-only engineering-practice
+  reference. Never modify or commit any of those reference directories, and
+  never copy the RAGHub product name into OpenRAG product surfaces.
 - Keep the GitHub repository public and periodically push reviewed, verified
   slices to `main` as authorized by the user.
 
@@ -47,6 +49,12 @@ versioned specifications and plans under `docs/superpowers/`.
   provenance.
 - Provide curated, capability-validated completion, embedding, reranker, and OCR
   profiles with encrypted credentials and workspace policies.
+- Reasoning effort is a declared model capability with `off`, `low`, `medium`,
+  and `high` values. Persist the resolved effort on each durable user run,
+  reject unsupported non-off effort before provider work, omit `off` from
+  LiteLLM requests, keep utility/evaluator calls independent, and never expose
+  private reasoning traces. Verify provider usage accounting before claiming
+  reasoning tokens are counted.
 - Embedding changes require versioned index generations, background reindex,
   evaluation, atomic cutover, rollback, and no destructive active-index reset.
 
@@ -87,6 +95,9 @@ versioned specifications and plans under `docs/superpowers/`.
   cost, and cross-tenant leakage.
 - Use TDD for features and bug fixes. Maintain comprehensive backend, frontend,
   integration, isolation, security, load, Playwright, and Compose smoke tests.
+- Keep an external-service-free red-team test tier for prompt/data boundary,
+  tenant isolation, secret leakage, unsafe rendering, and refusal attacks; run
+  it whenever trust-boundary code changes.
 - Before any completion claim, run and inspect the full relevant test, lint,
   type, build, security, smoke, and runtime verification scope.
 
