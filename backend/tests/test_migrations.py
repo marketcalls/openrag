@@ -41,6 +41,7 @@ MODEL_PROBE_REVISION = "c7b9d1e3f5a6"
 ANSWER_QUALITY_REVISION = "d1e3f5a7b9c2"
 UTILITY_MODEL_REVISION = "e4f6a8c0d2b3"
 DOCUMENT_ENRICHMENT_REVISION = "f5a7b9c1d3e4"
+MESSAGE_ARTIFACT_REVISION = "a7c9e1f3b5d8"
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -780,7 +781,7 @@ def test_migration_graph_has_one_current_head(
 ) -> None:
     config, _engine, _ids = authority_db
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [DOCUMENT_ENRICHMENT_REVISION]
+    assert script.get_heads() == [MESSAGE_ARTIFACT_REVISION]
     assert script.get_revision(AUTHORITY_REVISION).down_revision == RBAC_REVISION
     assert script.get_revision(DELETION_REVISION).down_revision == AUTHORITY_REVISION
     assert script.get_revision(STAGE_REVISION).down_revision == OUTBOX_REVISION
@@ -818,6 +819,148 @@ def test_migration_graph_has_one_current_head(
         script.get_revision(DOCUMENT_ENRICHMENT_REVISION).down_revision
         == UTILITY_MODEL_REVISION
     )
+    assert (
+        script.get_revision(MESSAGE_ARTIFACT_REVISION).down_revision
+        == DOCUMENT_ENRICHMENT_REVISION
+    )
+
+
+def test_message_artifact_migration_is_scoped_immutable_and_cascades(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, ids = authority_db
+    command.upgrade(config, "head")
+
+    inspector = inspect(engine)
+    columns = {
+        column["name"]: column
+        for column in inspector.get_columns("message_artifacts")
+    }
+    assert set(columns) == {
+        "id",
+        "org_id",
+        "workspace_id",
+        "message_id",
+        "kind",
+        "schema_version",
+        "payload",
+        "content_hash",
+        "created_at",
+    }
+    assert all(not column["nullable"] for column in columns.values())
+    foreign_keys = {
+        foreign_key["name"]: tuple(foreign_key["constrained_columns"])
+        for foreign_key in inspector.get_foreign_keys("message_artifacts")
+    }
+    assert foreign_keys["fk_message_artifacts_org_workspace_message"] == (
+        "org_id",
+        "workspace_id",
+        "message_id",
+    )
+    unique_constraints = {
+        constraint["name"]: tuple(constraint["column_names"])
+        for constraint in inspector.get_unique_constraints("message_artifacts")
+    }
+    assert unique_constraints["uq_message_artifacts_message_kind"] == (
+        "org_id",
+        "workspace_id",
+        "message_id",
+        "kind",
+    )
+    with engine.connect() as connection:
+        triggers = set(
+            connection.execute(
+                text(
+                    "SELECT trigger_name FROM information_schema.triggers "
+                    "WHERE event_object_table = 'message_artifacts'"
+                )
+            ).scalars()
+        )
+    assert "trg_message_artifacts_immutable" in triggers
+
+    chat_id = uuid4()
+    message_id = uuid4()
+    artifact_id = uuid4()
+    payload = {
+        "schema_version": "analytics.v1",
+        "title": "Revenue dashboard",
+        "kpis": [],
+        "blocks": [
+            {
+                "kind": "explainer",
+                "title": "Summary",
+                "body_markdown": "Revenue increased [1].",
+                "source_markers": [1],
+            }
+        ],
+        "suggested_followups": [],
+    }
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO chats "
+                "(id,org_id,workspace_id,user_id,title,updated_at,created_at) "
+                "VALUES (:id,:org,:workspace,:user,'Analytics',now(),now())"
+            ),
+            {
+                "id": chat_id,
+                "org": ids.org_id,
+                "workspace": ids.workspace_id,
+                "user": ids.user_id,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO messages "
+                "(id,org_id,workspace_id,chat_id,parent_message_id,sibling_index,"
+                "role,content,created_at) "
+                "VALUES (:id,:org,:workspace,:chat,NULL,0,'assistant','Artifact owner',"
+                "now())"
+            ),
+            {
+                "id": message_id,
+                "org": ids.org_id,
+                "workspace": ids.workspace_id,
+                "chat": chat_id,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO message_artifacts "
+                "(id,org_id,workspace_id,message_id,kind,schema_version,payload,"
+                "content_hash,created_at) VALUES "
+                "(:id,:org,:workspace,:message,'analytics','analytics.v1',"
+                "CAST(:payload AS jsonb),:content_hash,now())"
+            ),
+            {
+                "id": artifact_id,
+                "org": ids.org_id,
+                "workspace": ids.workspace_id,
+                "message": message_id,
+                "payload": json.dumps(payload),
+                "content_hash": "a" * 64,
+            },
+        )
+
+    with engine.begin() as connection:
+        with pytest.raises(sa.exc.DBAPIError, match="immutable"):
+            with connection.begin_nested():
+                connection.execute(
+                    text(
+                        "UPDATE message_artifacts SET content_hash=:hash WHERE id=:id"
+                    ),
+                    {"hash": "b" * 64, "id": artifact_id},
+                )
+
+    with engine.begin() as connection:
+        connection.execute(
+            text("DELETE FROM messages WHERE id=:id"),
+            {"id": message_id},
+        )
+        assert connection.scalar(
+            text("SELECT count(*) FROM message_artifacts WHERE id=:id"),
+            {"id": artifact_id},
+        ) == 0
 
 
 def test_deletion_upgrade_adds_bounded_restartable_markers_and_closes_processing_delete(
@@ -1824,7 +1967,7 @@ def test_authority_upgrade_aborts_before_mutation_for_orphan_citation(
 
     with pytest.raises(RuntimeError, match="orphan or invalid legacy citation"):
         command.upgrade(config, AUTHORITY_REVISION)
-    assert ScriptDirectory.from_config(config).get_current_head() == EMBEDDING_PROFILE_REVISION
+    assert ScriptDirectory.from_config(config).get_current_head() == MESSAGE_ARTIFACT_REVISION
     with engine.connect() as connection:
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
@@ -2234,8 +2377,15 @@ def test_durable_legacy_ingestion_revision_allows_claim_and_review_then_fences_d
         ) is None
         connection.execute(
             text(
-                "UPDATE document_versions SET source_page_count=1, "
-                "state='review', provenance_state='ready' WHERE id=:id"
+                "UPDATE document_versions SET source_page_count=1 WHERE id=:id"
+            ),
+            {"id": version_id},
+        )
+        connection.execute(
+            text(
+                "UPDATE document_versions SET state='review', "
+                "provenance_state='ready', "
+                "lifecycle_revision=lifecycle_revision+1 WHERE id=:id"
             ),
             {"id": version_id},
         )

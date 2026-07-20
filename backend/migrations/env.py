@@ -7,6 +7,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 import openrag.core.app_settings  # noqa: F401
+import openrag.modules.artifacts.models  # noqa: F401
 import openrag.modules.audit.models  # noqa: F401
 import openrag.modules.auth.models  # noqa: F401
 import openrag.modules.chat.models  # noqa: F401
