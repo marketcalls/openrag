@@ -14,7 +14,7 @@ The completed product vision is designed to:
 - Combine dense and sparse search for stronger semantic and keyword retrieval.
 - Generate answers with citations resolved to the stored source and page number.
 - Isolate organizations and workspaces while enforcing document permissions inside retrieval.
-- Work with hosted providers, local models, and OpenAI-compatible endpoints through one model gateway.
+- Work with hosted providers, local models, and OpenAI-compatible endpoints through one governed in-process LiteLLM runtime.
 - Give administrators control over users, models, secrets, usage, audit history, and system health.
 - Support Docker Compose first, followed by Kubernetes and fully air-gapped deployments in later phases.
 
@@ -22,7 +22,7 @@ Phase 1 focuses on authentication, workspaces, document ingestion, tenant-aware 
 
 ## How we built it
 
-The approved OpenRAG architecture uses a modular monolith with independently scalable background workers. FastAPI provides the API, React and TypeScript power the web application, PostgreSQL stores relational data, MinIO stores source documents, Qdrant handles vector search, and Celery with Redis runs ingestion jobs. LiteLLM acts as the single gateway for cloud and locally hosted language models.
+The approved OpenRAG architecture uses a modular monolith with independently scalable background workers. FastAPI provides the API, React and TypeScript power the web application, PostgreSQL stores relational data, MinIO stores source documents, Qdrant handles vector search, and Celery with Redis runs ingestion jobs. Agno performs bounded orchestration and the LiteLLM Python library invokes cloud and locally hosted models with request-scoped encrypted credentials.
 
 In the planned flow, documents move through a staged ingestion pipeline: parsing, semantic chunking, dense and sparse embedding, and vector indexing. Phase 1 applies tenant and workspace filters as part of vector search, fuses retrieval results, and supplies the selected evidence to the language model as explicitly delimited data. Document-level permission filters will be added inside that same retrieval path during the ACL phase. Responses stream to the user with citations resolved back to stored sources.
 

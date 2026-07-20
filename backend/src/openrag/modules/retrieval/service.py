@@ -16,7 +16,7 @@ from openrag.core.config import get_settings
 from openrag.modules.documents.authority_storage import AuthorityCollectionSpec
 from openrag.modules.documents.models import DocumentVersion
 from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
-from openrag.modules.embeddings.runtime import build_profile_runtime
+from openrag.modules.embeddings.runtime import resolve_profile_runtime
 from openrag.modules.retrieval.authority import (
     MAX_CANDIDATES,
     AuthorizedEvidence,
@@ -381,7 +381,7 @@ async def prepare_retrieval(
                 no_answer=True,
                 decision=decision,
             )
-        runtime = build_profile_runtime(profile, get_settings())
+        runtime = await resolve_profile_runtime(session, profile, get_settings())
         collection = AuthorityCollectionSpec(
             generation_id=deployment.generation_id,
             dense_dimension=runtime.dimension,

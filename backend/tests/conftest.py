@@ -87,12 +87,6 @@ def clear_ambient_caches() -> None:
     get_dense_embedder.cache_clear()
 
 
-def stub_litellm_handler(request: httpx.Request) -> httpx.Response:
-    if request.url.path == "/v1/model/info":
-        return httpx.Response(200, json={"data": []})
-    return httpx.Response(200, json={})
-
-
 class FakeStreamer:
     def __init__(self, deltas: list[str] | None = None) -> None:
         self.deltas = (
@@ -226,7 +220,6 @@ async def client(
     app = create_app(
         session_factory=build_session_factory(engine),
         redis_client=redis_client,
-        litellm_transport=httpx.MockTransport(stub_litellm_handler),
     )
     app.dependency_overrides[get_settings] = lambda: test_settings
     transport = httpx.ASGITransport(app=app)

@@ -86,11 +86,11 @@ def test_ingestion_settings_defaults() -> None:
     assert settings.parser_worker_max_tasks == 25
 
 
-def test_gateway_settings_defaults() -> None:
+def test_in_process_litellm_has_no_proxy_settings() -> None:
     settings = Settings(_env_file=None)
 
-    assert settings.litellm_url == "http://localhost:54000"
-    assert settings.litellm_master_key == "sk-openrag-dev-master"  # noqa: S105
+    assert not hasattr(settings, "litellm_url")
+    assert not hasattr(settings, "litellm_master_key")
     assert settings.chat_context_token_budget == 8000
 
 

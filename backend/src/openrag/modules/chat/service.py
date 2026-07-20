@@ -929,11 +929,11 @@ async def stream_reply(
                 else:
                     direct_usage = item
         except UpstreamError as exc:
-            yield error_event(exc.detail or "LLM gateway error")
+            yield error_event(exc.detail or "LLM provider error")
             return
         answer = "".join(direct_parts)
         if not answer:
-            yield error_event("LLM gateway returned an empty response")
+            yield error_event("LLM provider returned an empty response")
             return
         current_chat, current_parent = await get_message(
             session,
@@ -1033,7 +1033,7 @@ async def stream_reply(
             else:
                 usage = item
     except UpstreamError as exc:
-        yield error_event(exc.detail or "LLM gateway error")
+        yield error_event(exc.detail or "LLM provider error")
         return
 
     answer = "".join(parts)

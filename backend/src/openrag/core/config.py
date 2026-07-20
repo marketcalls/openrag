@@ -101,8 +101,6 @@ class Settings(BaseSettings):
     # Keep direct v2 dispatch disabled until every legacy worker is drained.
     ingest_revision_protocol_v2_enabled: bool = False
     stale_ingest_recovery_seconds: int = 900
-    litellm_url: str = "http://localhost:54000"
-    litellm_master_key: str = "sk-openrag-dev-master"  # noqa: S105
     chat_context_token_budget: int = 8000
     chat_max_output_tokens: int = Field(default=2048, ge=1, le=32_768)
     summary_trigger_tokens: int = Field(default=3000, ge=256, le=32_768)

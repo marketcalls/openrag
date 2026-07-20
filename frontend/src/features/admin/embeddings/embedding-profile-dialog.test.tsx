@@ -11,11 +11,13 @@ const existing: EmbeddingProfileOut = {
   name: 'Production BGE',
   provider_kind: 'litellm',
   model_name: 'huggingface/BAAI/bge-m3',
+  base_url: null,
   dimension: 1024,
   max_input_tokens: 8192,
   batch_size: 32,
   config_digest: 'a'.repeat(64),
   enabled: true,
+  key_fingerprint: '...cret sha256:abc123',
 };
 
 function renderDialog(fetchMock = vi.fn(), profile?: EmbeddingProfileOut) {
@@ -29,16 +31,17 @@ function renderDialog(fetchMock = vi.fn(), profile?: EmbeddingProfileOut) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-test('offers only gateway, local TEI, and development embedding paths', () => {
+test('offers in-process LiteLLM with write-only credentials', () => {
   renderDialog();
 
-  expect(screen.getByRole('option', { name: 'LiteLLM gateway' })).toBeInTheDocument();
+  expect(screen.getByRole('option', { name: 'LiteLLM library' })).toBeInTheDocument();
   expect(screen.getByRole('option', { name: 'Local TEI service' })).toBeInTheDocument();
   expect(
     screen.getByRole('option', { name: 'Deterministic hash — development only' }),
   ).toBeInTheDocument();
   expect(screen.queryByRole('option', { name: 'OpenAI' })).not.toBeInTheDocument();
-  expect(screen.queryByLabelText(/api key/i)).not.toBeInTheDocument();
+  expect(screen.getByLabelText('API key')).toHaveAttribute('type', 'password');
+  expect(screen.getByLabelText('Base URL (optional)')).toBeInTheDocument();
 });
 
 test('submits the immutable vector contract', async () => {
@@ -53,6 +56,7 @@ test('submits the immutable vector contract', async () => {
 
   await user.type(screen.getByLabelText('Profile name'), 'Production BGE');
   await user.type(screen.getByLabelText('Model identifier'), 'huggingface/BAAI/bge-m3');
+  await user.type(screen.getByLabelText('API key'), 'sk-write-only');
   await user.click(screen.getByRole('button', { name: 'Register profile' }));
 
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -62,6 +66,7 @@ test('submits the immutable vector contract', async () => {
     name: 'Production BGE',
     provider_kind: 'litellm',
     model_name: 'huggingface/BAAI/bge-m3',
+    api_key: 'sk-write-only',
     dimension: 1024,
     max_input_tokens: 8192,
     batch_size: 32,
@@ -81,6 +86,7 @@ test('editing cannot mutate vector identity and sends only the new name', async 
   expect(screen.getByLabelText('Provider path')).toBeDisabled();
   expect(screen.getByLabelText('Model identifier')).toBeDisabled();
   expect(screen.getByLabelText('Dimensions')).toBeDisabled();
+  expect(screen.getByLabelText('Base URL (optional)')).toBeDisabled();
   await user.clear(screen.getByLabelText('Profile name'));
   await user.type(screen.getByLabelText('Profile name'), 'Primary BGE');
   await user.click(screen.getByRole('button', { name: 'Save name' }));

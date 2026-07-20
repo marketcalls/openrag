@@ -6,18 +6,11 @@ import { TopBar } from '@/components/layout/top-bar';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
-import { StatusPill, type StatusTone } from '@/components/ui/status-pill';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { toast } from '@/components/ui/toaster';
 
 import { ModelFormDialog } from './model-form-dialog';
 import { useAdminModels, useDeleteModel, usePatchModel } from './queries';
-
-function syncTone(status: ModelOut['sync_status']): StatusTone {
-  if (status === 'synced') return 'success';
-  if (status === 'error') return 'danger';
-  return 'accent';
-}
 
 function providerLabel(provider: ModelOut['provider_kind']): string {
   if (provider === 'openai_compatible') return 'OpenAI-compatible';
@@ -60,7 +53,6 @@ export function ModelsPage() {
                   <TH>Model id</TH>
                   <TH>Base URL</TH>
                   <TH>Key</TH>
-                  <TH>Gateway</TH>
                   <TH>Reasoning</TH>
                   <TH>Enabled</TH>
                   <TH><span className="sr-only">Actions</span></TH>
@@ -79,11 +71,6 @@ export function ModelsPage() {
                     </TD>
                     <TD className="font-mono text-[12px] text-muted">
                       {model.key_fingerprint ?? '—'}
-                    </TD>
-                    <TD>
-                      <StatusPill tone={syncTone(model.sync_status)}>
-                        {model.sync_status}
-                      </StatusPill>
                     </TD>
                     <TD className="capitalize text-secondary">
                       {model.supports_reasoning ? model.default_reasoning_effort : 'off'}
@@ -149,7 +136,7 @@ export function ModelsPage() {
       <Dialog open={removing !== null} onOpenChange={(open) => !open && setRemoving(null)}>
         <DialogContent
           title="Remove model"
-          description={`“${removing?.display_name ?? ''}” will be removed from the gateway and every model picker.`}
+          description={`“${removing?.display_name ?? ''}” will be removed from the registry and every model picker.`}
         >
           <DialogFooter>
             <Button onClick={() => setRemoving(null)}>Cancel</Button>

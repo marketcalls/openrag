@@ -61,52 +61,57 @@ async def test_tei_embedder_batches_and_parses() -> None:
     assert [len(call) for call in calls] == [2, 1]
 
 
-async def test_litellm_embedder_uses_gateway_and_restores_index_order() -> None:
-    calls: list[httpx.Request] = []
+async def test_litellm_embedder_uses_library_and_restores_index_order() -> None:
+    class Client:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        calls.append(request)
-        body = json.loads(request.content)
-        if body["input"] == ["a", "b"]:
-            data = [
-                {"index": 1, "embedding": [2.0, 0.0]},
-                {"index": 0, "embedding": [1.0, 0.0]},
-            ]
-        else:
-            data = [{"index": 0, "embedding": [3.0, 0.0]}]
-        return httpx.Response(
-            200,
-            json={"data": data},
-        )
+        async def aembedding(self, **kwargs: object) -> object:
+            self.calls.append(kwargs)
+            if kwargs["input"] == ["a", "b"]:
+                data = [
+                    {"index": 1, "embedding": [2.0, 0.0]},
+                    {"index": 0, "embedding": [1.0, 0.0]},
+                ]
+            else:
+                data = [{"index": 0, "embedding": [3.0, 0.0]}]
+            return {"data": data}
 
+    client = Client()
     embedder = LiteLLMDenseEmbedder(
-        base_url="http://litellm",
-        master_key="gateway-secret",
-        model="huggingface/BAAI/bge-m3",
+        api_key="provider-secret",
+        api_base="https://embeddings.example/v1",
+        model="openai/text-embedding-3-small",
         dimension=2,
         batch_size=2,
-        transport=httpx.MockTransport(handler),
+        client=client,
     )
 
     vectors = await embedder.embed(["a", "b", "c"])
 
     assert vectors == [[1.0, 0.0], [2.0, 0.0], [3.0, 0.0]]
-    assert [request.url.path for request in calls] == [
-        "/v1/embeddings",
-        "/v1/embeddings",
-    ]
-    assert [json.loads(request.content)["input"] for request in calls] == [
-        ["a", "b"],
-        ["c"],
-    ]
+    assert [call["input"] for call in client.calls] == [["a", "b"], ["c"]]
     assert all(
-        request.headers["authorization"] == "Bearer gateway-secret"
-        for request in calls
+        call["model"] == "openai/text-embedding-3-small"
+        for call in client.calls
     )
+    assert all(call["api_key"] == "provider-secret" for call in client.calls)
     assert all(
-        json.loads(request.content)["model"] == "huggingface/BAAI/bge-m3"
-        for request in calls
+        call["api_base"] == "https://embeddings.example/v1"
+        for call in client.calls
     )
+    assert "provider-secret" not in repr(embedder)
+
+
+class StaticEmbeddingClient:
+    def __init__(self, response: object) -> None:
+        self.response = response
+
+    async def aembedding(self, **kwargs: object) -> object:
+        del kwargs
+        if isinstance(self.response, Exception):
+            raise self.response
+        return self.response
 
 
 @pytest.mark.parametrize(
@@ -121,13 +126,11 @@ async def test_litellm_embedder_rejects_malformed_vectors(
     response_json: dict[str, object],
 ) -> None:
     embedder = LiteLLMDenseEmbedder(
-        base_url="http://litellm",
-        master_key="gateway-secret",
-        model="embedding-model",
+        api_key="provider-secret",
+        api_base=None,
+        model="openai/embedding-model",
         dimension=2,
-        transport=httpx.MockTransport(
-            lambda _request: httpx.Response(200, json=response_json)
-        ),
+        client=StaticEmbeddingClient(response_json),
     )
 
     with pytest.raises(UpstreamError, match="invalid embedding response"):
@@ -136,16 +139,12 @@ async def test_litellm_embedder_rejects_malformed_vectors(
 
 async def test_litellm_embedder_rejects_non_finite_vectors() -> None:
     embedder = LiteLLMDenseEmbedder(
-        base_url="http://litellm",
-        master_key="gateway-secret",
-        model="embedding-model",
+        api_key="provider-secret",
+        api_base=None,
+        model="openai/embedding-model",
         dimension=2,
-        transport=httpx.MockTransport(
-            lambda _request: httpx.Response(
-                200,
-                content=b'{"data":[{"index":0,"embedding":[NaN,0.0]}]}',
-                headers={"content-type": "application/json"},
-            )
+        client=StaticEmbeddingClient(
+            {"data": [{"index": 0, "embedding": [float("nan"), 0.0]}]}
         ),
     )
 
@@ -153,25 +152,22 @@ async def test_litellm_embedder_rejects_non_finite_vectors() -> None:
         await embedder.embed(["document"])
 
 
-async def test_litellm_embedder_sanitizes_gateway_failure() -> None:
+async def test_litellm_embedder_sanitizes_provider_failure() -> None:
     embedder = LiteLLMDenseEmbedder(
-        base_url="http://litellm",
-        master_key="gateway-secret",
-        model="embedding-model",
+        api_key="provider-secret",
+        api_base=None,
+        model="openai/embedding-model",
         dimension=2,
-        transport=httpx.MockTransport(
-            lambda _request: httpx.Response(
-                401,
-                json={"error": "gateway-secret must never escape"},
-            )
+        client=StaticEmbeddingClient(
+            RuntimeError("provider-secret must never escape")
         ),
     )
 
     with pytest.raises(UpstreamError) as caught:
         await embedder.embed(["document"])
 
-    assert caught.value.detail == "embedding gateway returned 401"
-    assert "gateway-secret" not in str(caught.value)
+    assert caught.value.detail == "embedding model execution failed"
+    assert "provider-secret" not in str(caught.value)
 
 
 def test_sparse_bm25_hits_shared_terms() -> None:

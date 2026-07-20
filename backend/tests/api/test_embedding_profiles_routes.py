@@ -16,6 +16,7 @@ PROFILE = {
     "name": "Production BGE",
     "provider_kind": "litellm",
     "model_name": "huggingface/BAAI/bge-m3",
+    "api_key": "sk-embedding-secret",
     "dimension": 1024,
     "max_input_tokens": 8192,
     "batch_size": 32,
@@ -38,6 +39,7 @@ async def test_superadmin_creates_lists_and_disables_immutable_profile(
     created = created_response.json()
     assert created["config_digest"] and len(created["config_digest"]) == 64
     assert "api_key" not in created_response.text
+    assert created["key_fingerprint"].startswith("...cret sha256:")
     profile_id = created["id"]
 
     immutable = await client.patch(

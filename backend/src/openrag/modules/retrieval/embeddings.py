@@ -17,6 +17,10 @@ class DenseEmbedder(Protocol):
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
 
 
+class LiteLLMEmbeddingClient(Protocol):
+    async def aembedding(self, **kwargs: object) -> object: ...
+
+
 class TeiDenseEmbedder:
     def __init__(
         self,
@@ -47,26 +51,30 @@ class TeiDenseEmbedder:
 
 
 class LiteLLMDenseEmbedder:
-    """Validated client for LiteLLM's OpenAI-compatible embeddings endpoint."""
+    """Validated, request-scoped embedding execution through LiteLLM's SDK."""
 
     def __init__(
         self,
         *,
-        base_url: str,
-        master_key: str,
+        api_key: str | None,
+        api_base: str | None,
         model: str,
         dimension: int,
         batch_size: int = 32,
-        transport: httpx.AsyncBaseTransport | None = None,
+        client: LiteLLMEmbeddingClient | None = None,
     ) -> None:
         if dimension < 1 or batch_size < 1:
             raise ValueError("dimension and batch size must be positive")
-        self._base_url = base_url
-        self._master_key = master_key
+        if client is None:
+            import litellm
+
+            client = litellm
+        self._api_key = api_key
+        self._api_base = api_base
         self._model = model
         self._dimension = dimension
         self._batch_size = batch_size
-        self._transport = transport
+        self._client = client
 
     def _parse_vectors(
         self,
@@ -115,33 +123,26 @@ class LiteLLMDenseEmbedder:
             return []
 
         vectors: list[list[float]] = []
-        headers = {"Authorization": f"Bearer {self._master_key}"}
-        try:
-            async with httpx.AsyncClient(
-                base_url=self._base_url,
-                timeout=httpx.Timeout(120.0, connect=10.0),
-                transport=self._transport,
-            ) as client:
-                for start in range(0, len(texts), self._batch_size):
-                    batch = texts[start : start + self._batch_size]
-                    response = await client.post(
-                        "/v1/embeddings",
-                        json={"model": self._model, "input": batch},
-                        headers=headers,
-                    )
-                    if response.status_code != 200:
-                        raise UpstreamError(
-                            f"embedding gateway returned {response.status_code}"
-                        )
-                    try:
-                        payload = response.json()
-                    except ValueError as exc:
-                        raise UpstreamError("invalid embedding response") from exc
-                    vectors.extend(
-                        self._parse_vectors(payload, expected_count=len(batch))
-                    )
-        except httpx.HTTPError as exc:
-            raise UpstreamError("embedding gateway unreachable") from exc
+        for start in range(0, len(texts), self._batch_size):
+            batch = texts[start : start + self._batch_size]
+            request: dict[str, object] = {
+                "model": self._model,
+                "input": batch,
+                "timeout": 120.0,
+            }
+            if self._api_key is not None:
+                request["api_key"] = self._api_key
+            if self._api_base is not None:
+                request["api_base"] = self._api_base
+            try:
+                response = await self._client.aembedding(**request)
+            except Exception as exc:  # noqa: BLE001 - provider exception taxonomy varies
+                raise UpstreamError("embedding model execution failed") from exc
+            payload = response
+            model_dump = getattr(response, "model_dump", None)
+            if callable(model_dump):
+                payload = model_dump()
+            vectors.extend(self._parse_vectors(payload, expected_count=len(batch)))
         return vectors
 
 

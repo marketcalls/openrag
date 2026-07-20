@@ -1376,6 +1376,10 @@ export interface components {
             provider_kind: "litellm" | "tei" | "hash";
             /** Model Name */
             model_name: string;
+            /** Base Url */
+            base_url?: string | null;
+            /** Api Key */
+            api_key?: string | null;
             /** Dimension */
             dimension: number;
             /**
@@ -1405,6 +1409,8 @@ export interface components {
             provider_kind: "litellm" | "tei" | "hash";
             /** Model Name */
             model_name: string;
+            /** Base Url */
+            base_url: string | null;
             /** Dimension */
             dimension: number;
             /** Max Input Tokens */
@@ -1415,6 +1421,8 @@ export interface components {
             config_digest: string;
             /** Enabled */
             enabled: boolean;
+            /** Key Fingerprint */
+            key_fingerprint: string | null;
         };
         /** EmbeddingProfilePatch */
         EmbeddingProfilePatch: {
@@ -1422,6 +1430,8 @@ export interface components {
             name?: string | null;
             /** Enabled */
             enabled?: boolean | null;
+            /** Api Key */
+            api_key?: string | null;
         };
         /** ErrorIssueOut */
         ErrorIssueOut: {
@@ -2314,11 +2324,6 @@ export interface components {
             enabled: boolean;
             /** Key Fingerprint */
             key_fingerprint: string | null;
-            /**
-             * Sync Status
-             * @enum {string}
-             */
-            sync_status: "synced" | "error" | "pending";
             /** Supports Reasoning */
             supports_reasoning: boolean;
             /**

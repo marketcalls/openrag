@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from openrag.modules.models.reasoning import ReasoningEffort
 
 ProviderKind = Literal["openai", "ollama", "openai_compatible"]
-SyncStatus = Literal["synced", "error", "pending"]
 
 
 class ModelCreate(BaseModel):
@@ -63,7 +62,6 @@ class ModelOut(BaseModel):
     base_url: str | None
     enabled: bool
     key_fingerprint: str | None
-    sync_status: SyncStatus
     supports_reasoning: bool
     default_reasoning_effort: ReasoningEffort
 

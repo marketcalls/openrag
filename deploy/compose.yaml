@@ -40,8 +40,6 @@ x-openrag-environment: &openrag-environment
   OPENRAG_AUTHORITY_GENERATION_ID: ${OPENRAG_AUTHORITY_GENERATION_ID:-8a9848ab-6f79-5ec8-a906-a1f3c096cdb8}
   OPENRAG_INGEST_REVISION_PROTOCOL_V2_ENABLED: ${OPENRAG_INGEST_REVISION_PROTOCOL_V2_ENABLED:-false}
   OPENRAG_STALE_INGEST_RECOVERY_SECONDS: ${OPENRAG_STALE_INGEST_RECOVERY_SECONDS:-900}
-  OPENRAG_LITELLM_URL: http://litellm:4000
-  OPENRAG_LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-openrag-dev-master}
   OPENRAG_KEK_FILE: /data/openrag_kek
 
 x-openrag-backend: &openrag-backend
@@ -66,7 +64,6 @@ services:
     ports: ["127.0.0.1:55432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./postgres-init.sql:/docker-entrypoint-initdb.d/10-litellm.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openrag"]
       interval: 5s
@@ -158,28 +155,6 @@ services:
       retries: 30
       start_period: 180s
 
-  litellm:
-    image: ghcr.io/berriai/litellm:main-v1.72.6-stable
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-openrag-dev-master}
-      DATABASE_URL: postgresql://openrag:openrag@postgres:5432/litellm
-      STORE_MODEL_IN_DB: "True"
-    ports: ["127.0.0.1:54000:4000"]
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - >-
-          import urllib.request;
-          urllib.request.urlopen('http://localhost:4000/health/liveliness')
-      interval: 10s
-      timeout: 5s
-      retries: 12
-
   migrate:
     <<: *openrag-backend
     command: ["/app/.venv/bin/alembic", "upgrade", "head"]
@@ -246,8 +221,6 @@ services:
       qdrant:
         condition: service_healthy
       minio:
-        condition: service_healthy
-      litellm:
         condition: service_healthy
       event-redis:
         condition: service_healthy
@@ -447,8 +420,6 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
-      litellm:
-        condition: service_healthy
       event-redis:
         condition: service_healthy
     mem_limit: ${OPENRAG_RUN_WORKER_MEMORY_LIMIT:-4g}
@@ -477,8 +448,6 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      litellm:
         condition: service_healthy
     mem_limit: ${OPENRAG_SUMMARY_WORKER_MEMORY_LIMIT:-2g}
     pids_limit: 256
@@ -509,8 +478,6 @@ services:
       redis:
         condition: service_healthy
       qdrant:
-        condition: service_healthy
-      litellm:
         condition: service_healthy
     mem_limit: ${OPENRAG_EVALUATION_WORKER_MEMORY_LIMIT:-4g}
     pids_limit: 512

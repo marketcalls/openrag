@@ -31,7 +31,7 @@ class ModelRuntime:
             raise ValueError("reasoning_effort is invalid")
 
 
-def _validated_base_url(value: str, *, environment: str) -> str:
+def validate_provider_base_url(value: str, *, environment: str) -> str:
     try:
         url = httpx.URL(value)
     except httpx.InvalidURL as exc:
@@ -77,7 +77,7 @@ def build_model_runtime(
     if model.provider_kind in {"openai_compatible", "ollama"}:
         if not model.base_url:
             raise ConflictError("model base URL is required")
-        api_base = _validated_base_url(
+        api_base = validate_provider_base_url(
             model.base_url,
             environment=environment,
         )

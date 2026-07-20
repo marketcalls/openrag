@@ -9,7 +9,7 @@ from openrag.core.errors import ConflictError, InvalidRequestError, NotFoundErro
 from openrag.modules.audit.service import record_audit
 from openrag.modules.models.models import Model
 from openrag.modules.models.reasoning import ReasoningEffort
-from openrag.modules.models.schemas import ModelOut, ProviderKind, SyncStatus
+from openrag.modules.models.schemas import ModelOut, ProviderKind
 from openrag.modules.secrets import service as secrets_service
 from openrag.modules.tenancy.context import TenantContext
 
@@ -91,7 +91,6 @@ async def to_model_out(
             base_url=model.base_url,
             enabled=model.enabled,
             key_fingerprint=fingerprints.get(f"model:{model.id}"),
-            sync_status=cast(SyncStatus, model.sync_status),
             supports_reasoning=model.supports_reasoning,
             default_reasoning_effort=cast(
                 ReasoningEffort,
@@ -219,10 +218,7 @@ async def delete_model(
     session: AsyncSession,
     ctx: TenantContext,
     model_id: UUID,
-    *,
-    settings: Settings,
 ) -> None:
-    del settings
     model = await get_model(session, model_id)
     await session.delete(model)
     await record_audit(

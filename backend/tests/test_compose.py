@@ -48,7 +48,6 @@ def test_compose_contains_complete_application_stack() -> None:
         "redis",
         "qdrant",
         "minio",
-        "litellm",
         "migrate",
         "authority-provisioner",
         "bootstrap",
@@ -73,6 +72,17 @@ def test_compose_contains_complete_application_stack() -> None:
     )
     assert "kekdata" in config["volumes"]
     assert "ollama" in config["services"]
+
+
+def test_compose_has_no_litellm_proxy_or_gateway_credentials() -> None:
+    config = render_compose("--profile", "ml")
+
+    assert "litellm" not in config["services"]
+    for service in config["services"].values():
+        assert "litellm" not in service.get("depends_on", {})
+        environment = service.get("environment", {})
+        assert "OPENRAG_LITELLM_URL" not in environment
+        assert "OPENRAG_LITELLM_MASTER_KEY" not in environment
 
 
 def test_backend_services_use_the_prebuilt_virtualenv_at_runtime() -> None:

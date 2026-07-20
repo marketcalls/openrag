@@ -2,7 +2,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import cast
 
-import httpx
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -43,7 +42,6 @@ from openrag.core.telemetry import build_telemetry, current_trace_id
 from openrag.modules.chat.llm import LLMStreamer
 from openrag.modules.chat.service import Retriever
 from openrag.modules.events.redis_runtime import build_event_redis
-from openrag.modules.models.sync import sync_models_to_litellm
 from openrag.modules.operations.errors import record_error, top_application_frame
 from openrag.modules.operations.queue_metrics import collect_queue_ages
 from openrag.modules.operations.schemas import ErrorOccurrenceCreate, HttpMethod
@@ -54,7 +52,6 @@ def create_app(
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     redis_client: Redis | None = None,
     event_redis_client: Redis | None = None,
-    litellm_transport: httpx.AsyncBaseTransport | None = None,
     retriever: Retriever | None = None,
     llm_streamer: LLMStreamer | None = None,
 ) -> FastAPI:
@@ -101,17 +98,6 @@ def create_app(
     async def lifespan(runtime_app: FastAPI) -> AsyncIterator[None]:
         runtime_metrics.start()
         try:
-            async with runtime_app.state.session_factory() as session:
-                deployed = await sync_models_to_litellm(
-                    session,
-                    settings,
-                    transport=runtime_app.state.litellm_transport,
-                )
-            logger.info("litellm_startup_sync", deployed=deployed)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("litellm_startup_sync_failed", error=str(exc))
-
-        try:
             yield
         finally:
             await runtime_metrics.stop()
@@ -141,7 +127,6 @@ def create_app(
     app.state.session_factory = session_factory
     app.state.redis = redis_client
     app.state.event_redis = event_redis_client
-    app.state.litellm_transport = litellm_transport
     app.state.retriever = retriever if retriever is not None else retrieve
     app.state.llm_streamer = llm_streamer
     app.state.telemetry = telemetry

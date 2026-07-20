@@ -12,12 +12,16 @@ from openrag.core.config import Settings
 from openrag.core.errors import ConflictError
 from openrag.modules.documents.profiles import active_ingestion_profiles
 from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
+from openrag.modules.orchestration.model_gateway import validate_provider_base_url
 from openrag.modules.retrieval.embeddings import (
     DenseEmbedder,
     HashDenseEmbedder,
     LiteLLMDenseEmbedder,
+    LiteLLMEmbeddingClient,
     TeiDenseEmbedder,
 )
+from openrag.modules.secrets import service as secrets_service
+from openrag.modules.secrets.models import Secret
 
 
 class RuntimeProfile(Protocol):
@@ -26,6 +30,9 @@ class RuntimeProfile(Protocol):
 
     @property
     def model_name(self) -> str: ...
+
+    @property
+    def base_url(self) -> str | None: ...
 
     @property
     def dimension(self) -> int: ...
@@ -51,6 +58,7 @@ class EmbeddingRuntime:
 class _ConfiguredProfile:
     provider_kind: str
     model_name: str
+    base_url: str | None
     dimension: int
     batch_size: int
     config_digest: str
@@ -62,19 +70,29 @@ def build_profile_runtime(
     settings: Settings,
     *,
     transport: httpx.AsyncBaseTransport | None = None,
+    api_key: str | None = None,
+    client: LiteLLMEmbeddingClient | None = None,
 ) -> EmbeddingRuntime:
     """Build only platform-managed clients; profile rows never contain secrets."""
 
     if not profile.enabled:
         raise ConflictError("disabled embedding profile cannot run")
     if profile.provider_kind == "litellm":
+        api_base = None
+        if profile.base_url is not None:
+            api_base = validate_provider_base_url(
+                profile.base_url,
+                environment=settings.environment,
+            )
+        if not profile.model_name.startswith("ollama/") and api_key is None:
+            raise ConflictError("embedding model credential is not configured")
         embedder: DenseEmbedder = LiteLLMDenseEmbedder(
-            base_url=settings.litellm_url,
-            master_key=settings.litellm_master_key,
+            api_key=api_key,
+            api_base=api_base,
             model=profile.model_name,
             dimension=profile.dimension,
             batch_size=profile.batch_size,
-            transport=transport,
+            client=client,
         )
     elif profile.provider_kind == "tei":
         embedder = TeiDenseEmbedder(
@@ -107,6 +125,7 @@ def build_configured_runtime(settings: Settings) -> EmbeddingRuntime:
         _ConfiguredProfile(
             provider_kind=settings.embedding_backend,
             model_name=settings.embedding_model_id,
+            base_url=None,
             dimension=settings.embedding_dim,
             batch_size=32,
             config_digest=digest,
@@ -134,8 +153,30 @@ async def resolve_generation_runtime(
                 EmbeddingDeployment.status.in_(("building", "ready", "active")),
             )
         )
-    if profile is not None:
-        return build_profile_runtime(profile, settings)
+        if profile is not None:
+            return await resolve_profile_runtime(session, profile, settings)
     if generation_id == settings.authority_generation_id:
         return build_configured_runtime(settings)
     raise ConflictError("embedding generation is not runnable")
+
+
+async def resolve_profile_runtime(
+    session: AsyncSession,
+    profile: EmbeddingProfile,
+    settings: Settings,
+) -> EmbeddingRuntime:
+    """Resolve one profile credential for one in-process LiteLLM invocation."""
+
+    api_key = None
+    if profile.provider_kind == "litellm":
+        secret_name = f"embedding_profile:{profile.id}"
+        secret_exists = await session.scalar(
+            select(Secret.id).where(Secret.name == secret_name)
+        )
+        if secret_exists is not None:
+            api_key = await secrets_service._get_secret_decrypted(  # noqa: SLF001
+                session,
+                name=secret_name,
+                settings=settings,
+            )
+    return build_profile_runtime(profile, settings, api_key=api_key)

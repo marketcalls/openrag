@@ -31,6 +31,8 @@ export function EmbeddingProfileDialog({
   const [name, setName] = useState('');
   const [provider, setProvider] = useState<Provider>('litellm');
   const [modelName, setModelName] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [apiKey, setApiKey] = useState('');
   const [dimension, setDimension] = useState('1024');
   const [maxTokens, setMaxTokens] = useState('8192');
   const [batchSize, setBatchSize] = useState('32');
@@ -40,6 +42,8 @@ export function EmbeddingProfileDialog({
     setName(profile?.name ?? '');
     setProvider(profile?.provider_kind ?? 'litellm');
     setModelName(profile?.model_name ?? '');
+    setBaseUrl(profile?.base_url ?? '');
+    setApiKey('');
     setDimension(String(profile?.dimension ?? 1024));
     setMaxTokens(String(profile?.max_input_tokens ?? 8192));
     setBatchSize(String(profile?.batch_size ?? 32));
@@ -56,7 +60,10 @@ export function EmbeddingProfileDialog({
   const submit = (event: FormEvent): void => {
     event.preventDefault();
     if (profile) {
-      const body: EmbeddingProfilePatch = { name: name.trim() };
+      const body: EmbeddingProfilePatch = {
+        name: name.trim(),
+        ...(apiKey ? { api_key: apiKey } : {}),
+      };
       patch.mutate(
         { profileId: profile.id, body },
         {
@@ -73,6 +80,10 @@ export function EmbeddingProfileDialog({
         name: name.trim(),
         provider_kind: provider,
         model_name: modelName.trim(),
+        ...(provider === 'litellm' && baseUrl.trim()
+          ? { base_url: baseUrl.trim() }
+          : {}),
+        ...(provider === 'litellm' && apiKey ? { api_key: apiKey } : {}),
         dimension: Number(dimension),
         max_input_tokens: Number(maxTokens),
         batch_size: Number(batchSize),
@@ -119,7 +130,7 @@ export function EmbeddingProfileDialog({
                 value={provider}
                 onChange={(event) => setProvider(event.target.value as Provider)}
               >
-                <option value="litellm">LiteLLM gateway</option>
+                <option value="litellm">LiteLLM library</option>
                 <option value="tei">Local TEI service</option>
                 <option value="hash">Deterministic hash — development only</option>
               </NativeSelect>
@@ -133,12 +144,30 @@ export function EmbeddingProfileDialog({
                 autoComplete="off"
                 value={modelName}
                 onChange={(event) => setModelName(event.target.value)}
-                placeholder="huggingface/BAAI/bge-m3"
+                placeholder="openai/text-embedding-3-small"
               />
               <p className="mt-1 text-[11px] text-muted">
-                LiteLLM profiles use the gateway model alias. No provider key is stored here.
+                Use a LiteLLM model identifier such as openai/text-embedding-3-small or ollama/nomic-embed-text.
               </p>
             </div>
+            {provider === 'litellm' ? (
+              <div>
+                <Label htmlFor="embedding-base-url">Base URL (optional)</Label>
+                <Input
+                  id="embedding-base-url"
+                  type="url"
+                  required={modelName.trim().startsWith('ollama/')}
+                  maxLength={2048}
+                  autoComplete="off"
+                  value={baseUrl}
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                  placeholder="https://provider.example/v1"
+                />
+                <p className="mt-1 text-[11px] text-muted">
+                  Required for Ollama and private OpenAI-compatible endpoints. Production URLs must use HTTPS.
+                </p>
+              </div>
+            ) : null}
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <Label htmlFor="embedding-dimension">Dimensions</Label>
@@ -178,6 +207,26 @@ export function EmbeddingProfileDialog({
               </div>
             </div>
           </fieldset>
+          {provider === 'litellm' ? (
+            <div>
+              <Label htmlFor="embedding-api-key">
+                API key{editing ? ' (leave blank to keep current)' : ''}
+              </Label>
+              <Input
+                id="embedding-api-key"
+                type="password"
+                required={!editing && !modelName.trim().startsWith('ollama/')}
+                maxLength={8192}
+                autoComplete="off"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder={editing && profile?.key_fingerprint ? profile.key_fingerprint : 'Write-only credential'}
+              />
+              <p className="mt-1 text-[11px] text-muted">
+                Encrypted at rest and sent only to the selected provider for this embedding request.
+              </p>
+            </div>
+          ) : null}
           {error ? (
             <p role="alert" className="text-[12px] text-danger">
               {error.message}

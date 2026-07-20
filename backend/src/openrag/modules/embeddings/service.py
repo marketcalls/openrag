@@ -1,5 +1,6 @@
 """Transactional management of immutable profiles and safe deployments."""
 
+from typing import cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import distinct, func, select
@@ -17,8 +18,11 @@ from openrag.modules.documents.models import (
 from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
 from openrag.modules.embeddings.schemas import (
     EmbeddingProfileCreate,
+    EmbeddingProfileOut,
+    EmbeddingProviderKind,
     embedding_config_digest,
 )
+from openrag.modules.secrets import service as secrets_service
 from openrag.modules.tenancy.context import TenantContext
 
 
@@ -33,6 +37,32 @@ async def list_profiles(session: AsyncSession) -> list[EmbeddingProfile]:
             )
         ).all()
     )
+
+
+async def to_profile_out(
+    session: AsyncSession,
+    profiles: list[EmbeddingProfile],
+) -> list[EmbeddingProfileOut]:
+    fingerprints = {
+        secret.name: secret.fingerprint
+        for secret in await secrets_service.list_secrets(session)
+    }
+    return [
+        EmbeddingProfileOut(
+            id=profile.id,
+            name=profile.name,
+            provider_kind=cast(EmbeddingProviderKind, profile.provider_kind),
+            model_name=profile.model_name,
+            base_url=profile.base_url,
+            dimension=profile.dimension,
+            max_input_tokens=profile.max_input_tokens,
+            batch_size=profile.batch_size,
+            config_digest=profile.config_digest,
+            enabled=profile.enabled,
+            key_fingerprint=fingerprints.get(f"embedding_profile:{profile.id}"),
+        )
+        for profile in profiles
+    ]
 
 
 async def list_deployments(session: AsyncSession) -> list[EmbeddingDeployment]:
@@ -94,6 +124,7 @@ async def create_profile(
             name_key=body.name.casefold(),
             provider_kind=body.provider_kind,
             model_name=body.model_name,
+            base_url=body.base_url,
             dimension=body.dimension,
             max_input_tokens=body.max_input_tokens,
             batch_size=body.batch_size,
@@ -103,6 +134,15 @@ async def create_profile(
         )
         session.add(profile)
         await session.flush()
+        if body.api_key is not None:
+            await secrets_service.set_secret(
+                session,
+                actor_id=context.user_id,
+                name=f"embedding_profile:{profile.id}",
+                value=body.api_key,
+                settings=settings,
+                commit=False,
+            )
         await record_audit(
             session,
             org_id=None,
@@ -125,6 +165,8 @@ async def update_profile(
     *,
     name: str | None,
     enabled: bool | None,
+    api_key: str | None,
+    settings: Settings,
 ) -> EmbeddingProfile:
     try:
         profile = await get_profile(session, profile_id, lock=True)
@@ -146,6 +188,19 @@ async def update_profile(
                         "an active or pending embedding profile cannot be disabled"
                     )
             profile.enabled = enabled
+        if api_key is not None:
+            if profile.provider_kind != "litellm":
+                raise ConflictError(
+                    "credentials are only accepted for LiteLLM profiles"
+                )
+            await secrets_service.set_secret(
+                session,
+                actor_id=context.user_id,
+                name=f"embedding_profile:{profile.id}",
+                value=api_key,
+                settings=settings,
+                commit=False,
+            )
         await record_audit(
             session,
             org_id=None,

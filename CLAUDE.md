@@ -20,6 +20,10 @@ versioned specifications and plans under `docs/superpowers/`.
 - Use Agno for bounded routing/orchestration and LiteLLM only as an in-process
   Python library. The target runtime must not use LiteLLM Proxy or a direct
   OpenAI application SDK.
+- Completion and hosted-embedding credentials are write-only, envelope-encrypted,
+  resolved for one request, passed explicitly to LiteLLM, and never copied into
+  process-global environment variables. Provider base URLs are validated before
+  use; provider failures are sanitized before they reach logs or clients.
 - Keep PostgreSQL authoritative, Qdrant derived and tenant filtered, object
   storage encrypted, and long-running work event driven, replayable,
   cancellable, idempotent, backpressured, and asynchronous.

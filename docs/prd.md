@@ -106,8 +106,8 @@ Businesses want AI over their internal knowledge but face four blockers: data ca
 
 | ID | Requirement | Priority |
 |---|---|---|
-| MODEL-1 | LiteLLM Proxy as the single gateway. Superadmin registers providers (Anthropic, OpenAI, Azure OpenAI, Gemini, Bedrock, Groq, Mistral, DeepSeek) and local endpoints (Ollama, vLLM, LM Studio, any OpenAI-compatible URL) | P0 |
-| MODEL-2 | Virtual keys per org issued by LiteLLM Proxy; raw provider keys never leave the proxy config; write-only key fields in UI (never redisplayed) | P0 |
+| MODEL-1 | The in-process LiteLLM Python library is the sole provider adapter. Superadmin registers providers (Anthropic, OpenAI, Azure OpenAI, Gemini, Bedrock, Groq, Mistral, DeepSeek) and local endpoints (Ollama, vLLM, LM Studio, any OpenAI-compatible URL) | P0 |
+| MODEL-2 | Provider credentials are write-only, envelope-encrypted, resolved per request, and passed explicitly to LiteLLM without process-global environment mutation | P0 |
 | MODEL-3 | Model registry with capability flags: supports_vision, supports_tools, context_window, cost per 1M tokens, latency class. Agentic mode auto-disabled for models flagged unreliable at tool calling (plain RAG fallback) | P0 |
 | MODEL-4 | Org admins choose which registered models their users may select; per-workspace default model | P0 |
 | MODEL-5 | Budgets and rate limits per org and per user (LiteLLM native), with soft-limit warnings and hard-limit blocks surfaced in UI | P0 |
@@ -128,7 +128,7 @@ Businesses want AI over their internal knowledge but face four blockers: data ca
 | SEC-1 | All secrets (provider API keys, SMTP, OIDC client secrets, connector tokens) stored in Postgres with envelope encryption (AES-256-GCM), managed exclusively through the Superadmin UI. The only out-of-DB secret is the Key Encryption Key, sourced from a keyfile, KMS, or Vault at bootstrap | P0 |
 | SEC-2 | Write-only secret fields: never redisplayed; UI shows fingerprint (last 4 + hash) and last-used timestamp only | P0 |
 | SEC-3 | KEK rotation with key_version tracking and online re-wrap; per-secret rotation with audit entries | P1 |
-| SEC-4 | Secrets decrypted in a single code path, in memory, only when syncing to LiteLLM Proxy via its management API; proxy restart triggers a replay sync from DB. Secrets never appear in logs or API responses | P0 |
+| SEC-4 | Secrets are decrypted through sanctioned runtime resolvers only, kept in memory for one provider request, and never appear in logs, object representations, errors, or API responses | P0 |
 | SEC-5 | .env reduced to bootstrap only: DB connection + KEK source reference | P0 |
 
 ### 3.5c Token Allocation, Quotas, and Usage Reporting
@@ -137,7 +137,7 @@ Businesses want AI over their internal knowledge but face four blockers: data ca
 |---|---|---|
 | QUOTA-1 | Superadmin sets a monthly token allocation per organization; Admin sets per-user monthly allocations (plus a default for new users) within the org ceiling. Allocations reset on a monthly cycle with configurable reset day | P0 |
 | QUOTA-2 | Per-model quota weighting: each model debits quota units at a configurable multiplier (premium API models cost more units, local models can be weighted low or zero to steer usage) | P1 |
-| QUOTA-3 | Dual enforcement: pre-flight quota check in the app (cached counter, warning at threshold, block at exhaustion with reset date shown) plus mirrored per-user virtual-key budgets in LiteLLM (max_budget + 30d duration) as gateway backstop | P0 |
+| QUOTA-3 | Authoritative pre-flight and post-usage quota enforcement in OpenRAG, with cached counters, threshold warnings, exhaustion blocking, reset dates, and audited reconciliation | P0 |
 | QUOTA-4 | Admin top-up: one-time additional grant to a user or the org mid-cycle, audited | P1 |
 | QUOTA-5 | usage_records ledger per request: user, org, model, prompt/completion tokens, quota units, latency, feature (chat, agentic, ingestion/embedding), with hourly rollups for fast reporting. Ingestion token usage attributed and visible, not hidden | P0 |
 | QUOTA-6 | User-facing usage meter in chat UI: used vs allocated, reset date, always visible | P0 |
@@ -172,7 +172,7 @@ Businesses want AI over their internal knowledge but face four blockers: data ca
 | SUP-1 | Org lifecycle: create, suspend, delete (with data purge), storage/user quotas per org | P0 |
 | SUP-2 | Provider + local model registration (writes LiteLLM config), global model registry | P0 |
 | SUP-3 | Global budgets, cross-org usage and spend reporting | P0 |
-| SUP-4 | System health: queue depth, ingestion throughput, Qdrant memory/disk, worker status, LiteLLM proxy health | P0 |
+| SUP-4 | System health: queue depth, ingestion throughput, Qdrant memory/disk, worker status, and sanitized provider-runtime success/error/latency metrics | P0 |
 | SUP-5 | Audit log viewer with filters and export (see 3.10) | P0 |
 | SUP-6 | Backup trigger + restore workflow, upgrade/migration runner | P1 |
 | SUP-7 | License/instance activation if sold commercially (offline-capable license keys for air-gapped installs) | P1 if commercial |
@@ -236,7 +236,7 @@ Businesses want AI over their internal knowledge but face four blockers: data ca
 
 ### 4.4 Deployment modes
 1. **Docker Compose** (single node): the 15-minute evaluation install. One `compose.yaml`, one `.env`, bundled TEI + Ollama optional profiles.
-2. **Kubernetes/Helm** (production): charts for app, workers, LiteLLM proxy, Qdrant (or external), Postgres (or external), MinIO, with HPA on workers and app.
+2. **Kubernetes/Helm** (production): charts for app, workers, Qdrant (or external), Postgres (or external), MinIO, with HPA on workers and app.
 3. **Air-gapped**: fully offline bundle (images, models: bge-m3, reranker, an Ollama model), no telemetry, offline license activation. This mode is a serious differentiator for government/BFSI buyers.
 
 ---
@@ -279,7 +279,7 @@ Qdrant: single collection per embedding model, payload = {tenant_id, workspace_i
 
 ## 7. Phased Roadmap
 
-**Phase 1 - Foundation (weeks 1-6):** Auth + orgs + RBAC, upload -> ingestion -> Qdrant, single-shot hybrid RAG with streaming + citations, LiteLLM proxy with one API provider + Ollama, chat history, basic admin.
+**Phase 1 - Foundation (weeks 1-6):** Auth + orgs + RBAC, upload -> ingestion -> Qdrant, single-shot hybrid RAG with streaming + citations, in-process LiteLLM with one API provider + Ollama, chat history, basic admin.
 
 **Phase 2 - Enterprise controls (weeks 7-10):** Superadmin BYOK console with virtual keys, budgets, model registry + capability flags, document ACLs, audit log, usage dashboards, SSO (OIDC).
 
@@ -311,7 +311,7 @@ Qdrant: single collection per embedding model, payload = {tenant_id, workspace_i
 | Tenant/ACL leakage in retrieval | Deal-killing security incident | Filters enforced in one retrieval service code path only, isolation tests in CI, pen test before GA |
 | Prompt injection via poisoned documents | Data exfiltration, wrong answers | SAFE-1 delimiting + heuristics, agent tools are read-only in v1 |
 | Ingestion backlog at bulk-load time | Poor first impression | Horizontal workers, progress UI, priority queue for small interactive uploads |
-| LiteLLM proxy as single point of failure | Chat outage | Run 2+ replicas behind the app, health-checked, config in shared store |
+| Provider runtime or upstream outage | Chat outage | Run multiple stateless app workers, use bounded retries/fallback policy, circuit breaking, health metrics, and idempotent durable runs |
 | Cost blowout on agentic queries | Budget complaints | Router gating, iteration caps, per-org budgets with hard stops |
 
 ---

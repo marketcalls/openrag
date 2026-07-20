@@ -12,6 +12,7 @@ def test_embedding_profile_model_exposes_immutable_identity_fields() -> None:
         "name",
         "provider_kind",
         "model_name",
+        "base_url",
         "dimension",
         "max_input_tokens",
         "batch_size",

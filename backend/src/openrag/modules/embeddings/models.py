@@ -39,6 +39,7 @@ class EmbeddingProfile(UUIDPk, Base):
     name_key: Mapped[str] = mapped_column(String(120))
     provider_kind: Mapped[str] = mapped_column(String(32))
     model_name: Mapped[str] = mapped_column(String(200))
+    base_url: Mapped[str | None] = mapped_column(String(2048), default=None)
     dimension: Mapped[int]
     max_input_tokens: Mapped[int]
     batch_size: Mapped[int]

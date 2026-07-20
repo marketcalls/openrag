@@ -11,7 +11,7 @@ Businesses want to use generative AI with internal documents, but production dep
 OpenRAG is designed around those needs:
 
 - **Self-hosted and privacy-first:** Run every component inside your own infrastructure, including language models, embeddings, reranking, storage, and observability.
-- **Model-agnostic:** Use hosted providers or local models through a single LiteLLM gateway, with support for OpenAI-compatible endpoints.
+- **Model-agnostic:** Use hosted providers or local models through the in-process LiteLLM Python library, with support for OpenAI-compatible endpoints and no proxy control plane.
 - **Grounded answers:** Combine dense and sparse retrieval, stream responses, and attach citations that resolve to the original document and page.
 - **Enterprise access controls:** Isolate organizations and workspaces, enforce document permissions during retrieval, and maintain append-only audit records.
 - **Built for scale:** Process large document collections asynchronously and search them through Qdrant with tenant-aware filters.
@@ -109,7 +109,7 @@ The platform uses a modular monolith with independently scalable API and worker 
 | Vector search | Qdrant |
 | Object storage | MinIO or S3-compatible storage |
 | Background jobs | Celery and Redis |
-| Model gateway | LiteLLM Proxy |
+| Model runtime | Agno orchestration with the in-process LiteLLM Python library |
 | Embeddings | Text Embeddings Inference with BGE-M3 |
 | Document parsing and OCR | Docling with local RapidOCR |
 | Observability | OpenTelemetry, Prometheus, and Grafana |
@@ -120,7 +120,7 @@ See the [high-level architecture](docs/architecture.md) for service boundaries a
 
 ## Deploy with Docker Compose
 
-Docker Compose is the supported single-node evaluation and development deployment. It starts PostgreSQL, isolated broker and durable event Redis services, Qdrant, MinIO, the model gateway, database migrations, bootstrap, the FastAPI service, ingestion and event workers, the event scheduler, and the React web application.
+Docker Compose is the supported single-node evaluation and development deployment. It starts PostgreSQL, isolated broker and durable event Redis services, Qdrant, MinIO, database migrations, bootstrap, the FastAPI service, ingestion and event workers, the event scheduler, and the React web application. Completion and hosted-embedding calls run through the LiteLLM Python library inside bounded application workers; no LiteLLM Proxy service or master key is required.
 
 Uploads are streamed through an owner-only quarantine and validated by extension,
 declared MIME, file signature, and bounded Office archive expansion. PDF parsing
@@ -144,7 +144,6 @@ Before the first startup, edit `.env` and replace at least:
 ```dotenv
 OPENRAG_BOOTSTRAP_EMAIL=admin@example.com
 OPENRAG_BOOTSTRAP_PASSWORD=replace-with-a-long-random-password
-LITELLM_MASTER_KEY=replace-with-a-long-random-key
 ```
 
 Create the local event-transport credential as an ignored, owner-readable file.
@@ -359,7 +358,6 @@ Useful service URLs:
 | API documentation | <http://localhost:8000/api/docs> |
 | API liveness / readiness | <http://localhost:8000/healthz> / <http://localhost:8000/readyz> |
 | MinIO console | <http://localhost:59001> |
-| LiteLLM proxy | <http://localhost:54000> |
 
 ## Verification
 

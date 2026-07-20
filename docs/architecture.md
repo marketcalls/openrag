@@ -1,6 +1,6 @@
 # OpenRAG architecture
 
-OpenRAG is a modular monolith deployed as separate API and worker processes. Business rules live in domain modules shared by both processes; PostgreSQL, Redis, MinIO, Qdrant, LiteLLM, and the embedding service remain replaceable infrastructure boundaries.
+OpenRAG is a modular monolith deployed as separate API and worker processes. Business rules live in domain modules shared by both processes; PostgreSQL, Redis, MinIO, Qdrant, model providers reached through the in-process LiteLLM library, and the embedding service remain replaceable infrastructure boundaries.
 
 ```mermaid
 flowchart TB
@@ -25,7 +25,7 @@ flowchart TB
     subgraph Intelligence[Document and model services]
         Docling[Docling\nlayout-aware parsing]
         TEI[TEI / BGE-M3\nembeddings]
-        LiteLLM[LiteLLM proxy\nhosted + local models]
+        LiteLLM[Agno + LiteLLM library\nhosted + local models]
     end
 
     Web -->|HTTPS / SSE| API
@@ -59,7 +59,7 @@ flowchart TB
 
 1. The API authenticates the user and resolves their organization and selected workspace.
 2. The retrieval module constructs the single tenant-aware Qdrant filter path, performs dense and sparse search, and fuses ranked results.
-3. Relevant chunks are sent through LiteLLM to the selected hosted or local completion model.
+3. Relevant chunks are sent through the in-process LiteLLM library to the selected hosted or local completion model using request-scoped credentials.
 4. The API streams retrieval events, answer deltas, citations, usage, and completion status over SSE.
 5. The frontend renders sanitized Markdown, citation chips, source metadata, and branch-aware message controls.
 

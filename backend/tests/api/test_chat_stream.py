@@ -17,11 +17,7 @@ from openrag.modules.chat.models import Citation, Message
 from openrag.modules.chat.service import NO_ANSWER_TEXT
 from openrag.modules.chat.summary_models import ConversationSummaryJob
 from openrag.modules.memory.models import MemoryRecord
-from tests.conftest import (
-    FakeRetriever,
-    FakeStreamer,
-    stub_litellm_handler,
-)
+from tests.conftest import FakeRetriever, FakeStreamer
 
 
 def parse_sse(text: str) -> list[tuple[str, dict[str, Any]]]:
@@ -51,7 +47,6 @@ async def chat_client(
     app = create_app(
         session_factory=build_session_factory(engine),
         redis_client=redis_client,
-        litellm_transport=httpx.MockTransport(stub_litellm_handler),
         retriever=FakeRetriever(document.id),
         llm_streamer=fake_streamer,
     )
@@ -197,7 +192,6 @@ async def test_greeting_streams_directly_without_document_retrieval(
     app = create_app(
         session_factory=build_session_factory(engine),
         redis_client=redis_client,
-        litellm_transport=httpx.MockTransport(stub_litellm_handler),
         retriever=RetrievalMustNotRun(),
         llm_streamer=streamer,
     )
@@ -254,7 +248,6 @@ async def test_explicit_memory_is_selected_without_becoming_document_evidence(
     app = create_app(
         session_factory=build_session_factory(engine),
         redis_client=redis_client,
-        litellm_transport=httpx.MockTransport(stub_litellm_handler),
         retriever=FakeRetriever(chat_env["document"].id),
         llm_streamer=streamer,
     )
@@ -315,7 +308,6 @@ async def test_no_answer_path_is_honest(
     app = create_app(
         session_factory=build_session_factory(engine),
         redis_client=redis_client,
-        litellm_transport=httpx.MockTransport(stub_litellm_handler),
         retriever=FakeRetriever(chat_env["document"].id, no_answer=True),
         llm_streamer=FakeStreamer(),
     )

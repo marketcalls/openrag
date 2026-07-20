@@ -1,7 +1,9 @@
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
+import openrag
 from openrag.core.errors import ConflictError
 from openrag.modules.models.models import Model
 from openrag.modules.orchestration.model_gateway import (
@@ -108,3 +110,19 @@ def test_model_runtime_disallows_invalid_output_bounds() -> None:
             api_base=None,
             max_output_tokens=0,
         )
+
+
+def test_provider_secret_decryption_has_only_sanctioned_callers() -> None:
+    src_root = Path(openrag.__file__).parent
+    allowed = {
+        src_root / "modules" / "secrets" / "service.py",
+        src_root / "modules" / "orchestration" / "model_gateway.py",
+        src_root / "modules" / "embeddings" / "runtime.py",
+    }
+    offenders = [
+        str(path)
+        for path in src_root.rglob("*.py")
+        if "_get_secret_decrypted" in path.read_text(encoding="utf-8")
+        and path not in allowed
+    ]
+    assert offenders == []

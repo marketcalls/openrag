@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.api.deps import get_session
@@ -13,7 +13,6 @@ from openrag.modules.models.schemas import (
     ModelPatch,
     ModelPublic,
 )
-from openrag.modules.models.sync import sync_models_to_litellm
 from openrag.modules.tenancy.context import (
     TenantContext,
     get_tenant_context,
@@ -30,18 +29,6 @@ SuperadminDep = Annotated[
 ]
 
 
-async def _sync(
-    request: Request,
-    session: AsyncSession,
-    settings: Settings,
-) -> None:
-    await sync_models_to_litellm(
-        session,
-        settings,
-        transport=request.app.state.litellm_transport,
-    )
-
-
 @router.get("/admin/models", response_model=list[ModelOut])
 async def list_models(
     session: SessionDep,
@@ -56,7 +43,6 @@ async def list_models(
 @router.post("/admin/models", status_code=201, response_model=ModelOut)
 async def create_model(
     body: ModelCreate,
-    request: Request,
     session: SessionDep,
     settings: SettingsDep,
     context: SuperadminDep,
@@ -73,7 +59,6 @@ async def create_model(
         supports_reasoning=body.supports_reasoning,
         default_reasoning_effort=body.default_reasoning_effort,
     )
-    await _sync(request, session, settings)
     return (await service.to_model_out(session, [model]))[0]
 
 
@@ -81,7 +66,6 @@ async def create_model(
 async def patch_model(
     model_id: UUID,
     body: ModelPatch,
-    request: Request,
     session: SessionDep,
     settings: SettingsDep,
     context: SuperadminDep,
@@ -98,25 +82,20 @@ async def patch_model(
         supports_reasoning=body.supports_reasoning,
         default_reasoning_effort=body.default_reasoning_effort,
     )
-    await _sync(request, session, settings)
     return (await service.to_model_out(session, [model]))[0]
 
 
 @router.delete("/admin/models/{model_id}", status_code=204)
 async def delete_model(
     model_id: UUID,
-    request: Request,
     session: SessionDep,
-    settings: SettingsDep,
     context: SuperadminDep,
 ) -> None:
     await service.delete_model(
         session,
         context,
         model_id,
-        settings=settings,
     )
-    await _sync(request, session, settings)
 
 
 @router.get("/models", response_model=list[ModelPublic])

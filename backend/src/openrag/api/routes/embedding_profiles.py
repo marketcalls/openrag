@@ -31,10 +31,10 @@ async def list_embedding_profiles(
     context: SuperadminDep,
 ) -> list[EmbeddingProfileOut]:
     del context
-    return [
-        EmbeddingProfileOut.model_validate(profile)
-        for profile in await service.list_profiles(session)
-    ]
+    return await service.to_profile_out(
+        session,
+        await service.list_profiles(session),
+    )
 
 
 @router.post("", status_code=201, response_model=EmbeddingProfileOut)
@@ -45,7 +45,7 @@ async def create_embedding_profile(
     context: SuperadminDep,
 ) -> EmbeddingProfileOut:
     profile = await service.create_profile(session, context, body, settings)
-    return EmbeddingProfileOut.model_validate(profile)
+    return (await service.to_profile_out(session, [profile]))[0]
 
 
 @router.patch("/{profile_id}", response_model=EmbeddingProfileOut)
@@ -53,6 +53,7 @@ async def patch_embedding_profile(
     profile_id: UUID,
     body: EmbeddingProfilePatch,
     session: SessionDep,
+    settings: SettingsDep,
     context: SuperadminDep,
 ) -> EmbeddingProfileOut:
     profile = await service.update_profile(
@@ -61,5 +62,7 @@ async def patch_embedding_profile(
         profile_id,
         name=body.name,
         enabled=body.enabled,
+        api_key=body.api_key,
+        settings=settings,
     )
-    return EmbeddingProfileOut.model_validate(profile)
+    return (await service.to_profile_out(session, [profile]))[0]

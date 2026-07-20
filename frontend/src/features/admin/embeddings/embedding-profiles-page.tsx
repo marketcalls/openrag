@@ -18,7 +18,7 @@ import {
 } from './queries';
 
 function providerLabel(provider: EmbeddingProfileOut['provider_kind']): string {
-  if (provider === 'litellm') return 'LiteLLM gateway';
+  if (provider === 'litellm') return 'LiteLLM library';
   if (provider === 'tei') return 'Local TEI';
   return 'Development hash';
 }

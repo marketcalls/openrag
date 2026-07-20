@@ -14,7 +14,6 @@ const existingModel: ModelOut = {
   base_url: 'https://models.acme.test/v1',
   enabled: true,
   key_fingerprint: '...7890 sha256:abc123',
-  sync_status: 'synced',
   supports_reasoning: false,
   default_reasoning_effort: 'off',
 };
@@ -89,7 +88,6 @@ test('submits the assembled model payload', async () => {
         base_url: null,
         enabled: true,
         key_fingerprint: 'ab12…ef90',
-        sync_status: 'pending',
         supports_reasoning: false,
         default_reasoning_effort: 'off',
       }),

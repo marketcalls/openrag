@@ -69,7 +69,7 @@ async def test_create_stores_key_as_secret(
         )
     ).scalar_one()
     assert b"sk-live-xyz" not in secret.ciphertext
-    assert model.sync_status == "pending"
+    assert not hasattr(model, "sync_status")
     actions = [
         event.action
         for event in (await session.execute(select(AuditEvent))).scalars()
@@ -158,7 +158,7 @@ async def test_delete_removes_model_and_secret(
         settings=settings,
     )
 
-    await delete_model(session, ctx, model.id, settings=settings)
+    await delete_model(session, ctx, model.id)
     assert await list_models(session) == []
     assert (
         await session.execute(
@@ -166,7 +166,7 @@ async def test_delete_removes_model_and_secret(
         )
     ).scalar_one_or_none() is None
     with pytest.raises(NotFoundError):
-        await delete_model(session, ctx, uuid4(), settings=settings)
+        await delete_model(session, ctx, uuid4())
 
 
 async def test_resolve_model_order(

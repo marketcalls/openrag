@@ -13,11 +13,13 @@ const profile = {
   name: 'Enterprise multilingual',
   provider_kind: 'litellm',
   model_name: 'text-embedding-3-large',
+  base_url: null,
   dimension: 3072,
   max_input_tokens: 8192,
   batch_size: 32,
   config_digest: '1234567890abcdef',
   enabled: true,
+  key_fingerprint: '...cret sha256:abc123',
 };
 
 const readyDeployment = {
