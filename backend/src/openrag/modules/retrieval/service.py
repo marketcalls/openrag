@@ -10,6 +10,7 @@ from uuid import UUID
 from qdrant_client import models
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from openrag.core.config import get_settings
 from openrag.modules.documents.authority_storage import AuthorityCollectionSpec
@@ -19,11 +20,16 @@ from openrag.modules.embeddings.runtime import build_profile_runtime
 from openrag.modules.retrieval.authority import (
     MAX_CANDIDATES,
     AuthorizedEvidence,
+    CandidateIdentity,
     candidate_from_payload,
     revalidate_candidates,
 )
 from openrag.modules.retrieval.client import COLLECTION, get_qdrant
-from openrag.modules.retrieval.embeddings import embed_sparse, get_dense_embedder
+from openrag.modules.retrieval.embeddings import (
+    DenseEmbedder,
+    embed_sparse,
+    get_dense_embedder,
+)
 from openrag.modules.retrieval.sufficiency import (
     EvidenceDecision,
     EvidenceStatus,
@@ -76,9 +82,8 @@ class RetrievedEvidence:
             raise ValueError("evidence_locator_kind_invalid")
         if not 1 <= len(self.locator_label) <= 200 or self.page_number <= 0:
             raise ValueError("evidence_locator_invalid")
-        if (
-            len(self.content_hash) != 64
-            or any(character not in "0123456789abcdef" for character in self.content_hash)
+        if len(self.content_hash) != 64 or any(
+            character not in "0123456789abcdef" for character in self.content_hash
         ):
             raise ValueError("evidence_content_hash_invalid")
         if not self.text:
@@ -99,6 +104,33 @@ class RetrievalResult:
     no_answer: bool
     evidence: tuple[RetrievedEvidence, ...] = ()
     decision: EvidenceDecision | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RetrievalPlan:
+    """Immutable handoff from database authorization to external retrieval."""
+
+    org_id: UUID
+    workspace_id: UUID
+    query: str
+    top_k: int
+    min_score: float
+    authority_mode: bool
+    embedding_model: str
+    collection: str
+    dense_embedder: DenseEmbedder
+    filtered_document_ids: tuple[UUID, ...] | None
+    current_approved: bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalRetrievalResult:
+    """Bounded untrusted vector results awaiting SQL authority revalidation."""
+
+    chunks: tuple[RetrievedChunk, ...]
+    fused_candidates: tuple[CandidateIdentity, ...]
+    dense_candidates: tuple[CandidateIdentity, ...]
+    best_cosine: float
 
 
 def _retrieved_evidence(item: AuthorizedEvidence) -> RetrievedEvidence:
@@ -247,34 +279,20 @@ async def ensure_collection(embedding_model: str = "bge-m3") -> str:
     return COLLECTION
 
 
-async def retrieve(
-    session: AsyncSession,
+def _document_eligibility(
+    *,
     context: TenantContext,
     workspace_id: UUID,
-    query: str,
-    top_k: int = 8,
-) -> RetrievalResult:
-    if not 1 <= top_k <= 32:
-        raise ValueError("top_k must be between 1 and 32")
-    workspace = await get_workspace_checked(
-        session,
-        context,
-        workspace_id,
-    )
-    deployment = await session.scalar(
-        select(EmbeddingDeployment).where(
-            EmbeddingDeployment.status == "active"
-        )
-    )
-    decision: EvidenceDecision | None = None
-    now = datetime.now(UTC)
-    eligibility = [
+    authority_mode: bool,
+    now: datetime,
+) -> list[ColumnElement[bool]]:
+    eligibility: list[ColumnElement[bool]] = [
         DocumentVersion.org_id == context.org_id,
         DocumentVersion.workspace_id == workspace_id,
         DocumentVersion.state == "approved",
         DocumentVersion.superseded_by_id.is_(None),
     ]
-    if deployment is not None:
+    if authority_mode:
         database_now = now.replace(tzinfo=None)
         eligibility.extend(
             [
@@ -291,18 +309,46 @@ async def retrieve(
                 ),
             ]
         )
+    return eligibility
+
+
+async def prepare_retrieval(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+    query: str,
+    top_k: int = 8,
+) -> RetrievalPlan | RetrievalResult:
+    """Authorize and resolve configuration using database work only."""
+
+    if not 1 <= top_k <= 32:
+        raise ValueError("top_k must be between 1 and 32")
+    workspace = await get_workspace_checked(
+        session,
+        context,
+        workspace_id,
+    )
+    deployment = await session.scalar(
+        select(EmbeddingDeployment).where(EmbeddingDeployment.status == "active")
+    )
+    now = datetime.now(UTC)
+    authority_mode = deployment is not None
+    eligibility = _document_eligibility(
+        context=context,
+        workspace_id=workspace_id,
+        authority_mode=authority_mode,
+        now=now,
+    )
     if deployment is None:
-        approved_document_ids = list(
+        approved_document_ids = tuple(
             (
-                await session.execute(
-                    select(DocumentVersion.document_id).where(*eligibility)
-                )
+                await session.execute(select(DocumentVersion.document_id).where(*eligibility))
             ).scalars()
         )
         if not approved_document_ids:
             return RetrievalResult(chunks=[], no_answer=True)
     else:
-        approved_document_ids = []
+        approved_document_ids = ()
         eligible_version = await session.scalar(
             select(DocumentVersion.id).where(*eligibility).limit(1)
         )
@@ -317,11 +363,11 @@ async def retrieve(
                 no_answer=True,
                 decision=decision,
             )
-    current_approved: bool | None = None
     if deployment is None:
-        collection = await ensure_collection(workspace.embedding_model)
+        collection = COLLECTION
         dense_embedder = get_dense_embedder()
-        filtered_document_ids: list[UUID] | None = approved_document_ids
+        filtered_document_ids: tuple[UUID, ...] | None = approved_document_ids
+        current_approved: bool | None = None
     else:
         profile = await session.get(EmbeddingProfile, deployment.profile_id)
         if profile is None or not profile.enabled:
@@ -343,39 +389,79 @@ async def retrieve(
         dense_embedder = runtime.embedder
         filtered_document_ids = None
         current_approved = True
-    dense_vector = (await dense_embedder.embed([query]))[0]
-    sparse_vector = (await asyncio.to_thread(embed_sparse, [query]))[0]
-    tenant_filter = _tenant_filter(
+    return RetrievalPlan(
         org_id=context.org_id,
         workspace_id=workspace_id,
-        document_ids=filtered_document_ids,
+        query=query,
+        top_k=top_k,
+        min_score=workspace.min_score,
+        authority_mode=authority_mode,
+        embedding_model=workspace.embedding_model,
+        collection=collection,
+        dense_embedder=dense_embedder,
+        filtered_document_ids=filtered_document_ids,
         current_approved=current_approved,
     )
+
+
+async def execute_retrieval(plan: RetrievalPlan) -> ExternalRetrievalResult:
+    """Run embeddings and vector I/O without accepting any SQL session."""
+
+    collection = plan.collection
+    if not plan.authority_mode:
+        collection = await ensure_collection(plan.embedding_model)
+    dense_result, sparse_result = await asyncio.gather(
+        plan.dense_embedder.embed([plan.query]),
+        asyncio.to_thread(embed_sparse, [plan.query]),
+    )
+    dense_vector = dense_result[0]
+    sparse_vector = sparse_result[0]
+    tenant_filter = _tenant_filter(
+        org_id=plan.org_id,
+        workspace_id=plan.workspace_id,
+        document_ids=(
+            list(plan.filtered_document_ids) if plan.filtered_document_ids is not None else None
+        ),
+        current_approved=plan.current_approved,
+    )
     client = get_qdrant()
-    fused = await client.query_points(
-        collection,
-        prefetch=[
-            models.Prefetch(
-                query=dense_vector,
-                using="dense",
-                filter=tenant_filter,
-                limit=min(MAX_CANDIDATES, top_k * 4),
-            ),
-            models.Prefetch(
-                query=sparse_vector,
-                using="sparse",
-                filter=tenant_filter,
-                limit=min(MAX_CANDIDATES, top_k * 4),
-            ),
-        ],
-        query=models.FusionQuery(fusion=models.Fusion.RRF),
-        query_filter=tenant_filter,
-        limit=top_k,
-        with_payload=True,
+    candidate_limit = min(MAX_CANDIDATES, plan.top_k * 4)
+    fused, top_dense = await asyncio.gather(
+        client.query_points(
+            collection,
+            prefetch=[
+                models.Prefetch(
+                    query=dense_vector,
+                    using="dense",
+                    filter=tenant_filter,
+                    limit=candidate_limit,
+                ),
+                models.Prefetch(
+                    query=sparse_vector,
+                    using="sparse",
+                    filter=tenant_filter,
+                    limit=candidate_limit,
+                ),
+            ],
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            query_filter=tenant_filter,
+            limit=plan.top_k,
+            with_payload=True,
+        ),
+        client.query_points(
+            collection,
+            query=dense_vector,
+            using="dense",
+            query_filter=tenant_filter,
+            limit=(1 if not plan.authority_mode else candidate_limit),
+            with_payload=plan.authority_mode,
+        ),
     )
     chunks: list[RetrievedChunk] = []
-    final_evidence: tuple[RetrievedEvidence, ...] = ()
-    if deployment is None:
+    fused_candidates: list[CandidateIdentity] = []
+    dense_candidates: list[CandidateIdentity] = []
+    best_cosine = 0.0
+    if not plan.authority_mode:
         for point in fused.points:
             payload = point.payload or {}
             page_value = payload.get("page")
@@ -390,6 +476,7 @@ async def retrieve(
                     score=float(point.score),
                 )
             )
+        best_cosine = float(top_dense.points[0].score) if top_dense.points else 0.0
     else:
         fused_candidates = [
             candidate
@@ -402,56 +489,6 @@ async def retrieve(
             )
             is not None
         ]
-        authorized = await revalidate_candidates(
-            session,
-            context,
-            workspace_id,
-            fused_candidates,
-            now=now,
-        )
-        final_evidence = select_final_evidence(
-            [_retrieved_evidence(item) for item in authorized],
-            top_k=top_k,
-            max_per_document=min(4, top_k),
-            max_per_section=min(2, top_k),
-        )
-        chunks = [
-            RetrievedChunk(
-                document_id=evidence.document_id,
-                page=evidence.page_number,
-                chunk_index=evidence.chunk_index,
-                text=evidence.text,
-                score=evidence.fused_score,
-            )
-            for evidence in final_evidence
-        ]
-    if not chunks:
-        decision = (
-            evaluate_evidence(
-                query,
-                [],
-                SufficiencyPolicy(min_dense_score=workspace.min_score),
-            )
-            if deployment is not None
-            else None
-        )
-        return RetrievalResult(
-            chunks=[],
-            no_answer=True,
-            decision=decision,
-        )
-
-    top_dense = await client.query_points(
-        collection,
-        query=dense_vector,
-        using="dense",
-        query_filter=tenant_filter,
-        limit=(1 if deployment is None else min(MAX_CANDIDATES, top_k * 4)),
-        with_payload=deployment is not None,
-    )
-    if deployment is None:
-        best_cosine = float(top_dense.points[0].score) if top_dense.points else 0.0
-    else:
         dense_candidates = [
             candidate
             for point in top_dense.points
@@ -464,12 +501,64 @@ async def retrieve(
             )
             is not None
         ]
+    return ExternalRetrievalResult(
+        chunks=tuple(chunks),
+        fused_candidates=tuple(fused_candidates),
+        dense_candidates=tuple(dense_candidates),
+        best_cosine=best_cosine,
+    )
+
+
+async def finalize_retrieval(
+    session: AsyncSession,
+    context: TenantContext,
+    plan: RetrievalPlan,
+    external: ExternalRetrievalResult,
+) -> RetrievalResult:
+    """Revalidate vector identities against current PostgreSQL authority."""
+
+    revalidation_now = datetime.now(UTC)
+    if not plan.authority_mode:
+        current_document_ids = set(
+            (
+                await session.execute(
+                    select(DocumentVersion.document_id).where(
+                        *_document_eligibility(
+                            context=context,
+                            workspace_id=plan.workspace_id,
+                            authority_mode=False,
+                            now=revalidation_now,
+                        )
+                    )
+                )
+            ).scalars()
+        )
+        chunks = [chunk for chunk in external.chunks if chunk.document_id in current_document_ids]
+        return RetrievalResult(
+            chunks=chunks,
+            no_answer=not chunks or external.best_cosine < plan.min_score,
+        )
+
+    authorized = await revalidate_candidates(
+        session,
+        context,
+        plan.workspace_id,
+        external.fused_candidates,
+        now=revalidation_now,
+    )
+    final_evidence = select_final_evidence(
+        [_retrieved_evidence(item) for item in authorized],
+        top_k=plan.top_k,
+        max_per_document=min(4, plan.top_k),
+        max_per_section=min(2, plan.top_k),
+    )
+    if final_evidence:
         dense_authority = await revalidate_candidates(
             session,
             context,
-            workspace_id,
-            dense_candidates,
-            now=now,
+            plan.workspace_id,
+            external.dense_candidates,
+            now=revalidation_now,
         )
         final_evidence = attach_dense_scores(
             final_evidence,
@@ -479,22 +568,50 @@ async def retrieve(
                 if item.dense_score is not None
             },
         )
-        decision = evaluate_evidence(
-            query,
-            final_evidence,
-            SufficiencyPolicy(min_dense_score=workspace.min_score),
+    decision = evaluate_evidence(
+        plan.query,
+        final_evidence,
+        SufficiencyPolicy(min_dense_score=plan.min_score),
+    )
+    chunks = [
+        RetrievedChunk(
+            document_id=evidence.document_id,
+            page=evidence.page_number,
+            chunk_index=evidence.chunk_index,
+            text=evidence.text,
+            score=evidence.fused_score,
         )
-        best_cosine = decision.best_dense_score or 0.0
+        for evidence in final_evidence
+    ]
     return RetrievalResult(
         chunks=chunks,
-        no_answer=(
-            best_cosine < workspace.min_score
-            if decision is None
-            else decision.status is not EvidenceStatus.SUFFICIENT
-        ),
+        no_answer=decision.status is not EvidenceStatus.SUFFICIENT,
         evidence=final_evidence,
         decision=decision,
     )
+
+
+async def retrieve(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+    query: str,
+    top_k: int = 8,
+) -> RetrievalResult:
+    """Compose short SQL phases around an explicitly session-free network phase."""
+
+    prepared = await prepare_retrieval(
+        session,
+        context,
+        workspace_id,
+        query,
+        top_k,
+    )
+    await session.rollback()
+    if isinstance(prepared, RetrievalResult):
+        return prepared
+    external = await execute_retrieval(prepared)
+    return await finalize_retrieval(session, context, prepared, external)
 
 
 async def delete_document_points(org_id: UUID, document_id: UUID) -> None:
