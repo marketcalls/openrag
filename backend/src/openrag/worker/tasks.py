@@ -21,6 +21,7 @@ from openrag.worker.event_runtime import (
     consume_run_commands_once,
     dispatch_outbox_once,
     execute_run_once,
+    execute_summary_once,
 )
 
 _MAX_RETRIES = 3
@@ -97,6 +98,22 @@ def execute_run_task(task: Task) -> str:
     task_id = str(getattr(task.request, "id", None) or "tick")
     owner = f"run:{hostname}:{task_id}"[:200]
     return asyncio.run(execute_run_once(owner=owner))
+
+
+@celery_app.task(
+    bind=True,
+    name="summaries.refresh_next",
+    ignore_result=True,
+    soft_time_limit=150,
+    time_limit=180,
+)
+def refresh_summary_task(task: Task) -> str:
+    """Refresh at most one summary on the isolated background queue."""
+
+    hostname = str(getattr(task.request, "hostname", None) or "summary-worker")
+    task_id = str(getattr(task.request, "id", None) or "tick")
+    owner = f"summary:{hostname}:{task_id}"[:200]
+    return asyncio.run(execute_summary_once(owner=owner))
 
 
 @celery_app.task(

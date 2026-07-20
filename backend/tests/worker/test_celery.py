@@ -25,6 +25,7 @@ def test_celery_config() -> None:
         "ingestion",
         "interactive",
         "runs",
+        "summaries",
     }
     dispatch_schedule = celery_app.conf.beat_schedule["dispatch-outbox"]
     assert dispatch_schedule["task"] == "events.dispatch_outbox"
@@ -46,6 +47,10 @@ def test_celery_config() -> None:
     assert run_schedule["task"] == "runs.execute_next"
     assert run_schedule["options"]["queue"] == "runs"
     assert run_schedule["options"]["expires"] <= 2
+    summary_schedule = celery_app.conf.beat_schedule["refresh-conversation-summary"]
+    assert summary_schedule["task"] == "summaries.refresh_next"
+    assert summary_schedule["options"]["queue"] == "summaries"
+    assert summary_schedule["options"]["expires"] <= 5
     stage_schedule = celery_app.conf.beat_schedule["run-durable-document-stage"]
     assert stage_schedule["task"] == "documents.run_durable_stage"
     assert stage_schedule["options"]["queue"] == "ingestion"
@@ -75,7 +80,9 @@ def test_event_tasks_are_isolated_to_the_events_queue() -> None:
     assert "documents.run_durable_stage" in celery_app.tasks
     assert "documents.sync_vector_eligibility" in celery_app.tasks
     assert celery_app.conf.task_routes["runs.*"] == {"queue": "runs"}
+    assert celery_app.conf.task_routes["summaries.*"] == {"queue": "summaries"}
     assert "runs.execute_next" in celery_app.tasks
+    assert "summaries.refresh_next" in celery_app.tasks
 
 
 def test_queue_selection_by_size() -> None:

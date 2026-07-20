@@ -22,10 +22,12 @@ def build_celery() -> Celery:
             Queue("events"),
             Queue("ingestion"),
             Queue("runs"),
+            Queue("summaries"),
         ),
         task_routes={
             "events.*": {"queue": "events"},
             "runs.*": {"queue": "runs"},
+            "summaries.*": {"queue": "summaries"},
         },
         task_annotations={
             "documents.parse": {
@@ -69,6 +71,11 @@ def build_celery() -> Celery:
                 "task": "runs.execute_next",
                 "schedule": 0.25,
                 "options": {"queue": "runs", "expires": 2},
+            },
+            "refresh-conversation-summary": {
+                "task": "summaries.refresh_next",
+                "schedule": 1.0,
+                "options": {"queue": "summaries", "expires": 5},
             },
             "run-durable-document-stage": {
                 "task": "documents.run_durable_stage",

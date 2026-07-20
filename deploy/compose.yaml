@@ -432,6 +432,34 @@ services:
     stop_grace_period: 35s
     restart: unless-stopped
 
+  summary-worker:
+    <<: *openrag-backend
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - worker
+      - -Q
+      - summaries
+      - -l
+      - info
+      - --concurrency=${OPENRAG_SUMMARY_CONCURRENCY:-2}
+      - --hostname=summaries@%h
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+    mem_limit: ${OPENRAG_SUMMARY_WORKER_MEMORY_LIMIT:-2g}
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
   web:
     image: openrag-frontend:local
     build:

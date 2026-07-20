@@ -53,6 +53,7 @@ def test_compose_contains_complete_application_stack() -> None:
         "event-scheduler",
         "event-worker",
         "run-worker",
+        "summary-worker",
         "worker",
         "web",
     }
@@ -84,6 +85,7 @@ def test_backend_services_use_the_prebuilt_virtualenv_at_runtime() -> None:
     assert services["worker"]["command"][0] == "/app/.venv/bin/celery"
     assert services["event-worker"]["command"][0] == "/app/.venv/bin/celery"
     assert services["run-worker"]["command"][0] == "/app/.venv/bin/celery"
+    assert services["summary-worker"]["command"][0] == "/app/.venv/bin/celery"
     assert services["event-scheduler"]["command"][0] == "/app/.venv/bin/celery"
     assert services["api"]["healthcheck"]["test"][1] == "/app/.venv/bin/python"
     assert services["worker"]["mem_limit"] == "4294967296"
@@ -139,6 +141,7 @@ def test_event_transport_is_private_durable_and_failure_isolated() -> None:
     assert services["worker"]["command"][5] == "interactive,default"
     assert services["event-worker"]["command"][5] == "events"
     assert services["run-worker"]["command"][5] == "runs"
+    assert services["summary-worker"]["command"][5] == "summaries"
     assert set(services["event-redis"]["networks"]) == {"event-network"}
     assert set(services["event-worker"]["networks"]) == {
         "default",
@@ -152,3 +155,4 @@ def test_event_transport_is_private_durable_and_failure_isolated() -> None:
     assert {secret["source"] for secret in services["run-worker"]["secrets"]} == {
         "event_redis_password"
     }
+    assert "secrets" not in services["summary-worker"]

@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     litellm_master_key: str = "sk-openrag-dev-master"  # noqa: S105
     chat_context_token_budget: int = 8000
     chat_max_output_tokens: int = Field(default=2048, ge=1, le=32_768)
+    summary_trigger_tokens: int = Field(default=3000, ge=256, le=32_768)
+    summary_source_token_budget: int = Field(default=12_000, ge=1024, le=131_072)
+    summary_target_token_budget: int = Field(default=800, ge=128, le=4096)
+    summary_lease_seconds: int = Field(default=120, ge=30, le=600)
 
 
 @lru_cache

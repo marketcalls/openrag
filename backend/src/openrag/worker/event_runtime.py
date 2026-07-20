@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from openrag.core.config import Settings, get_settings
 from openrag.core.db import build_engine, build_session_factory
+from openrag.modules.chat.summary_runtime import run_summary_job_once
 from openrag.modules.documents.lifecycle_projection import (
     DocumentLifecycleRedis,
     consume_document_lifecycle_batch,
@@ -189,6 +190,26 @@ async def execute_run_once(
             )
     finally:
         await redis.aclose()
+        await engine.dispose()
+
+
+async def execute_summary_once(
+    *,
+    owner: str,
+    settings: Settings | None = None,
+) -> str:
+    """Claim one branch summary job without sharing the interactive run queue."""
+
+    resolved = settings or get_settings()
+    engine = build_engine(resolved.database_url)
+    session_factory = build_session_factory(engine)
+    try:
+        return await run_summary_job_once(
+            session_factory,
+            resolved,
+            owner=owner,
+        )
+    finally:
         await engine.dispose()
 
 

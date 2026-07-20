@@ -85,3 +85,12 @@ def test_gateway_settings_defaults() -> None:
     assert settings.litellm_url == "http://localhost:54000"
     assert settings.litellm_master_key == "sk-openrag-dev-master"  # noqa: S105
     assert settings.chat_context_token_budget == 8000
+
+
+def test_conversation_summary_settings_defaults() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.summary_trigger_tokens == 3000
+    assert settings.summary_source_token_budget == 12_000
+    assert settings.summary_target_token_budget == 800
+    assert settings.summary_lease_seconds == 120
