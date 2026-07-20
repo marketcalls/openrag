@@ -205,6 +205,42 @@ class RagOperationsOverview(BaseModel):
     estimated_cost_microusd: int = Field(ge=0)
 
 
+class AnswerQualityFilter(BaseModel):
+    """Only dimensions durably captured by content-free answer audits."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    from_at: AwareDatetime
+    to_at: AwareDatetime
+    org_id: UUID | None = None
+    workspace_id: UUID | None = None
+    model_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_window_and_scope(self) -> Self:
+        if self.to_at <= self.from_at or self.to_at - self.from_at > timedelta(days=90):
+            raise ValueError("answer_quality_window_invalid")
+        if self.workspace_id is not None and self.org_id is None:
+            raise ValueError("answer_quality_workspace_requires_org")
+        return self
+
+
+class AnswerQualityOverview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scheduled_count: int = Field(ge=0)
+    completed_count: int = Field(ge=0)
+    passed_count: int = Field(ge=0)
+    rejected_count: int = Field(ge=0)
+    pending_count: int = Field(ge=0)
+    skipped_count: int = Field(ge=0)
+    worker_failed_count: int = Field(ge=0)
+    completion_rate: float = Field(ge=0, le=1)
+    pass_rate: float = Field(ge=0, le=1)
+    average_grounding_score: float | None = Field(default=None, ge=0, le=1)
+    average_completeness_score: float | None = Field(default=None, ge=0, le=1)
+
+
 RagSeriesInterval = Literal["hour", "day"]
 
 

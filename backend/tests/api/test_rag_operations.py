@@ -69,6 +69,7 @@ async def test_superadmin_reads_empty_bounded_overview(
 @pytest.mark.parametrize(
     "path",
     [
+        "/api/v1/admin/rag-operations/quality",
         "/api/v1/admin/rag-operations/series",
         "/api/v1/admin/rag-operations/runs",
         "/api/v1/admin/rag-operations/runs/00000000-0000-0000-0000-000000000001",
@@ -91,6 +92,35 @@ async def test_all_operations_routes_are_platform_superadmin_only(
     )
 
     assert response.status_code == 403
+
+
+async def test_superadmin_reads_empty_content_free_quality_overview(
+    client: httpx.AsyncClient,
+    seeded_superadmin: User,
+) -> None:
+    headers = await auth(client, seeded_superadmin.email)
+    now = datetime.now(UTC)
+
+    response = await client.get(
+        "/api/v1/admin/rag-operations/quality",
+        params={"from": (now - timedelta(days=1)).isoformat(), "to": now.isoformat()},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "scheduled_count": 0,
+        "completed_count": 0,
+        "passed_count": 0,
+        "rejected_count": 0,
+        "pending_count": 0,
+        "skipped_count": 0,
+        "worker_failed_count": 0,
+        "completion_rate": 0.0,
+        "pass_rate": 0.0,
+        "average_grounding_score": None,
+        "average_completeness_score": None,
+    }
 
 
 async def test_superadmin_error_scope_does_not_mix_tenant_counts_or_occurrences(

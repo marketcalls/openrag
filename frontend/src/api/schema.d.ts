@@ -736,6 +736,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/rag-operations/quality": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Answer Quality */
+        get: operations["answer_quality_api_v1_admin_rag_operations_quality_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/rag-operations/series": {
         parameters: {
             query?: never;
@@ -1093,6 +1110,31 @@ export interface components {
              * @default bearer
              */
             token_type: string;
+        };
+        /** AnswerQualityOverview */
+        AnswerQualityOverview: {
+            /** Scheduled Count */
+            scheduled_count: number;
+            /** Completed Count */
+            completed_count: number;
+            /** Passed Count */
+            passed_count: number;
+            /** Rejected Count */
+            rejected_count: number;
+            /** Pending Count */
+            pending_count: number;
+            /** Skipped Count */
+            skipped_count: number;
+            /** Worker Failed Count */
+            worker_failed_count: number;
+            /** Completion Rate */
+            completion_rate: number;
+            /** Pass Rate */
+            pass_rate: number;
+            /** Average Grounding Score */
+            average_grounding_score?: number | null;
+            /** Average Completeness Score */
+            average_completeness_score?: number | null;
         };
         /** Body_upload_document_api_v1_workspaces__workspace_id__documents_post */
         Body_upload_document_api_v1_workspaces__workspace_id__documents_post: {
@@ -4912,6 +4954,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RagOperationsOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    answer_quality_api_v1_admin_rag_operations_quality_get: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                org_id?: string | null;
+                workspace_id?: string | null;
+                model_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnswerQualityOverview"];
                 };
             };
             /** @description Validation Error */

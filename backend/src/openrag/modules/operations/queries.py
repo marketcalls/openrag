@@ -13,8 +13,12 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.selectable import Subquery
 
 from openrag.core.errors import NotFoundError
+from openrag.modules.chat.models import Message
+from openrag.modules.chat.quality_models import AnswerQualityAudit
 from openrag.modules.operations.models import ErrorIssue, ErrorOccurrence, RagRunFact
 from openrag.modules.operations.schemas import (
+    AnswerQualityFilter,
+    AnswerQualityOverview,
     ErrorIssueOut,
     ErrorOccurrenceOut,
     RagOperationsErrorDetail,
@@ -95,6 +99,72 @@ def build_overview_query(filters: RagOperationsFilter) -> Select[tuple[object, .
             "estimated_cost_microusd"
         ),
     ).where(*_fact_conditions(filters))
+
+
+def _answer_quality_conditions(
+    filters: AnswerQualityFilter,
+) -> list[ColumnElement[bool]]:
+    conditions = [
+        AnswerQualityAudit.created_at >= _database_time(filters.from_at),
+        AnswerQualityAudit.created_at < _database_time(filters.to_at),
+    ]
+    for column, value in (
+        (AnswerQualityAudit.org_id, filters.org_id),
+        (AnswerQualityAudit.workspace_id, filters.workspace_id),
+        (Message.model_id, filters.model_id),
+    ):
+        if value is not None:
+            conditions.append(column == value)
+    return conditions
+
+
+def build_answer_quality_overview_query(
+    filters: AnswerQualityFilter,
+) -> Select[tuple[object, ...]]:
+    return (
+        select(
+            func.count().label("scheduled_count"),
+            func.count()
+            .filter(AnswerQualityAudit.status == "completed")
+            .label("completed_count"),
+            func.count()
+            .filter(
+                AnswerQualityAudit.status == "completed",
+                AnswerQualityAudit.passed.is_(True),
+            )
+            .label("passed_count"),
+            func.count()
+            .filter(
+                AnswerQualityAudit.status == "completed",
+                AnswerQualityAudit.passed.is_(False),
+            )
+            .label("rejected_count"),
+            func.count()
+            .filter(AnswerQualityAudit.status.in_(("queued", "running")))
+            .label("pending_count"),
+            func.count()
+            .filter(AnswerQualityAudit.status == "skipped")
+            .label("skipped_count"),
+            func.count()
+            .filter(AnswerQualityAudit.status == "failed")
+            .label("worker_failed_count"),
+            func.avg(AnswerQualityAudit.grounding_score).label(
+                "average_grounding_score"
+            ),
+            func.avg(AnswerQualityAudit.completeness_score).label(
+                "average_completeness_score"
+            ),
+        )
+        .join(
+            Message,
+            and_(
+                Message.org_id == AnswerQualityAudit.org_id,
+                Message.workspace_id == AnswerQualityAudit.workspace_id,
+                Message.id == AnswerQualityAudit.message_id,
+            ),
+        )
+        .where(*_answer_quality_conditions(filters))
+    )
 
 
 def build_series_query(
@@ -300,6 +370,39 @@ async def get_overview(
         prompt_tokens=int(row.prompt_tokens or 0),
         completion_tokens=int(row.completion_tokens or 0),
         estimated_cost_microusd=int(row.estimated_cost_microusd or 0),
+    )
+
+
+async def get_answer_quality_overview(
+    session: AsyncSession,
+    filters: AnswerQualityFilter,
+) -> AnswerQualityOverview:
+    row = (await session.execute(build_answer_quality_overview_query(filters))).one()
+    scheduled_count = int(row.scheduled_count or 0)
+    completed_count = int(row.completed_count or 0)
+    passed_count = int(row.passed_count or 0)
+    return AnswerQualityOverview(
+        scheduled_count=scheduled_count,
+        completed_count=completed_count,
+        passed_count=passed_count,
+        rejected_count=int(row.rejected_count or 0),
+        pending_count=int(row.pending_count or 0),
+        skipped_count=int(row.skipped_count or 0),
+        worker_failed_count=int(row.worker_failed_count or 0),
+        completion_rate=(
+            completed_count / scheduled_count if scheduled_count else 0.0
+        ),
+        pass_rate=passed_count / completed_count if completed_count else 0.0,
+        average_grounding_score=(
+            float(row.average_grounding_score)
+            if row.average_grounding_score is not None
+            else None
+        ),
+        average_completeness_score=(
+            float(row.average_completeness_score)
+            if row.average_completeness_score is not None
+            else None
+        ),
     )
 
 

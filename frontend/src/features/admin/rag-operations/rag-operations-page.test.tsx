@@ -25,6 +25,20 @@ const overview = {
   estimated_cost_microusd: 4200000,
 };
 
+const quality = {
+  scheduled_count: 1120,
+  completed_count: 1098,
+  passed_count: 1056,
+  rejected_count: 42,
+  pending_count: 18,
+  skipped_count: 3,
+  worker_failed_count: 1,
+  completion_rate: 0.9804,
+  pass_rate: 0.9617,
+  average_grounding_score: 0.974,
+  average_completeness_score: 0.932,
+};
+
 const run = {
   id: '550e8400-e29b-41d4-a716-446655440011',
   org_id: '550e8400-e29b-41d4-a716-446655440001',
@@ -98,6 +112,7 @@ function responseFor(request: Request) {
     };
   }
   if (url.pathname.endsWith('/overview')) return overview;
+  if (url.pathname.endsWith('/quality')) return quality;
   if (url.pathname.endsWith('/series')) {
     return [
       { bucket: '2026-07-20T09:00:00Z', query_count: 540, grounded_count: 460, no_answer_count: 51, failed_count: 22, p95_latency_ms: 2300 },
@@ -139,12 +154,17 @@ test('coordinates filters across the operations overview, chart, runs, and error
   expect(screen.getByRole('table', { name: 'Query throughput data' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Recent runs' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Active error groups' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Grounded answer quality' })).toBeVisible();
+  expect(screen.getByText('96.2%')).toBeVisible();
 
   await user.selectOptions(screen.getByLabelText('Route'), 'rag');
   await waitFor(() => {
     const overviewRequests = requests.filter((request) => request.url.includes('/overview?'));
     expect(overviewRequests.at(-1)?.url).toContain('route=rag');
   });
+  const qualityRequest = requests.find((request) => request.url.includes('/quality?'));
+  expect(qualityRequest?.url).toContain(`org_id=${run.org_id}`);
+  expect(qualityRequest?.url).toContain(`workspace_id=${run.workspace_id}`);
 });
 
 test('opens safe, content-free run and error drilldowns', async () => {

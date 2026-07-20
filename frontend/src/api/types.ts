@@ -28,6 +28,7 @@ export type EmbeddingProfilePatch = components['schemas']['EmbeddingProfilePatch
 export type EmbeddingDeploymentCreate = components['schemas']['EmbeddingDeploymentCreate'];
 export type EmbeddingDeploymentOut = components['schemas']['EmbeddingDeploymentOut'];
 export type RagOperationsOverview = components['schemas']['RagOperationsOverview'];
+export type AnswerQualityOverview = components['schemas']['AnswerQualityOverview'];
 export type RagOperationsSeriesPoint = components['schemas']['RagOperationsSeriesPoint'];
 export type RagOperationsRunOut = components['schemas']['RagOperationsRunOut'];
 export type RagOperationsRunPage = components['schemas']['RagOperationsRunPage'];
@@ -68,6 +69,11 @@ export interface RagOperationsFilters {
   environment?: string;
   release?: string;
 }
+
+export type AnswerQualityFilters = Pick<
+  RagOperationsFilters,
+  'from' | 'to' | 'org_id' | 'workspace_id' | 'model_id'
+>;
 
 export interface SourceRef {
   marker: number;

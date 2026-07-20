@@ -7,6 +7,7 @@ from sqlalchemy.dialects import postgresql
 
 from openrag.modules.operations.models import ErrorIssue
 from openrag.modules.operations.queries import (
+    build_answer_quality_overview_query,
     build_error_issue_detail_query,
     build_error_list_query,
     build_error_occurrence_detail_query,
@@ -18,7 +19,7 @@ from openrag.modules.operations.queries import (
     encode_operations_cursor,
     scoped_error_issue_out,
 )
-from openrag.modules.operations.schemas import RagOperationsFilter
+from openrag.modules.operations.schemas import AnswerQualityFilter, RagOperationsFilter
 
 
 def _window(**changes: object) -> RagOperationsFilter:
@@ -64,6 +65,34 @@ def test_overview_query_is_database_aggregated_and_scope_filtered() -> None:
     assert "rag_run_facts.route" in sql
     assert "rag_run_facts.model_id" in sql
     assert "rag_run_facts.environment" in sql
+
+
+def test_answer_quality_query_is_content_free_aggregated_and_scope_filtered() -> None:
+    filters = AnswerQualityFilter(
+        from_at=datetime(2026, 7, 19, tzinfo=UTC),
+        to_at=datetime(2026, 7, 20, tzinfo=UTC),
+        org_id=uuid4(),
+        workspace_id=uuid4(),
+        model_id=uuid4(),
+    )
+
+    sql = str(
+        build_answer_quality_overview_query(filters).compile(
+            dialect=postgresql.dialect(),  # type: ignore[no-untyped-call]
+            compile_kwargs={"literal_binds": False},
+        )
+    )
+
+    assert "answer_quality_audits" in sql
+    assert "messages" in sql
+    assert "grounding_score" in sql
+    assert "completeness_score" in sql
+    assert "FILTER (WHERE answer_quality_audits.status" in sql
+    assert "answer_quality_audits.org_id" in sql
+    assert "answer_quality_audits.workspace_id" in sql
+    assert "messages.model_id" in sql
+    assert "message.content" not in sql
+    assert "messages.content" not in sql
 
 
 def test_operations_filter_accepts_at_most_ninety_days() -> None:

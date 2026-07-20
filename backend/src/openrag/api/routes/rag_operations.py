@@ -12,6 +12,8 @@ from openrag.api.deps import get_session
 from openrag.core.errors import InvalidRequestError
 from openrag.modules.operations import queries
 from openrag.modules.operations.schemas import (
+    AnswerQualityFilter,
+    AnswerQualityOverview,
     RagOperationsErrorDetail,
     RagOperationsErrorPage,
     RagOperationsFilter,
@@ -28,6 +30,28 @@ from openrag.modules.tenancy.context import TenantContext, require_platform_supe
 router = APIRouter(prefix="/admin/rag-operations", tags=["rag-operations"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SuperadminDep = Annotated[TenantContext, Depends(require_platform_superadmin())]
+
+
+def answer_quality_filters(
+    from_at: Annotated[datetime, Query(alias="from")],
+    to_at: Annotated[datetime, Query(alias="to")],
+    org_id: UUID | None = None,
+    workspace_id: UUID | None = None,
+    model_id: UUID | None = None,
+) -> AnswerQualityFilter:
+    try:
+        return AnswerQualityFilter(
+            from_at=from_at,
+            to_at=to_at,
+            org_id=org_id,
+            workspace_id=workspace_id,
+            model_id=model_id,
+        )
+    except ValidationError as exc:
+        raise InvalidRequestError("invalid answer quality filters") from exc
+
+
+QualityFiltersDep = Annotated[AnswerQualityFilter, Depends(answer_quality_filters)]
 
 
 def operations_filters(
@@ -77,6 +101,16 @@ async def overview(
 ) -> RagOperationsOverview:
     del context
     return await queries.get_overview(session, filters)
+
+
+@router.get("/quality", response_model=AnswerQualityOverview)
+async def answer_quality(
+    session: SessionDep,
+    context: SuperadminDep,
+    filters: QualityFiltersDep,
+) -> AnswerQualityOverview:
+    del context
+    return await queries.get_answer_quality_overview(session, filters)
 
 
 @router.get("/series", response_model=list[RagOperationsSeriesPoint])

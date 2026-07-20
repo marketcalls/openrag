@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { api } from '@/api/client';
 import { problemDetail } from '@/api/problem';
-import type { RagOperationsFilters } from '@/api/types';
+import type { AnswerQualityFilters, RagOperationsFilters } from '@/api/types';
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -28,6 +28,20 @@ export function useRagOperationsOverview(filters: RagOperationsFilters) {
         params: { query: filters },
       });
       if (error) throw new Error(problemDetail(error, 'Failed to load RAG overview'));
+      return data;
+    },
+    ...queryOptions(),
+  });
+}
+
+export function useAnswerQualityOverview(filters: AnswerQualityFilters) {
+  return useQuery({
+    queryKey: ['admin', 'rag-operations', 'quality', filters],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/admin/rag-operations/quality', {
+        params: { query: filters },
+      });
+      if (error) throw new Error(problemDetail(error, 'Failed to load answer quality'));
       return data;
     },
     ...queryOptions(),

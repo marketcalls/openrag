@@ -2,7 +2,7 @@ import { Activity, BadgeCheck, CircleDollarSign, Clock3, FlaskConical, RefreshCw
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
-import type { RagOperationsFilters } from '@/api/types';
+import type { AnswerQualityFilters, RagOperationsFilters } from '@/api/types';
 import { TopBar } from '@/components/layout/top-bar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,11 +11,13 @@ import { NativeSelect } from '@/components/ui/select';
 import { ErrorPanel } from './error-panel';
 import { MetricCard } from './metric-card';
 import {
+  useAnswerQualityOverview,
   useRagOperationsErrors,
   useRagOperationsOverview,
   useRagOperationsRuns,
   useRagOperationsSeries,
 } from './queries';
+import { QualityPanel } from './quality-panel';
 import { RunTable } from './run-table';
 import { ThroughputChart } from './throughput-chart';
 
@@ -71,12 +73,20 @@ export function RagOperationsPage() {
     ...(workspaceId ? { workspace_id: workspaceId } : {}),
     ...(modelId ? { model_id: modelId } : {}),
   }), [modelId, orgId, outcome, range, route, windowAnchor, workspaceId]);
+  const qualityFilters = useMemo<AnswerQualityFilters>(() => ({
+    from: filters.from,
+    to: filters.to,
+    ...(filters.org_id ? { org_id: filters.org_id } : {}),
+    ...(filters.workspace_id ? { workspace_id: filters.workspace_id } : {}),
+    ...(filters.model_id ? { model_id: filters.model_id } : {}),
+  }), [filters]);
 
   const overview = useRagOperationsOverview(filters);
+  const quality = useAnswerQualityOverview(qualityFilters);
   const series = useRagOperationsSeries(filters, range === '24h' ? 'hour' : 'day');
   const runs = useRagOperationsRuns(filters);
   const errors = useRagOperationsErrors(filters);
-  const queries = [overview, series, runs, errors];
+  const queries = [overview, quality, series, runs, errors];
   const isRefreshing = queries.some((query) => query.isFetching);
   const firstError = queries.find((query) => query.isError)?.error;
 
@@ -184,6 +194,8 @@ export function RagOperationsPage() {
                 <MetricCard label="P95 latency" value={formatDuration(overview.data.p95_latency_ms ?? null)} detail={`TTFT ${formatDuration(overview.data.average_ttft_ms ?? null)} · target 3–5s`} icon={Clock3} tone={(overview.data.p95_latency_ms ?? 0) > 5000 ? 'danger' : 'neutral'} />
                 <MetricCard label="Estimated cost" value={`$${(overview.data.estimated_cost_microusd / 1_000_000).toFixed(2)}`} detail={`${(overview.data.prompt_tokens + overview.data.completion_tokens).toLocaleString()} total tokens`} icon={CircleDollarSign} tone="warning" />
               </section>
+
+              {quality.data ? <QualityPanel quality={quality.data} /> : null}
 
               <section className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(330px,0.8fr)]">
                 <article className="rounded-xl border border-line bg-bg p-4 shadow-sm">
