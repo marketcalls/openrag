@@ -1,9 +1,15 @@
+from datetime import UTC, datetime
+from uuid import uuid4
+
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from openrag.core.errors import ConflictError, NotFoundError
+from openrag.core.errors import ConflictError, InvalidRequestError, NotFoundError
+from openrag.modules.artifacts.models import MessageArtifact
+from openrag.modules.artifacts.schemas import AnalyticsResponseV1
+from openrag.modules.artifacts.service import list_message_artifacts
 from openrag.modules.auth.models import User
 from openrag.modules.chat.events import CitationRef
 from openrag.modules.chat.models import Chat, Citation, Message
@@ -16,6 +22,7 @@ from openrag.modules.chat.service import (
     create_chat,
     delete_chat,
     get_chat,
+    get_message,
     list_chats,
     list_messages,
     rename_chat,
@@ -32,6 +39,30 @@ from openrag.modules.models.models import Model
 from openrag.modules.tenancy.authorization import AuthorizationSnapshot
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Workspace, WorkspaceMember
+
+
+def analytics_artifact(
+    *,
+    marker: int = 1,
+    title: str = "PPE inspection overview",
+) -> AnalyticsResponseV1:
+    return AnalyticsResponseV1.model_validate(
+        {
+            "schema_version": "analytics.v1",
+            "title": title,
+            "subtitle": None,
+            "kpis": [],
+            "blocks": [
+                {
+                    "kind": "explainer",
+                    "title": "Inspection timing",
+                    "body_markdown": f"Inspect PPE before every shift [{marker}].",
+                    "source_markers": [marker],
+                }
+            ],
+            "suggested_followups": [],
+        }
+    )
 
 
 async def make_ctx(
@@ -551,9 +582,11 @@ async def test_authority_answer_revalidates_and_persists_complete_snapshot(
         display_name="Verifier",
         provider_kind="litellm",
         supports_chat_completion=True,
+        supports_streaming=True,
         supports_structured_json=True,
         supports_verifier=True,
         provider_preset_version="preset-v1",
+        probe_status="passed",
     )
     session.add(verifier)
     await session.flush()
@@ -674,6 +707,7 @@ async def test_authority_answer_revalidates_and_persists_complete_snapshot(
                 fused_score=0.92,
             )
         ],
+        analytics_artifact=analytics_artifact(),
     )
     citation = await session.scalar(
         select(Citation).where(Citation.message_id == assistant.id)
@@ -691,6 +725,108 @@ async def test_authority_answer_revalidates_and_persists_complete_snapshot(
     assert citation.content_hash == "d" * 64
     assert citation.verification_state == "marker_bound"
     assert citation.claim_ids and len(citation.claim_ids[0]) == 64
+    artifact_row = await session.scalar(
+        select(MessageArtifact).where(MessageArtifact.message_id == assistant.id)
+    )
+    assert artifact_row is not None
+    artifacts = await list_message_artifacts(session, context, [parent.id, assistant.id])
+    serialized = build_tree(
+        [parent, assistant],
+        {assistant.id: [citation]},
+        artifacts,
+    )
+    assert serialized[0].artifacts == []
+    assert serialized[0].children[0].artifacts[0].artifact.title == (
+        "PPE inspection overview"
+    )
+    parent_id = parent.id
+    document_id = document.id
+    version_id = version.id
+    span_id = span.id
+    span_hash = span.content_hash
+    first_artifact_id = artifact_row.id
+
+    with pytest.raises(InvalidRequestError):
+        await _persist_assistant(
+            session,
+            context,
+            chat,
+            parent=parent,
+            content="Inspect PPE before every shift [1].",
+            model_id=None,
+            usage=None,
+            citations=[
+                CitationRef(
+                    marker=1,
+                    document_id=str(document_id),
+                    chunk_ref=str(span_id),
+                    page=5,
+                    score=0.92,
+                    document_version_id=str(version_id),
+                    evidence_span_id=str(span_id),
+                    content_hash=span_hash,
+                    dense_score=0.94,
+                    sparse_score=0.71,
+                    fused_score=0.92,
+                )
+            ],
+            analytics_artifact=analytics_artifact(marker=2),
+        )
+    assert await session.scalar(
+        select(func.count()).select_from(Message).where(Message.role == "assistant")
+    ) == 1
+    assert await session.scalar(
+        select(func.count()).select_from(MessageArtifact)
+    ) == 1
+
+    current_chat, current_parent = await get_message(session, context, parent_id)
+    regenerated = await _persist_assistant(
+        session,
+        context,
+        current_chat,
+        parent=current_parent,
+        content="PPE must be inspected before every shift [1].",
+        model_id=None,
+        usage=None,
+        citations=[
+            CitationRef(
+                marker=1,
+                document_id=str(document_id),
+                chunk_ref=str(span_id),
+                page=5,
+                score=0.92,
+                document_version_id=str(version_id),
+                evidence_span_id=str(span_id),
+                content_hash=span_hash,
+                dense_score=0.94,
+                sparse_score=0.71,
+                fused_score=0.92,
+            )
+        ],
+        analytics_artifact=analytics_artifact(title="Regenerated PPE overview"),
+    )
+    regenerated_artifact = await session.scalar(
+        select(MessageArtifact).where(MessageArtifact.message_id == regenerated.id)
+    )
+    assert regenerated.sibling_index == 1
+    assert regenerated_artifact is not None
+    assert regenerated_artifact.id != first_artifact_id
+
+
+def test_build_tree_exposes_empty_artifact_lists_for_existing_messages() -> None:
+    message = Message(
+        id=uuid4(),
+        org_id=uuid4(),
+        workspace_id=uuid4(),
+        chat_id=uuid4(),
+        parent_message_id=None,
+        sibling_index=0,
+        role="user",
+        content="Question",
+        created_at=datetime.now(UTC),
+    )
+
+    assert build_tree([message], {}, {})[0].artifacts == []
 
 
 def test_message_scope_is_non_nullable_after_task_two_backfill() -> None:

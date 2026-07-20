@@ -64,6 +64,7 @@ async def _execution(
             streamer=injected,
             agent_gatherer_factory=None,
             answer_validator=None,
+            analytics_composer=None,
         )
     return await create_model_execution(
         session,
@@ -178,6 +179,7 @@ async def send_message(
             settings=settings,
             agent_gatherer_factory=execution.agent_gatherer_factory,
             answer_validator=execution.answer_validator,
+            analytics_composer=execution.analytics_composer,
             retrieval_min_score=workspace.min_score,
         )
     )
@@ -227,6 +229,7 @@ async def regenerate(
             settings=settings,
             agent_gatherer_factory=execution.agent_gatherer_factory,
             answer_validator=execution.answer_validator,
+            analytics_composer=execution.analytics_composer,
             retrieval_min_score=workspace.min_score,
         )
     )

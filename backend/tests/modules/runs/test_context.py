@@ -140,7 +140,7 @@ async def test_run_context_is_idempotent_per_attempt_without_raw_prompts(
     ledger = (await session.execute(select(RunContextLedger))).scalar_one()
     assert not hasattr(ledger, "prompt")
     memory.content_hash = "c" * 64
-    with pytest.raises(RuntimeError, match="attempt changed"):
+    with pytest.raises(RuntimeError, match="run_context_attempt_changed"):
         await record_run_context(
             factory,
             identity,

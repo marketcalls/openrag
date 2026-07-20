@@ -4,6 +4,8 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Literal
 
+from openrag.modules.artifacts.schemas import AnalyticsResponseV1
+
 
 @dataclass(frozen=True)
 class SSEEvent:
@@ -106,6 +108,15 @@ def citations_event(citations: list[CitationRef]) -> SSEEvent:
     return SSEEvent(
         "citations",
         {"citations": [asdict(citation) for citation in citations]},
+    )
+
+
+def analytics_artifact_event(artifact: AnalyticsResponseV1) -> SSEEvent:
+    """Carry one already-validated supplemental presentation artifact."""
+
+    return SSEEvent(
+        "analytics_artifact",
+        {"artifact": artifact.model_dump(mode="json")},
     )
 
 

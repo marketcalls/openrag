@@ -10,12 +10,20 @@ from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID
 
+import structlog
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import Settings
 from openrag.core.db import naive_utc
 from openrag.core.errors import ConflictError, NotFoundError, UpstreamError
+from openrag.modules.artifacts.prompting import AnalyticsEvidence
+from openrag.modules.artifacts.schemas import AnalyticsResponseV1, MessageArtifactOut
+from openrag.modules.artifacts.service import (
+    analytics_source_markers,
+    list_message_artifacts,
+    persist_analytics_artifact,
+)
 from openrag.modules.chat.claims import ClaimBindingResult, bind_cited_claims
 from openrag.modules.chat.events import (
     CitationRef,
@@ -23,6 +31,7 @@ from openrag.modules.chat.events import (
     SSEEvent,
     agent_completed_event,
     agent_started_event,
+    analytics_artifact_event,
     citations_event,
     done_event,
     error_event,
@@ -74,6 +83,10 @@ from openrag.modules.orchestration.agent_loop import (
     EscalationContext,
     decide_escalation,
 )
+from openrag.modules.orchestration.agno_analytics import (
+    AnalyticsComposer,
+    AnalyticsComposition,
+)
 from openrag.modules.orchestration.answer_validation import BoundAnswerValidator
 from openrag.modules.orchestration.routing import QueryRoute, decide_route
 from openrag.modules.retrieval.authority import (
@@ -104,6 +117,7 @@ CLARIFY_TEXT = (
 )
 _TITLE_SPACE_RE = re.compile(r"\s+")
 _DEFAULT_CHAT_TITLE = "New chat"
+_logger = structlog.get_logger("openrag.chat")
 
 
 @dataclass(frozen=True, slots=True)
@@ -667,6 +681,55 @@ async def _validate_strict_draft(
     return StrictDraftResult(answer, tuple(parts), usage, citations, refusal_reason)
 
 
+async def _compose_analytics_artifact(
+    *,
+    route: QueryRoute,
+    composer: AnalyticsComposer | None,
+    question: str,
+    answer: str,
+    citations: Sequence[CitationRef],
+    evidence_texts: Sequence[str],
+) -> AnalyticsComposition | None:
+    """Compose presentation only after the grounded answer contract succeeds."""
+
+    if route is not QueryRoute.ANALYTICS or composer is None or not citations:
+        return None
+    by_marker = {
+        marker: text
+        for marker, text in enumerate(evidence_texts[:8], start=1)
+    }
+    markers = tuple(dict.fromkeys(citation.marker for citation in citations))
+    if any(marker not in by_marker for marker in markers):
+        _logger.warning("analytics_composition_skipped", reason_code="evidence_missing")
+        return None
+    evidence = tuple(
+        AnalyticsEvidence(marker=marker, text=by_marker[marker])
+        for marker in markers
+    )
+    try:
+        composition = await composer.compose(
+            question=question,
+            answer_markdown=answer,
+            evidence=evidence,
+            allowed_markers=markers,
+        )
+        if not analytics_source_markers(composition.artifact).issubset(
+            frozenset(markers)
+        ):
+            _logger.warning(
+                "analytics_composition_failed",
+                reason_code="citation_marker_invalid",
+            )
+            return None
+        return composition
+    except Exception:  # noqa: BLE001 - analytics can never fail the grounded answer
+        _logger.warning(
+            "analytics_composition_failed",
+            reason_code="composer_unavailable",
+        )
+        return None
+
+
 async def _persist_assistant(
     session: AsyncSession,
     context: TenantContext,
@@ -681,6 +744,7 @@ async def _persist_assistant(
     validation_policy_id: UUID | None = None,
     validation_policy_version: int | None = None,
     validation_verifier_model_id: UUID | None = None,
+    analytics_artifact: AnalyticsResponseV1 | None = None,
 ) -> Message:
     await tenancy_service.get_workspace(
         session,
@@ -919,6 +983,14 @@ async def _persist_assistant(
                         credential_fingerprint=policy.credential_fingerprint,
                     )
                 )
+        await session.flush()
+        if message.answer_status == "grounded" and analytics_artifact is not None:
+            await persist_analytics_artifact(
+                session,
+                context,
+                message.id,
+                analytics_artifact,
+            )
         await session.commit()
         return message
     except Exception:
@@ -982,12 +1054,14 @@ async def stream_reply(
     context_recorder: ContextRecorder | None = None,
     agent_gatherer_factory: AgentGathererFactory | None = None,
     answer_validator: BoundAnswerValidator | None = None,
+    analytics_composer: AnalyticsComposer | None = None,
     retrieval_top_k: int = 8,
     retrieval_min_score: float = 0.35,
 ) -> AsyncIterator[SSEEvent]:
     model_name = model.litellm_model_name
     model_id = model.id
     user_message_id = user_message.id
+    user_query = user_message.content
     all_messages = await list_messages(session, chat.id)
     branch_history = path_to_root(all_messages, user_message)
     full_history = [(message.role, message.content) for message in branch_history]
@@ -997,7 +1071,7 @@ async def stream_reply(
         session,
         context,
         chat.workspace_id,
-        query=user_message.content,
+        query=user_query,
     )
     prompt_memories = [
         PromptMemory(
@@ -1028,7 +1102,7 @@ async def stream_reply(
             selected_memories,
         )
 
-    decision = decide_route(user_message.content, history=full_history)
+    decision = decide_route(user_query, history=full_history)
     yield route_selected_event(decision.route.value, decision.reason_code)
 
     if decision.route not in {QueryRoute.DIRECT, QueryRoute.CLARIFY}:
@@ -1068,11 +1142,11 @@ async def stream_reply(
 
     if decision.route in {QueryRoute.DIRECT, QueryRoute.CONVERSATION}:
         prompt = (
-            build_direct_messages(user_message.content, memories=prompt_memories)
+            build_direct_messages(user_query, memories=prompt_memories)
             if decision.route is QueryRoute.DIRECT
             else build_conversation_messages(
                 history=prompt_history,
-                user_query=user_message.content,
+                user_query=user_query,
                 budget=settings.chat_context_token_budget,
                 memories=prompt_memories,
                 summary=prompt_summary,
@@ -1133,7 +1207,7 @@ async def stream_reply(
     )
     escalation = decide_escalation(
         EscalationContext(
-            query=user_message.content,
+            query=user_query,
             route=decision.route,
             weak_evidence=result.no_answer,
         )
@@ -1209,7 +1283,7 @@ async def stream_reply(
             for source in sources
         ],
         history=prompt_history,
-        user_query=user_message.content,
+        user_query=user_query,
         budget=settings.chat_context_token_budget,
         memories=prompt_memories,
         summary=prompt_summary,
@@ -1242,7 +1316,7 @@ async def stream_reply(
         streamer=streamer,
         model_name=model_name,
         prompt=prompt,
-        question=user_message.content,
+        question=user_query,
         initial_parts=parts,
         initial_usage=usage,
         sources=sources,
@@ -1256,6 +1330,15 @@ async def stream_reply(
     usage = strict_draft.usage
     citation_references = strict_draft.citations
     refusal_reason = strict_draft.refusal_reason
+    analytics = await _compose_analytics_artifact(
+        route=decision.route,
+        composer=(analytics_composer if answer_validator is not None else None),
+        question=user_query,
+        answer=answer,
+        citations=citation_references,
+        evidence_texts=tuple(chunk.text for chunk in result.chunks[:8]),
+    )
+    usage = _merge_usage(usage, analytics.usage if analytics is not None else None)
     current_chat, current_parent = await get_message(
         session,
         context,
@@ -1280,6 +1363,7 @@ async def stream_reply(
         validation_verifier_model_id=(
             answer_validator.verifier_model_id if answer_validator is not None else None
         ),
+        analytics_artifact=(analytics.artifact if analytics is not None else None),
     )
     persisted_citations = citation_references if message.answer_status != "refused" else []
     if persisted_citations:
@@ -1288,6 +1372,8 @@ async def stream_reply(
     else:
         yield token_event(NO_ANSWER_TEXT)
     yield citations_event(persisted_citations)
+    if message.answer_status == "grounded" and analytics is not None:
+        yield analytics_artifact_event(analytics.artifact)
     yield done_event(
         message_id=str(message.id),
         prompt_tokens=usage.prompt_tokens if usage is not None else 0,
@@ -1299,7 +1385,9 @@ async def stream_reply(
 def build_tree(
     messages: list[Message],
     citations: dict[UUID, list[Citation]],
+    artifacts: dict[UUID, tuple[MessageArtifactOut, ...]] | None = None,
 ) -> list[MessageNode]:
+    artifacts = artifacts or {}
     children: dict[UUID | None, list[Message]] = defaultdict(list)
     for message in messages:
         children[message.parent_message_id].append(message)
@@ -1322,6 +1410,7 @@ def build_tree(
             citations=[
                 CitationOut.model_validate(citation) for citation in citations.get(message.id, [])
             ],
+            artifacts=list(artifacts.get(message.id, ())),
             children=[node(child) for child in child_messages],
         )
 
@@ -1340,9 +1429,14 @@ async def get_chat_tree(
     chat = await get_chat(session, context, chat_id)
     messages = await list_messages(session, chat_id)
     citations = await list_citations(session, chat_id)
+    artifacts = await list_message_artifacts(
+        session,
+        context,
+        (message.id for message in messages),
+    )
     return ChatTreeOut(
         id=chat.id,
         workspace_id=chat.workspace_id,
         title=chat.title,
-        messages=build_tree(messages, citations),
+        messages=build_tree(messages, citations, artifacts),
     )

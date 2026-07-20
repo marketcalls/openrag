@@ -243,6 +243,7 @@ async def _execute_started_run(
                 settings=settings,
                 agent_gatherer_factory=execution.agent_gatherer_factory,
                 answer_validator=execution.answer_validator,
+                analytics_composer=execution.analytics_composer,
                 retrieval_min_score=workspace.min_score,
                 context_recorder=lambda snapshot, memories: record_run_context(
                     session_factory,

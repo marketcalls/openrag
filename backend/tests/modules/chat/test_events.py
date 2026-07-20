@@ -4,11 +4,13 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from openrag.modules.artifacts.schemas import AnalyticsResponseV1
 from openrag.modules.chat.events import (
     CitationRef,
     SourceRef,
     agent_completed_event,
     agent_started_event,
+    analytics_artifact_event,
     citations_event,
     done_event,
     error_event,
@@ -152,6 +154,34 @@ def test_all_event_names_and_payloads() -> None:
         "no_answer": False,
     }
     assert error_event("boom").data == {"detail": "boom"}
+
+
+def test_analytics_artifact_event_contains_only_validated_payload() -> None:
+    artifact = AnalyticsResponseV1.model_validate(
+        {
+            "schema_version": "analytics.v1",
+            "title": "Revenue overview",
+            "subtitle": None,
+            "kpis": [],
+            "blocks": [
+                {
+                    "kind": "bar_chart",
+                    "title": "Monthly revenue",
+                    "x_label": "Month",
+                    "y_label": "Revenue",
+                    "categories": ["October", "November"],
+                    "series": [{"name": "Revenue", "values": [12, 14]}],
+                    "source_markers": [1],
+                }
+            ],
+            "suggested_followups": [],
+        }
+    )
+
+    event = analytics_artifact_event(artifact)
+
+    assert event.event == "analytics_artifact"
+    assert event.data == {"artifact": artifact.model_dump(mode="json")}
 
 
 async def test_authority_sources_use_the_immutable_evidence_snapshot() -> None:

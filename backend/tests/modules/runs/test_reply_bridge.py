@@ -169,6 +169,88 @@ async def test_bridge_streams_safe_durable_events_and_completes() -> None:
     ]
 
 
+def _analytics_payload() -> dict[str, object]:
+    return {
+        "schema_version": "analytics.v1",
+        "title": "Revenue overview",
+        "subtitle": None,
+        "kpis": [
+            {
+                "label": "Total",
+                "value": "$26M",
+                "detail": None,
+                "trend": "up",
+                "source_markers": [1],
+            }
+        ],
+        "blocks": [
+            {
+                "kind": "bar_chart",
+                "title": "Monthly revenue",
+                "x_label": "Month",
+                "y_label": "Revenue",
+                "categories": ["October", "November"],
+                "series": [{"name": "Revenue", "values": [12, 14]}],
+                "source_markers": [1],
+            }
+        ],
+        "suggested_followups": [],
+    }
+
+
+async def test_bridge_replays_validated_artifact_before_message_completion() -> None:
+    identity = _identity()
+    lifecycle = FakeLifecycle()
+    bus = RecordingBus()
+    message_id = uuid4()
+    bridge = DurableReplyBridge(lifecycle, bus)
+
+    outcome = await bridge.consume(
+        identity,
+        _events(
+            SSEEvent("analytics_artifact", {"artifact": _analytics_payload()}),
+            SSEEvent(
+                "done",
+                {
+                    "message_id": str(message_id),
+                    "prompt_tokens": 10,
+                    "completion_tokens": 3,
+                    "no_answer": False,
+                },
+            ),
+        ),
+    )
+
+    assert outcome == "completed"
+    assert [event["event_type"] for event in bus.events] == [
+        "artifact.created",
+        "message.completed",
+        "usage.updated",
+    ]
+    assert bus.events[0]["payload"] == {
+        "message_id": str(message_id),
+        "artifact": _analytics_payload(),
+    }
+
+
+async def test_bridge_fails_closed_for_invalid_analytics_artifact() -> None:
+    identity = _identity()
+    lifecycle = FakeLifecycle()
+    bus = RecordingBus()
+    bridge = DurableReplyBridge(lifecycle, bus)
+    unsafe = _analytics_payload()
+    unsafe["title"] = "<script>steal()</script>"
+
+    outcome = await bridge.consume(
+        identity,
+        _events(SSEEvent("analytics_artifact", {"artifact": unsafe})),
+    )
+
+    assert outcome == "failed"
+    assert lifecycle.failed == "internal"
+    assert bus.events == []
+
+
 async def test_bridge_persists_only_safe_agent_lifecycle_fields() -> None:
     identity = _identity()
     lifecycle = FakeLifecycle()

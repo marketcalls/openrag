@@ -27,6 +27,7 @@ async def test_history_crud_and_tree_shape(
         chat_env,
         seeded_superadmin,
         headers,
+        session,
     )
     await chat_client.post(
         f"/api/v1/chats/{chat_id}/messages",
@@ -60,6 +61,8 @@ async def test_history_crud_and_tree_shape(
         assert child["role"] == "assistant"
         assert child["parent_message_id"] == root["id"]
         assert child["children"] == []
+        assert root["artifacts"] == []
+        assert child["artifacts"] == []
         assert [citation["marker"] for citation in child["citations"]] == [1]
         source = child["citations"][0]
         assert source["document_name"]

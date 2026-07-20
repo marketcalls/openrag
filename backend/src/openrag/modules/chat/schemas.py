@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from openrag.modules.artifacts.schemas import MessageArtifactOut
+
 
 class MessageSend(BaseModel):
     content: str = Field(min_length=1, max_length=32000)
@@ -66,6 +68,7 @@ class MessageNode(BaseModel):
     completion_tokens: int | None
     created_at: datetime
     citations: list[CitationOut]
+    artifacts: list[MessageArtifactOut]
     children: list["MessageNode"]
 
 

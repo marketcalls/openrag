@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequenc
 from typing import Literal, Protocol
 from uuid import UUID, uuid5
 
+from openrag.modules.artifacts.schemas import AnalyticsResponseV1
 from openrag.modules.chat.events import SSEEvent
 from openrag.modules.runs.events import RunEventEnvelope, RunEventType
 from openrag.modules.runs.lifecycle import RunIdentity
@@ -201,6 +202,7 @@ class DurableReplyBridge:
         first_token_seen = False
         delta_index = 0
         citations: list[dict[str, object]] = []
+        analytics_artifact: AnalyticsResponseV1 | None = None
         async for event in events:
             # A persisted `done` frame must race as completion, otherwise a late
             # cancel could leave an already-committed assistant message orphaned.
@@ -327,6 +329,21 @@ class DurableReplyBridge:
                     event.data.get("citations"),
                     _CITATION_FIELDS,
                 )
+            elif event.event == "analytics_artifact":
+                try:
+                    if set(event.data) != {"artifact"}:
+                        raise ValueError("reply_event_contract_invalid")
+                    candidate = AnalyticsResponseV1.model_validate(
+                        event.data["artifact"]
+                    )
+                    if analytics_artifact is not None and candidate != analytics_artifact:
+                        raise ValueError("reply_event_contract_invalid")
+                    analytics_artifact = candidate
+                except (KeyError, TypeError, ValueError):
+                    await self._persist(
+                        self._lifecycle.fail(identity.run_id, error_code="internal")
+                    )
+                    return "failed"
             elif event.event == "done":
                 try:
                     message_id = UUID(str(event.data["message_id"]))
@@ -338,6 +355,21 @@ class DurableReplyBridge:
                     )
                     return "failed"
                 no_answer = event.data.get("no_answer") is True
+                if no_answer and analytics_artifact is not None:
+                    await self._persist(
+                        self._lifecycle.fail(identity.run_id, error_code="internal")
+                    )
+                    return "failed"
+                if analytics_artifact is not None:
+                    await self._append(
+                        identity,
+                        "artifact.created",
+                        {
+                            "message_id": str(message_id),
+                            "artifact": analytics_artifact.model_dump(mode="json"),
+                        },
+                        dedupe_key="artifact.created:analytics",
+                    )
                 await self._append(
                     identity,
                     "message.completed",
