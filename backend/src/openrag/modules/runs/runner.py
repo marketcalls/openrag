@@ -1,5 +1,7 @@
-"""Claim and execute one queued agent run through the existing Agno pipeline."""
+"""Lease, heartbeat, and execute queued runs through the Agno pipeline."""
 
+import asyncio
+from contextlib import suppress
 from typing import Literal, cast
 from uuid import UUID, uuid4
 
@@ -15,6 +17,12 @@ from openrag.modules.chat.models import Message
 from openrag.modules.models import service as models_service
 from openrag.modules.orchestration.runtime import create_model_streamer
 from openrag.modules.retrieval.service import retrieve
+from openrag.modules.runs.leases import (
+    RunLeaseClaim,
+    claim_next_run,
+    fail_exhausted_run,
+    renew_run_lease,
+)
 from openrag.modules.runs.lifecycle import (
     RunIdentity,
     RunLifecycle,
@@ -34,24 +42,6 @@ RunnerTickResult = Literal[
     "cancelled",
 ]
 _logger = structlog.get_logger("openrag.run_worker")
-
-
-async def _next_run_id(
-    session_factory: async_sessionmaker[AsyncSession],
-) -> UUID | None:
-    async with session_factory() as session:
-        return cast(
-            UUID | None,
-            await session.scalar(
-                select(AgentRun.id)
-                .where(
-                    AgentRun.status.in_(("accepted", "queued")),
-                    AgentRun.cancel_requested_at.is_(None),
-                )
-                .order_by(AgentRun.accepted_at, AgentRun.id)
-                .limit(1)
-            ),
-        )
 
 
 async def _next_cancelled_run_id(
@@ -156,39 +146,105 @@ async def _execute_started_run(
         )
 
 
+async def _execute_with_heartbeat(
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    claim: RunLeaseClaim,
+    lifecycle: RunLifecycle,
+    bus: ReplyEventBus,
+) -> RunOutcome | Literal["contested"]:
+    identity = RunIdentity(
+        run_id=claim.run_id,
+        org_id=claim.org_id,
+        workspace_id=claim.workspace_id,
+        chat_id=claim.chat_id,
+    )
+    execution = asyncio.create_task(
+        _execute_started_run(
+            session_factory,
+            settings,
+            identity,
+            lifecycle,
+            bus,
+        )
+    )
+    heartbeat_seconds = max(5.0, settings.run_lease_seconds / 3)
+    while True:
+        done, _pending = await asyncio.wait(
+            {execution},
+            timeout=heartbeat_seconds,
+        )
+        if done:
+            return await execution
+        if not await renew_run_lease(
+            session_factory,
+            claim,
+            lease_seconds=settings.run_lease_seconds,
+        ):
+            execution.cancel()
+            with suppress(asyncio.CancelledError):
+                await execution
+            return "contested"
+
+
 async def execute_queued_run_once(
     session_factory: async_sessionmaker[AsyncSession],
     bus: ReplyEventBus,
     settings: Settings,
+    *,
+    owner: str,
 ) -> RunnerTickResult:
     """A conditional lifecycle transition makes parallel worker ticks safe."""
 
-    lifecycle = RunLifecycle(SqlRunTransitionRepository(session_factory), bus)
+    cancellation_lifecycle = RunLifecycle(
+        SqlRunTransitionRepository(session_factory),
+        bus,
+    )
     cancelled_id = await _next_cancelled_run_id(session_factory)
     if cancelled_id is not None:
-        acknowledged = await lifecycle.acknowledge_cancel(cancelled_id)
+        acknowledged = await cancellation_lifecycle.acknowledge_cancel(cancelled_id)
         return "cancelled" if acknowledged else "contested"
 
-    run_id = await _next_run_id(session_factory)
-    if run_id is None:
+    exhausted = await fail_exhausted_run(session_factory)
+    if exhausted is not None:
+        await cancellation_lifecycle.announce_failure(
+            RunIdentity(
+                run_id=exhausted.run_id,
+                org_id=exhausted.org_id,
+                workspace_id=exhausted.workspace_id,
+                chat_id=exhausted.chat_id,
+            ),
+            error_code="retry_exhausted",
+        )
+        return "failed"
+
+    claim = await claim_next_run(
+        session_factory,
+        owner=owner,
+        lease_seconds=settings.run_lease_seconds,
+    )
+    if claim is None:
         return "idle"
+    run_id = claim.run_id
+    lifecycle = RunLifecycle(
+        SqlRunTransitionRepository(session_factory, lease_token=claim.token),
+        bus,
+    )
     try:
-        if not await lifecycle.start(run_id):
-            return "contested"
-        async with session_factory() as session:
-            run = await session.get(AgentRun, run_id)
-            if run is None:
-                raise RuntimeError("run_missing_after_claim")
-            identity = RunIdentity(
-                run_id=run.id,
-                org_id=run.org_id,
-                workspace_id=run.workspace_id,
-                chat_id=run.chat_id,
-            )
-        return await _execute_started_run(
+        await lifecycle.announce_start(
+            RunIdentity(
+                run_id=claim.run_id,
+                org_id=claim.org_id,
+                workspace_id=claim.workspace_id,
+                chat_id=claim.chat_id,
+            ),
+            attempt=claim.attempt,
+            recovered=claim.recovered,
+        )
+        return await _execute_with_heartbeat(
             session_factory,
             settings,
-            identity,
+            claim,
             lifecycle,
             bus,
         )

@@ -8,6 +8,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql.dml import Update
+from sqlalchemy.sql.elements import ColumnElement
 
 from openrag.modules.runs.events import RunEventEnvelope, RunEventType
 from openrag.modules.runs.models import AgentRun
@@ -23,6 +24,7 @@ _SAFE_ERROR_CODES = frozenset(
         "provider_transient",
         "rate_limited",
         "retrieval_failed",
+        "retry_exhausted",
         "timeout",
     }
 )
@@ -107,8 +109,16 @@ class SqlRunTransitionRepository:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
+        *,
+        lease_token: UUID | None = None,
     ) -> None:
         self._session_factory = session_factory
+        self._lease_token = lease_token
+
+    def _lease_conditions(self) -> tuple[ColumnElement[bool], ...]:
+        if self._lease_token is None:
+            return ()
+        return (AgentRun.lease_token == self._lease_token,)
 
     async def _execute(self, statement: Update) -> RunIdentity | None:
         async with self._session_factory.begin() as session:
@@ -136,6 +146,7 @@ class SqlRunTransitionRepository:
                 AgentRun.status == "running",
                 AgentRun.cancel_requested_at.is_(None),
                 AgentRun.first_token_at.is_(None),
+                *self._lease_conditions(),
             )
             .values(first_token_at=func.timezone("UTC", func.now()))
         )
@@ -155,6 +166,7 @@ class SqlRunTransitionRepository:
                 AgentRun.id == run_id,
                 AgentRun.status == "running",
                 AgentRun.cancel_requested_at.is_(None),
+                *self._lease_conditions(),
             )
             .values(
                 status="completed",
@@ -162,6 +174,9 @@ class SqlRunTransitionRepository:
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 finished_at=func.timezone("UTC", func.now()),
+                lease_owner=None,
+                lease_token=None,
+                lease_expires_at=None,
             )
         )
         return await self._execute(_returning_identity(statement))
@@ -172,17 +187,22 @@ class SqlRunTransitionRepository:
         *,
         error_code: str,
     ) -> RunIdentity | None:
+        statuses = ("running",) if self._lease_token is not None else _NONTERMINAL
         statement = (
             update(AgentRun)
             .where(
                 AgentRun.id == run_id,
-                AgentRun.status.in_(_NONTERMINAL),
+                AgentRun.status.in_(statuses),
                 AgentRun.cancel_requested_at.is_(None),
+                *self._lease_conditions(),
             )
             .values(
                 status="failed",
                 error_code=error_code,
                 finished_at=func.timezone("UTC", func.now()),
+                lease_owner=None,
+                lease_token=None,
+                lease_expires_at=None,
             )
         )
         return await self._execute(_returning_identity(statement))
@@ -213,6 +233,9 @@ class SqlRunTransitionRepository:
             .values(
                 status="cancelled",
                 finished_at=func.timezone("UTC", func.now()),
+                lease_owner=None,
+                lease_token=None,
+                lease_expires_at=None,
             )
         )
         return await self._execute(_returning_identity(statement))
@@ -267,6 +290,21 @@ class RunLifecycle:
         await self._emit(identity, "run.started", {})
         return True
 
+    async def announce_start(
+        self,
+        identity: RunIdentity,
+        *,
+        attempt: int,
+        recovered: bool,
+    ) -> None:
+        if attempt < 1:
+            raise ValueError("run_attempt_invalid")
+        await self._emit(
+            identity,
+            "run.started",
+            {"attempt": attempt, "recovered": recovered},
+        )
+
     async def first_token(self, run_id: UUID) -> bool:
         identity = await self._repository.first_token(run_id)
         if identity is None:
@@ -297,9 +335,7 @@ class RunLifecycle:
             "run.completed",
             {
                 "assistant_message_id": (
-                    str(assistant_message_id)
-                    if assistant_message_id is not None
-                    else None
+                    str(assistant_message_id) if assistant_message_id is not None else None
                 ),
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
@@ -322,6 +358,20 @@ class RunLifecycle:
             {"error_code": error_code},
         )
         return True
+
+    async def announce_failure(
+        self,
+        identity: RunIdentity,
+        *,
+        error_code: str,
+    ) -> None:
+        if error_code not in _SAFE_ERROR_CODES:
+            raise ValueError("run_error_code_invalid")
+        await self._emit(
+            identity,
+            "run.failed",
+            {"error_code": error_code},
+        )
 
     async def request_cancel(self, run_id: UUID) -> bool:
         identity = await self._repository.request_cancel(run_id)

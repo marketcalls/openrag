@@ -61,6 +61,9 @@ async def test_agent_run_defaults_to_accepted(
     assert run.status == "accepted"
     assert run.cancel_requested_at is None
     assert run.finished_at is None
+    assert run.attempts == 0
+    assert run.lease_token is None
+    assert run.lease_expires_at is None
 
 
 async def test_agent_run_idempotency_is_enforced(

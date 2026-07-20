@@ -164,6 +164,8 @@ async def consume_run_commands_once(
 
 
 async def execute_run_once(
+    *,
+    owner: str,
     settings: Settings | None = None,
 ) -> RunnerTickResult:
     """Claim one queued run and execute it on the isolated runs worker."""
@@ -183,6 +185,7 @@ async def execute_run_once(
                 session_factory,
                 bus,
                 resolved,
+                owner=owner,
             )
     finally:
         await redis.aclose()

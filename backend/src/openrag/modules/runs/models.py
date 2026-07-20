@@ -19,6 +19,16 @@ class AgentRun(UUIDPk, Base):
             "status IN ('accepted','queued','running','completed','failed','cancelled')",
             name="ck_agent_runs_status",
         ),
+        CheckConstraint(
+            "attempts BETWEEN 0 AND 1000",
+            name="ck_agent_runs_attempts",
+        ),
+        CheckConstraint(
+            "(lease_owner IS NULL AND lease_token IS NULL AND lease_expires_at IS NULL) "
+            "OR (lease_owner IS NOT NULL AND lease_token IS NOT NULL "
+            "AND lease_expires_at IS NOT NULL)",
+            name="ck_agent_runs_lease",
+        ),
     )
 
     org_id: Mapped[UUID] = mapped_column(
@@ -56,6 +66,10 @@ class AgentRun(UUIDPk, Base):
     trace_id: Mapped[str | None] = mapped_column(default=None, index=True)
     prompt_tokens: Mapped[int] = mapped_column(default=0)
     completion_tokens: Mapped[int] = mapped_column(default=0)
+    lease_owner: Mapped[str | None] = mapped_column(default=None)
+    lease_token: Mapped[UUID | None] = mapped_column(default=None, index=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(default=None, index=True)
+    attempts: Mapped[int] = mapped_column(default=0)
     accepted_at: Mapped[datetime] = mapped_column(default=naive_utc)
     started_at: Mapped[datetime | None] = mapped_column(default=None)
     first_token_at: Mapped[datetime | None] = mapped_column(default=None)

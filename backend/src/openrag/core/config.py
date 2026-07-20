@@ -33,6 +33,7 @@ class Settings(BaseSettings):
         le=604_800,
     )
     run_event_block_ms: int = Field(default=15_000, ge=100, le=60_000)
+    run_lease_seconds: int = Field(default=60, ge=15, le=600)
     environment: str = "dev"
     kek_file: str = "./data/openrag_kek"
     access_token_ttl_seconds: int = 900
@@ -46,9 +47,7 @@ class Settings(BaseSettings):
     embedding_backend: str = "tei"
     embedding_model_id: str = Field(default="BAAI/bge-m3", min_length=1, max_length=200)
     embedding_dim: int = 1024
-    authority_generation_id: UUID = UUID(
-        "8a9848ab-6f79-5ec8-a906-a1f3c096cdb8"
-    )
+    authority_generation_id: UUID = UUID("8a9848ab-6f79-5ec8-a906-a1f3c096cdb8")
     max_upload_mb: int = 100
     upload_quarantine_dir: str = "./data/quarantine"
     upload_stream_chunk_kb: int = Field(default=1024, ge=64, le=4096)

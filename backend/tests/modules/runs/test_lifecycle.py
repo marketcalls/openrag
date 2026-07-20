@@ -69,8 +69,7 @@ class FakeRepository:
         async with self.lock:
             if (
                 run_id != self.state.identity.run_id
-                or self.state.status
-                not in {"accepted", "queued", "running"}
+                or self.state.status not in {"accepted", "queued", "running"}
                 or self.state.cancel_requested
             ):
                 return None
@@ -100,10 +99,7 @@ class FakeRepository:
             return self.state.identity
 
     async def is_cancel_requested(self, run_id: UUID) -> bool:
-        return (
-            run_id == self.state.identity.run_id
-            and self.state.cancel_requested
-        )
+        return run_id == self.state.identity.run_id and self.state.cancel_requested
 
 
 class RecordingBus:
@@ -143,9 +139,7 @@ async def test_only_one_terminal_transition_wins() -> None:
     assert sorted(results) == [False, True]
     assert state.status in {"completed", "failed"}
     terminal = [
-        event
-        for event in bus.events
-        if event["event_type"] in {"run.completed", "run.failed"}
+        event for event in bus.events if event["event_type"] in {"run.completed", "run.failed"}
     ]
     assert len(terminal) == 1
 
@@ -172,9 +166,7 @@ async def test_start_refuses_pre_cancelled_run_without_emitting_started() -> Non
     assert await lifecycle.start(state.identity.run_id) is False
     assert await lifecycle.acknowledge_cancel(state.identity.run_id) is True
 
-    assert all(
-        event["event_type"] != "run.started" for event in bus.events
-    )
+    assert all(event["event_type"] != "run.started" for event in bus.events)
 
 
 async def test_first_token_and_terminal_events_use_deterministic_ids() -> None:
@@ -205,3 +197,15 @@ async def test_unknown_error_code_is_rejected_before_repository_mutation() -> No
 
     assert state.status == "accepted"
     assert bus.events == []
+
+
+async def test_reconciler_can_announce_a_safe_terminal_failure() -> None:
+    lifecycle, state, bus = _lifecycle()
+
+    await lifecycle.announce_failure(
+        state.identity,
+        error_code="retry_exhausted",
+    )
+
+    assert bus.events[0]["event_type"] == "run.failed"
+    assert bus.events[0]["payload"] == {"error_code": "retry_exhausted"}

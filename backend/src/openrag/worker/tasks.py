@@ -84,15 +84,19 @@ def consume_run_commands_task(task: Task) -> dict[str, int]:
 
 
 @celery_app.task(
+    bind=True,
     name="runs.execute_next",
     ignore_result=True,
     soft_time_limit=150,
     time_limit=180,
 )
-def execute_run_task() -> str:
+def execute_run_task(task: Task) -> str:
     """Execute at most one claimed run on the isolated async runs queue."""
 
-    return asyncio.run(execute_run_once())
+    hostname = str(getattr(task.request, "hostname", None) or "run-worker")
+    task_id = str(getattr(task.request, "id", None) or "tick")
+    owner = f"run:{hostname}:{task_id}"[:200]
+    return asyncio.run(execute_run_once(owner=owner))
 
 
 @celery_app.task(

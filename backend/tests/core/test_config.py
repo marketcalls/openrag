@@ -4,9 +4,7 @@ from openrag.core.config import Settings
 
 
 def test_settings_reads_env(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setenv(
-        "OPENRAG_DATABASE_URL", "postgresql+asyncpg://x:y@h:5432/db"
-    )
+    monkeypatch.setenv("OPENRAG_DATABASE_URL", "postgresql+asyncpg://x:y@h:5432/db")
     settings = Settings(_env_file=None)
     assert settings.database_url.endswith("/db")
     assert settings.access_token_ttl_seconds == 900
@@ -14,9 +12,7 @@ def test_settings_reads_env(monkeypatch) -> None:  # type: ignore[no-untyped-def
 
 def test_settings_use_openrag_database_defaults() -> None:
     settings = Settings(_env_file=None)
-    assert settings.database_url == (
-        "postgresql+asyncpg://openrag:openrag@127.0.0.1:55432/openrag"
-    )
+    assert settings.database_url == ("postgresql+asyncpg://openrag:openrag@127.0.0.1:55432/openrag")
     assert settings.redis_url == "redis://127.0.0.1:56379/0"
     assert settings.event_redis_url is None
     assert settings.event_redis_password_file is None
@@ -37,8 +33,7 @@ def test_event_transport_settings_are_distinct_and_injected(monkeypatch) -> None
     assert settings.event_redis_url != settings.redis_url
     assert settings.event_redis_url == "redis://openrag@event-redis:6379/0"
     assert (
-        settings.event_redis_password_file
-        == "/run/secrets/event_redis_password"  # noqa: S105
+        settings.event_redis_password_file == "/run/secrets/event_redis_password"  # noqa: S105
     )
     assert settings.event_dispatch_batch_size == 100
     assert settings.event_dispatch_lease_seconds == 30
@@ -46,6 +41,7 @@ def test_event_transport_settings_are_distinct_and_injected(monkeypatch) -> None
     assert settings.run_event_max_events == 4096
     assert settings.run_event_retention_seconds == 3600
     assert settings.run_event_block_ms == 15_000
+    assert settings.run_lease_seconds == 60
 
 
 def test_ingestion_settings_defaults() -> None:
@@ -58,9 +54,7 @@ def test_ingestion_settings_defaults() -> None:
     assert settings.embedding_backend == "tei"
     assert settings.embedding_model_id == "BAAI/bge-m3"
     assert settings.embedding_dim == 1024
-    assert settings.authority_generation_id == UUID(
-        "8a9848ab-6f79-5ec8-a906-a1f3c096cdb8"
-    )
+    assert settings.authority_generation_id == UUID("8a9848ab-6f79-5ec8-a906-a1f3c096cdb8")
     assert settings.interactive_upload_mb == 10
     assert settings.upload_quarantine_dir == "./data/quarantine"
     assert settings.upload_stream_chunk_kb == 1024
