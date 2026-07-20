@@ -35,6 +35,7 @@ from openrag.modules.chat.prompting import (
     PromptContextSnapshot,
     PromptMemory,
     PromptSource,
+    PromptSummary,
     build_context_snapshot,
     build_conversation_messages,
     build_direct_messages,
@@ -42,7 +43,11 @@ from openrag.modules.chat.prompting import (
     parse_citation_markers,
 )
 from openrag.modules.chat.schemas import ChatTreeOut, CitationOut, MessageNode
-from openrag.modules.chat.summaries import schedule_branch_summary
+from openrag.modules.chat.summaries import (
+    history_after_summary,
+    load_branch_summary,
+    schedule_branch_summary,
+)
 from openrag.modules.documents import service as documents_service
 from openrag.modules.documents.lifecycle import (
     LEGACY_CITATION_CONTENT_HASH,
@@ -819,9 +824,10 @@ async def stream_reply(
     model_id = model.id
     user_message_id = user_message.id
     all_messages = await list_messages(session, chat.id)
-    history = [
-        (message.role, message.content) for message in path_to_root(all_messages, user_message)
-    ]
+    branch_history = path_to_root(all_messages, user_message)
+    full_history = [(message.role, message.content) for message in branch_history]
+    prompt_history = full_history
+    prompt_summary: PromptSummary | None = None
     selected_memories = await select_memories(
         session,
         context,
@@ -841,6 +847,7 @@ async def stream_reply(
         route: str,
         prompt: Sequence[dict[str, str]],
         retrieval_texts: Sequence[str] = (),
+        history_context: Sequence[tuple[str, str]] = (),
     ) -> None:
         if context_recorder is None:
             return
@@ -850,13 +857,28 @@ async def stream_reply(
                 budget_tokens=settings.chat_context_token_budget,
                 prompt=prompt,
                 memories=prompt_memories,
-                history=history,
+                history=history_context,
                 retrieval_texts=retrieval_texts,
             ),
             selected_memories,
         )
-    decision = decide_route(user_message.content, history=history)
+
+    decision = decide_route(user_message.content, history=full_history)
     yield route_selected_event(decision.route.value, decision.reason_code)
+
+    if decision.route not in {QueryRoute.DIRECT, QueryRoute.CLARIFY}:
+        branch_summary = await load_branch_summary(
+            session,
+            context,
+            chat,
+            branch_history,
+        )
+        if branch_summary is not None:
+            prompt_summary = PromptSummary(content=branch_summary.content)
+            prompt_history = [
+                (message.role, message.content)
+                for message in history_after_summary(branch_history, branch_summary)
+            ]
 
     if decision.route is QueryRoute.CLARIFY:
         await record_context(decision.route.value, ())
@@ -884,13 +906,18 @@ async def stream_reply(
             build_direct_messages(user_message.content, memories=prompt_memories)
             if decision.route is QueryRoute.DIRECT
             else build_conversation_messages(
-                history=history,
+                history=prompt_history,
                 user_query=user_message.content,
                 budget=settings.chat_context_token_budget,
                 memories=prompt_memories,
+                summary=prompt_summary,
             )
         )
-        await record_context(decision.route.value, prompt)
+        await record_context(
+            decision.route.value,
+            prompt,
+            history_context=(() if decision.route is QueryRoute.DIRECT else prompt_history),
+        )
         await session.rollback()
         direct_parts: list[str] = []
         direct_usage: LLMUsage | None = None
@@ -980,12 +1007,18 @@ async def stream_reply(
             )
             for source in sources
         ],
-        history=history,
+        history=prompt_history,
         user_query=user_message.content,
         budget=settings.chat_context_token_budget,
         memories=prompt_memories,
+        summary=prompt_summary,
     )
-    await record_context(decision.route.value, prompt, retrieval_texts)
+    await record_context(
+        decision.route.value,
+        prompt,
+        retrieval_texts,
+        prompt_history,
+    )
 
     parts: list[str] = []
     usage: LLMUsage | None = None
