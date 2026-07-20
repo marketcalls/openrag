@@ -61,6 +61,13 @@ async def patch_workspace(
             workspace_id,
             body.default_model_id,
         )
+    elif body.enrichment_enabled is not None:
+        workspace = await service.set_enrichment_enabled(
+            session,
+            context,
+            workspace_id,
+            body.enrichment_enabled,
+        )
     else:
         workspace = await service.get_workspace(
             session,

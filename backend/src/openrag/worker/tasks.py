@@ -8,6 +8,10 @@ from celery import Task, chain
 
 from openrag.core.config import get_settings
 from openrag.modules.documents import ingest
+from openrag.modules.documents.enrichment_runtime import (
+    run_enrichment_scheduler_once,
+    run_enrichment_worker_once,
+)
 from openrag.modules.documents.pipeline import IngestFailure
 from openrag.modules.documents.projection_runtime import (
     run_eligibility_projection_once,
@@ -180,6 +184,34 @@ def execute_model_probe_task(task: Task) -> str:
     task_id = str(getattr(task.request, "id", None) or "tick")
     owner = f"model-probe:{hostname}:{task_id}"[:200]
     return asyncio.run(run_model_probe_once(owner=owner))
+
+
+@celery_app.task(
+    bind=True,
+    name="enrichment.execute_next",
+    ignore_result=True,
+    soft_time_limit=110,
+    time_limit=125,
+)
+def execute_enrichment_task(task: Task) -> str:
+    """Execute one bounded, lease-fenced enrichment batch."""
+
+    hostname = str(getattr(task.request, "hostname", None) or "enrichment-worker")
+    task_id = str(getattr(task.request, "id", None) or "tick")
+    owner = f"enrichment:{hostname}:{task_id}"[:200]
+    return asyncio.run(run_enrichment_worker_once(owner=owner))
+
+
+@celery_app.task(
+    name="enrichment.schedule_backfill",
+    ignore_result=True,
+    soft_time_limit=25,
+    time_limit=30,
+)
+def schedule_enrichment_task() -> int:
+    """Schedule a bounded page of eligible document enrichment jobs."""
+
+    return asyncio.run(run_enrichment_scheduler_once())
 
 
 @celery_app.task(

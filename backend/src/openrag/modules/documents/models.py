@@ -795,6 +795,123 @@ class IngestJob(UUIDPk, Base):
     finished_at: Mapped[datetime | None] = mapped_column(default=None)
 
 
+class DocumentEnrichmentJob(UUIDPk, Base):
+    """Content-free durable work bound to one model and vector generation."""
+
+    __tablename__ = "document_enrichment_jobs"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_version_id",
+            "embedding_deployment_id",
+            "model_id",
+            "model_probe_revision",
+            "prompt_contract_version",
+            "evidence_start_ordinal",
+            name="uq_document_enrichment_jobs_generation",
+        ),
+        ForeignKeyConstraint(
+            ["org_id", "workspace_id", "document_version_id"],
+            [
+                "document_versions.org_id",
+                "document_versions.workspace_id",
+                "document_versions.id",
+            ],
+            name="fk_document_enrichment_jobs_scope_version",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            "source IN ('approval','backfill','reindex')",
+            name="ck_document_enrichment_jobs_source",
+        ),
+        CheckConstraint(
+            "status IN ('queued','running','completed','failed','skipped')",
+            name="ck_document_enrichment_jobs_status",
+        ),
+        CheckConstraint(
+            "attempts BETWEEN 0 AND 8",
+            name="ck_document_enrichment_jobs_attempts",
+        ),
+        CheckConstraint(
+            "model_probe_revision > 0",
+            name="ck_document_enrichment_jobs_model_revision",
+        ),
+        CheckConstraint(
+            "evidence_start_ordinal >= 0 "
+            "AND evidence_end_ordinal > evidence_start_ordinal "
+            "AND evidence_end_ordinal - evidence_start_ordinal <= 16",
+            name="ck_document_enrichment_jobs_batch",
+        ),
+        CheckConstraint(
+            "char_length(prompt_contract_version) BETWEEN 1 AND 100",
+            name="ck_document_enrichment_jobs_prompt_version",
+        ),
+        CheckConstraint(
+            "(status = 'running' AND lease_owner IS NOT NULL "
+            "AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL) OR "
+            "(status <> 'running' AND lease_owner IS NULL "
+            "AND lease_token IS NULL AND lease_expires_at IS NULL)",
+            name="ck_document_enrichment_jobs_lease",
+        ),
+        CheckConstraint(
+            "total_evidence = evidence_end_ordinal - evidence_start_ordinal "
+            "AND generated_evidence >= 0 "
+            "AND invalid_evidence >= 0 AND prompt_tokens >= 0 "
+            "AND completion_tokens >= 0 "
+            "AND generated_evidence + invalid_evidence <= total_evidence "
+            "AND (status <> 'completed' OR "
+            "generated_evidence + invalid_evidence = total_evidence)",
+            name="ck_document_enrichment_jobs_results",
+        ),
+        CheckConstraint(
+            "error_code IS NULL OR char_length(error_code) BETWEEN 1 AND 64",
+            name="ck_document_enrichment_jobs_error",
+        ),
+        Index(
+            "ix_document_enrichment_jobs_claim",
+            "status",
+            "lease_expires_at",
+            "created_at",
+            "id",
+        ),
+    )
+
+    org_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    workspace_id: Mapped[UUID] = mapped_column(index=True)
+    document_version_id: Mapped[UUID] = mapped_column(index=True)
+    embedding_deployment_id: Mapped[UUID] = mapped_column(
+        ForeignKey("embedding_deployments.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    model_id: Mapped[UUID] = mapped_column(
+        ForeignKey("models.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    model_probe_revision: Mapped[int]
+    prompt_contract_version: Mapped[str] = mapped_column(String(100))
+    evidence_start_ordinal: Mapped[int]
+    evidence_end_ordinal: Mapped[int]
+    source: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(
+        String(16), default="queued", server_default="queued", index=True
+    )
+    attempts: Mapped[int] = mapped_column(default=0, server_default="0")
+    lease_owner: Mapped[str | None] = mapped_column(String(200), default=None)
+    lease_token: Mapped[UUID | None] = mapped_column(default=None, index=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(default=None, index=True)
+    total_evidence: Mapped[int]
+    generated_evidence: Mapped[int] = mapped_column(default=0, server_default="0")
+    invalid_evidence: Mapped[int] = mapped_column(default=0, server_default="0")
+    prompt_tokens: Mapped[int] = mapped_column(default=0, server_default="0")
+    completion_tokens: Mapped[int] = mapped_column(default=0, server_default="0")
+    error_code: Mapped[str | None] = mapped_column(String(64), default=None)
+    requested_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        default=None,
+    )
+    started_at: Mapped[datetime | None] = mapped_column(default=None)
+    finished_at: Mapped[datetime | None] = mapped_column(default=None)
+
+
 class IngestStageAttempt(UUIDPk, Base):
     __tablename__ = "ingest_stage_attempts"
     __table_args__ = (

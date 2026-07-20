@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from openrag.modules.tenancy.permissions import PermissionCode
 
@@ -63,6 +63,7 @@ class WorkspaceOut(BaseModel):
     embedding_model: str
     min_score: float
     default_model_id: UUID | None
+    enrichment_enabled: bool
 
     model_config = {"from_attributes": True}
 
@@ -82,3 +83,10 @@ class WorkspacePatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     default_model_id: UUID | None = None
+    enrichment_enabled: bool | None = None
+
+    @model_validator(mode="after")
+    def exactly_one_setting(self) -> "WorkspacePatch":
+        if len(self.model_fields_set) != 1:
+            raise ValueError("exactly one workspace setting must be provided")
+        return self

@@ -21,15 +21,25 @@ export function WorkspaceSettingsDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const models = useModels();
-  const patchWorkspace = usePatchWorkspace();
+  const patchModel = usePatchWorkspace();
+  const patchEnrichment = usePatchWorkspace();
   const [modelId, setModelId] = useState(workspace.default_model_id ?? '');
+  const [enrichmentEnabled, setEnrichmentEnabled] = useState(
+    workspace.enrichment_enabled,
+  );
 
   useEffect(() => {
-    if (open) setModelId(workspace.default_model_id ?? '');
-  }, [open, workspace.default_model_id, workspace.id]);
+    if (open) {
+      setModelId(workspace.default_model_id ?? '');
+      setEnrichmentEnabled(workspace.enrichment_enabled);
+    }
+  }, [open, workspace.default_model_id, workspace.enrichment_enabled, workspace.id]);
 
   const close = (next: boolean): void => {
-    if (!next) patchWorkspace.reset();
+    if (!next) {
+      patchModel.reset();
+      patchEnrichment.reset();
+    }
     onOpenChange(next);
   };
 
@@ -45,7 +55,7 @@ export function WorkspaceSettingsDialog({
             <NativeSelect
               id="workspace-default-model"
               value={modelId}
-              disabled={models.isPending || patchWorkspace.isPending}
+              disabled={models.isPending || patchModel.isPending}
               onChange={(event) => setModelId(event.target.value)}
             >
               <option value="">Automatic — first enabled model</option>
@@ -62,24 +72,73 @@ export function WorkspaceSettingsDialog({
               Unable to load enabled models.
             </p>
           ) : null}
-          {patchWorkspace.isError ? (
+          {patchModel.isError ? (
             <p role="alert" className="text-[12px] text-danger">
-              {patchWorkspace.error.message}
+              {patchModel.error.message}
             </p>
           ) : null}
           <p className="text-[12px] text-secondary">
             Automatic selection uses the first enabled model when a chat does not choose one.
           </p>
+          <div className="rounded-lg border border-line bg-subtle/40 p-3">
+            <label className="flex items-start gap-3" htmlFor="workspace-enrichment-enabled">
+              <input
+                id="workspace-enrichment-enabled"
+                type="checkbox"
+                aria-label="Enrich approved documents"
+                className="mt-0.5 h-4 w-4 accent-primary"
+                checked={enrichmentEnabled}
+                disabled={patchEnrichment.isPending}
+                onChange={(event) => setEnrichmentEnabled(event.target.checked)}
+              />
+              <span>
+                <span className="block text-[13px] font-medium text-ink">
+                  Enrich approved documents
+                </span>
+                <span className="mt-1 block text-[12px] text-secondary">
+                  Generate bounded summaries, keywords, and retrieval questions in the
+                  background using the measured utility model. Existing approved documents are
+                  backfilled asynchronously.
+                </span>
+              </span>
+            </label>
+            {patchEnrichment.isError ? (
+              <p role="alert" className="mt-2 text-[12px] text-danger">
+                {patchEnrichment.error.message}
+              </p>
+            ) : null}
+            <div className="mt-3 flex justify-end">
+              <Button
+                disabled={
+                  patchEnrichment.isPending ||
+                  enrichmentEnabled === workspace.enrichment_enabled
+                }
+                onClick={() =>
+                  patchEnrichment.mutate(
+                    {
+                      workspaceId: workspace.id,
+                      body: { enrichment_enabled: enrichmentEnabled },
+                    },
+                    {
+                      onSuccess: () => toast.success('Document enrichment setting updated'),
+                    },
+                  )
+                }
+              >
+                {patchEnrichment.isPending ? 'Applying…' : 'Apply enrichment setting'}
+              </Button>
+            </div>
+          </div>
           <DialogFooter>
             <Button onClick={() => close(false)}>Cancel</Button>
             <Button
               variant="primary"
-              disabled={models.isPending || patchWorkspace.isPending}
+              disabled={models.isPending || patchModel.isPending}
               onClick={() =>
-                patchWorkspace.mutate(
+                patchModel.mutate(
                   {
                     workspaceId: workspace.id,
-                    defaultModelId: modelId || null,
+                    body: { default_model_id: modelId || null },
                   },
                   {
                     onSuccess: () => {
@@ -90,7 +149,7 @@ export function WorkspaceSettingsDialog({
                 )
               }
             >
-              {patchWorkspace.isPending ? 'Saving…' : 'Save changes'}
+              {patchModel.isPending ? 'Saving…' : 'Save changes'}
             </Button>
           </DialogFooter>
         </div>

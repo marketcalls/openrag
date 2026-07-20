@@ -199,6 +199,14 @@ def attach_dense_scores(
     )
 
 
+def retrieval_candidate_limit(*, top_k: int, authority_mode: bool) -> int:
+    """Keep authority retrieval broad enough to deduplicate enriched point aliases."""
+
+    if not 1 <= top_k <= 32:
+        raise ValueError("top_k must be between 1 and 32")
+    return min(MAX_CANDIDATES, top_k * 4) if authority_mode else top_k
+
+
 def _tenant_filter(
     *,
     org_id: UUID,
@@ -426,6 +434,10 @@ async def execute_retrieval(plan: RetrievalPlan) -> ExternalRetrievalResult:
     )
     client = get_qdrant()
     candidate_limit = min(MAX_CANDIDATES, plan.top_k * 4)
+    fused_limit = retrieval_candidate_limit(
+        top_k=plan.top_k,
+        authority_mode=plan.authority_mode,
+    )
     fused, top_dense = await asyncio.gather(
         client.query_points(
             collection,
@@ -445,7 +457,7 @@ async def execute_retrieval(plan: RetrievalPlan) -> ExternalRetrievalResult:
             ],
             query=models.FusionQuery(fusion=models.Fusion.RRF),
             query_filter=tenant_filter,
-            limit=plan.top_k,
+            limit=fused_limit,
             with_payload=True,
         ),
         client.query_points(

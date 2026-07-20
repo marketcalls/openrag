@@ -55,6 +55,7 @@ def test_compose_contains_complete_application_stack() -> None:
         "event-redis",
         "event-scheduler",
         "event-worker",
+        "enrichment-worker",
         "evaluation-worker",
         "run-worker",
         "summary-worker",
@@ -99,6 +100,7 @@ def test_backend_services_use_the_prebuilt_virtualenv_at_runtime() -> None:
     assert services["api"]["command"][0] == "/app/.venv/bin/uvicorn"
     assert services["worker"]["command"][0] == "/app/.venv/bin/celery"
     assert services["event-worker"]["command"][0] == "/app/.venv/bin/celery"
+    assert services["enrichment-worker"]["command"][0] == "/app/.venv/bin/celery"
     assert services["run-worker"]["command"][0] == "/app/.venv/bin/celery"
     assert services["summary-worker"]["command"][0] == "/app/.venv/bin/celery"
     assert services["evaluation-worker"]["command"][0] == "/app/.venv/bin/celery"
@@ -171,6 +173,7 @@ def test_event_transport_is_private_durable_and_failure_isolated() -> None:
     assert "event_redis_password" not in worker_secrets
     assert services["worker"]["command"][5] == "interactive,default"
     assert services["event-worker"]["command"][5] == "events"
+    assert services["enrichment-worker"]["command"][5] == "enrichment"
     assert services["run-worker"]["command"][5] == "runs"
     assert services["summary-worker"]["command"][5] == "summaries"
     assert services["evaluation-worker"]["command"][5] == "evaluations"
@@ -195,6 +198,8 @@ def test_event_transport_is_private_durable_and_failure_isolated() -> None:
     }
     assert "secrets" not in services["summary-worker"]
     assert "secrets" not in services["evaluation-worker"]
+    assert "secrets" not in services["enrichment-worker"]
+    assert services["enrichment-worker"]["security_opt"] == ["no-new-privileges:true"]
     assert services["evaluation-worker"]["security_opt"] == ["no-new-privileges:true"]
 
 
@@ -238,6 +243,7 @@ def test_openrag_runtimes_export_only_over_the_private_observability_network() -
         "worker",
         "ingestion-worker",
         "event-worker",
+        "enrichment-worker",
         "run-worker",
         "summary-worker",
         "evaluation-worker",

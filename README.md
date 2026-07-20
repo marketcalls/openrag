@@ -124,7 +124,7 @@ See the [high-level architecture](docs/architecture.md) for service boundaries a
 
 ## Deploy with Docker Compose
 
-Docker Compose is the supported single-node evaluation and development deployment. It starts PostgreSQL, isolated broker and durable event Redis services, Qdrant, MinIO, database migrations, bootstrap, the FastAPI service, ingestion and event workers, the event scheduler, and the React web application. Completion and hosted-embedding calls run through the LiteLLM Python library inside bounded application workers; no LiteLLM Proxy service or master key is required.
+Docker Compose is the supported single-node evaluation and development deployment. It starts PostgreSQL, isolated broker and durable event Redis services, Qdrant, MinIO, database migrations, bootstrap, the FastAPI service, independently scalable ingestion, run, summary, evaluation, model-probe, event, and enrichment workers, the event scheduler, and the React web application. Completion and hosted-embedding calls run through the LiteLLM Python library inside bounded application workers; no LiteLLM Proxy service or master key is required.
 
 Uploads are streamed through an owner-only quarantine and validated by extension,
 declared MIME, file signature, and bounded Office archive expansion. PDF parsing
@@ -186,7 +186,9 @@ curl --fail http://localhost:8000/readyz
 Every listed service should be running or successfully completed, and readiness should return `{"status":"ready"}`. If startup fails, inspect the application services:
 
 ```bash
-docker compose -f deploy/compose.yaml logs --tail=200 api worker event-worker event-scheduler migrate bootstrap web
+docker compose -f deploy/compose.yaml logs --tail=200 \
+  api worker ingestion-worker enrichment-worker model-worker \
+  event-worker event-scheduler migrate bootstrap web
 ```
 
 ### 3. Sign in and configure a model
@@ -196,7 +198,7 @@ Open [http://localhost:5173](http://localhost:5173) and use the bootstrap email 
 - Email: `root@openrag.internal`
 - Password: `changeme123`
 
-Go to **Superadmin → Models**, register a hosted or local completion model and its write-only credential, then create a workspace and select its default model. Upload a document, wait until its status is **Indexed**, and start a chat.
+Go to **Superadmin → Models**, register a hosted or local completion model and its write-only credential, and wait for its measured probe to pass. Designate one measured model as the utility model for bounded background AI work. Then create a workspace, select its default model, and optionally enable **Enrich approved documents** in workspace settings. Enrichment runs asynchronously and never holds ingestion in **Processing**. Upload a document, wait until its status is **Indexed**, and start a chat.
 
 ### 4. Choose an embedding mode
 
@@ -209,7 +211,7 @@ OPENRAG_EMBEDDING_BACKEND=tei \
 docker compose -f deploy/compose.yaml --profile ml up -d --build
 ```
 
-The first start downloads model images and weights. Documents indexed with a different embedding implementation must be re-indexed before querying them with the new model. Configurable embedding registration and managed re-indexing are active roadmap work; do not switch an already populated production workspace by changing only the environment variable.
+The first start downloads model images and weights. For governed changes, use **Superadmin → Embeddings** to register an immutable embedding profile, test it, build a new versioned generation, and activate it only after the complete approved corpus is indexed. Do not switch a populated production workspace by changing only an environment variable. Activation is an atomic cutover; background enrichment automatically backfills the newly active generation.
 
 The same `ml` profile starts Ollama. Its host port defaults to `11434` and can be changed with `OPENRAG_OLLAMA_PORT`.
 
@@ -312,7 +314,7 @@ Prerequisites: Docker, Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 2
 Start only the infrastructure:
 
 ```bash
-docker compose -f deploy/compose.yaml up -d postgres redis qdrant minio litellm
+docker compose -f deploy/compose.yaml up -d postgres redis qdrant minio event-redis
 ```
 
 Prepare and start the backend:
@@ -343,6 +345,13 @@ probe queue and scheduler in two additional terminals:
 uv run celery -A openrag.worker.celery_app:celery_app \
   worker -Q models -l info --concurrency=2
 uv run celery -A openrag.worker.celery_app:celery_app beat -l info
+```
+
+If workspace document enrichment is enabled, also start its isolated queue:
+
+```bash
+uv run celery -A openrag.worker.celery_app:celery_app \
+  worker -Q enrichment -l info --concurrency=2
 ```
 
 New or reconfigured models remain unavailable until their measured LiteLLM

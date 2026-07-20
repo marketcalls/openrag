@@ -16,6 +16,7 @@ from openrag.core.db import naive_utc
 from openrag.core.errors import ConflictError, NotFoundError, WorkspaceAccessDenied
 from openrag.core.storage import ObjectStorage, build_storage
 from openrag.modules.audit.service import record_audit
+from openrag.modules.documents.enrichment_jobs import enqueue_enrichment_jobs
 from openrag.modules.documents.lifecycle import (
     LEGACY_CHUNKING_PROFILE_VERSION,
     LEGACY_EMBEDDING_PROFILE_VERSION,
@@ -1022,6 +1023,14 @@ async def approve_version(
         )
         _persist_lifecycle_event(session, candidate, previous, now)
         await _record_lifecycle_audit(session, context, candidate)
+        await enqueue_enrichment_jobs(
+            session,
+            org_id=candidate.org_id,
+            workspace_id=candidate.workspace_id,
+            requested_by=context.user_id,
+            source="approval",
+            document_version_ids=(candidate.id,),
+        )
         await session.commit()
         return candidate
     except Exception:

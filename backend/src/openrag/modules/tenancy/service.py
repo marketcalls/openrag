@@ -6,8 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.core.errors import ConflictError, NotFoundError, WorkspaceAccessDenied
 from openrag.modules.audit.service import record_audit
 from openrag.modules.auth.models import User
+from openrag.modules.documents.enrichment_jobs import (
+    enqueue_enrichment_jobs,
+    resolve_enrichment_prerequisites,
+)
 from openrag.modules.evaluations import service as evaluations_service
-from openrag.modules.evaluations.automation import workspace_model_fingerprint
+from openrag.modules.evaluations.automation import workspace_configuration_fingerprint
 from openrag.modules.models import service as models_service
 from openrag.modules.tenancy.authorization import ensure_workspace_access
 from openrag.modules.tenancy.context import TenantContext
@@ -480,7 +484,62 @@ async def set_default_model(
         session,
         org_id=context.org_id,
         workspace_id=workspace.id,
-        configuration_fingerprint=workspace_model_fingerprint(model_id),
+        configuration_fingerprint=workspace_configuration_fingerprint(
+            model_id,
+            enrichment_enabled=workspace.enrichment_enabled,
+        ),
+    )
+    return workspace
+
+
+async def set_enrichment_enabled(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+    enabled: bool,
+) -> Workspace:
+    workspace = await get_workspace(
+        session,
+        context,
+        workspace_id,
+        "workspace.manage",
+    )
+    if workspace.enrichment_enabled == enabled:
+        return workspace
+    if enabled and await resolve_enrichment_prerequisites(session) is None:
+        raise ConflictError(
+            "enrichment requires a utility model and active embedding deployment"
+        )
+    workspace.enrichment_enabled = enabled
+    await session.flush()
+    if enabled:
+        await enqueue_enrichment_jobs(
+            session,
+            org_id=context.org_id,
+            workspace_id=workspace.id,
+            requested_by=context.user_id,
+            source="backfill",
+        )
+    await record_audit(
+        session,
+        org_id=context.org_id,
+        actor_id=context.user_id,
+        action=(
+            "workspace.enrichment_enabled"
+            if enabled
+            else "workspace.enrichment_disabled"
+        ),
+        target_type="workspace",
+        target_id=str(workspace.id),
+    )
+    await evaluations_service.queue_config_change_runs(
+        session,
+        org_id=context.org_id,
+        workspace_id=workspace.id,
+        configuration_fingerprint=workspace_configuration_fingerprint(
+            workspace.default_model_id,
+            enrichment_enabled=enabled,
+        ),
     )
     return workspace
 

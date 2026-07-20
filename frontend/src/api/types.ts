@@ -11,6 +11,7 @@ export type RoleCreate = components['schemas']['RoleCreate'];
 export type RoleOut = components['schemas']['RoleOut'];
 export type RolePatch = components['schemas']['RolePatch'];
 export type WorkspaceOut = components['schemas']['WorkspaceOut'];
+export type WorkspacePatch = components['schemas']['WorkspacePatch'];
 export type WorkspaceMemberOut = components['schemas']['WorkspaceMemberOut'];
 export type DocumentOut = components['schemas']['DocumentOut'];
 export type ChatOut = components['schemas']['ChatOut'];

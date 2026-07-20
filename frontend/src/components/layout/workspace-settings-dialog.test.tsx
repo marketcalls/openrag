@@ -12,6 +12,7 @@ const workspace: WorkspaceOut = {
   embedding_model: 'bge-m3',
   min_score: 0.35,
   default_model_id: null,
+  enrichment_enabled: false,
 };
 
 function modelResponse() {
@@ -89,4 +90,30 @@ test('clears the workspace default with automatic selection', async () => {
   const patchRequest = requests.find((request) => request.method === 'PATCH');
   if (!patchRequest) throw new Error('Expected workspace PATCH');
   expect(await patchRequest.clone().json()).toEqual({ default_model_id: null });
+});
+
+test('enables asynchronous document enrichment with a separate setting patch', async () => {
+  const requests: Request[] = [];
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    if (!(input instanceof Request)) throw new Error('Expected Request');
+    requests.push(input);
+    if (input.method === 'GET') return modelResponse();
+    return new Response(JSON.stringify({ ...workspace, enrichment_enabled: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+  const user = userEvent.setup();
+  renderDialog(fetchMock);
+
+  await screen.findByRole('option', { name: 'Hosted model' });
+  await user.click(screen.getByRole('checkbox', { name: 'Enrich approved documents' }));
+  await user.click(screen.getByRole('button', { name: 'Apply enrichment setting' }));
+
+  await waitFor(() =>
+    expect(requests.some((request) => request.method === 'PATCH')).toBe(true),
+  );
+  const patchRequest = requests.find((request) => request.method === 'PATCH');
+  if (!patchRequest) throw new Error('Expected workspace PATCH');
+  expect(await patchRequest.clone().json()).toEqual({ enrichment_enabled: true });
 });

@@ -43,6 +43,7 @@ test('sets the workspace default model', async () => {
         embedding_model: 'bge-m3',
         min_score: 0.35,
         default_model_id: 'model-2',
+        enrichment_enabled: false,
       }),
       { status: 200, headers: { 'content-type': 'application/json' } },
     ),
@@ -51,7 +52,10 @@ test('sets the workspace default model', async () => {
   const { result } = renderHook(() => usePatchWorkspace(), { wrapper });
 
   act(() =>
-    result.current.mutate({ workspaceId: 'workspace-1', defaultModelId: 'model-2' }),
+    result.current.mutate({
+      workspaceId: 'workspace-1',
+      body: { default_model_id: 'model-2' },
+    }),
   );
   await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 

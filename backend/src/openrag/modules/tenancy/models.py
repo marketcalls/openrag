@@ -37,6 +37,10 @@ class Workspace(UUIDPk, Base):
     min_score: Mapped[float] = mapped_column(default=0.35)
     default_model_id: Mapped[UUID | None] = mapped_column(default=None)
     document_authority_enabled: Mapped[bool] = mapped_column(default=False)
+    enrichment_enabled: Mapped[bool] = mapped_column(
+        default=False,
+        server_default="false",
+    )
 
 
 class Role(UUIDPk, Base):

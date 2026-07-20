@@ -3078,11 +3078,15 @@ export interface components {
             min_score: number;
             /** Default Model Id */
             default_model_id: string | null;
+            /** Enrichment Enabled */
+            enrichment_enabled: boolean;
         };
         /** WorkspacePatch */
         WorkspacePatch: {
             /** Default Model Id */
             default_model_id?: string | null;
+            /** Enrichment Enabled */
+            enrichment_enabled?: boolean | null;
         };
     };
     responses: never;

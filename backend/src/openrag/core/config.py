@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     run_lease_seconds: int = Field(default=60, ge=15, le=600)
     evaluation_lease_seconds: int = Field(default=300, ge=30, le=600)
     quality_audit_lease_seconds: int = Field(default=120, ge=30, le=600)
+    enrichment_lease_seconds: int = Field(default=120, ge=30, le=600)
     model_probe_lease_seconds: int = Field(default=120, ge=30, le=600)
     environment: str = "dev"
     release: str = Field(

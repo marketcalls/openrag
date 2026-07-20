@@ -37,6 +37,10 @@ OPERATIONS_INDEX_REVISION = "e2a4c6d8f0b1"
 REASONING_EFFORT_REVISION = "f3b5d7e9a1c2"
 LITELLM_LIBRARY_REVISION = "a4c6e8f0b2d3"
 EVALUATION_AUTOMATION_REVISION = "c6e8a0b2d4f5"
+MODEL_PROBE_REVISION = "c7b9d1e3f5a6"
+ANSWER_QUALITY_REVISION = "d1e3f5a7b9c2"
+UTILITY_MODEL_REVISION = "e4f6a8c0d2b3"
+DOCUMENT_ENRICHMENT_REVISION = "f5a7b9c1d3e4"
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -776,7 +780,7 @@ def test_migration_graph_has_one_current_head(
 ) -> None:
     config, _engine, _ids = authority_db
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [EVALUATION_AUTOMATION_REVISION]
+    assert script.get_heads() == [DOCUMENT_ENRICHMENT_REVISION]
     assert script.get_revision(AUTHORITY_REVISION).down_revision == RBAC_REVISION
     assert script.get_revision(DELETION_REVISION).down_revision == AUTHORITY_REVISION
     assert script.get_revision(STAGE_REVISION).down_revision == OUTBOX_REVISION
@@ -798,6 +802,22 @@ def test_migration_graph_has_one_current_head(
     assert script.get_revision(RAG_EVALUATIONS_REVISION).down_revision == RAG_OPERATIONS_REVISION
     assert script.get_revision(OPERATIONS_INDEX_REVISION).down_revision == RAG_EVALUATIONS_REVISION
     assert script.get_revision(REASONING_EFFORT_REVISION).down_revision == OPERATIONS_INDEX_REVISION
+    assert (
+        script.get_revision(MODEL_PROBE_REVISION).down_revision
+        == EVALUATION_AUTOMATION_REVISION
+    )
+    assert (
+        script.get_revision(ANSWER_QUALITY_REVISION).down_revision
+        == MODEL_PROBE_REVISION
+    )
+    assert (
+        script.get_revision(UTILITY_MODEL_REVISION).down_revision
+        == ANSWER_QUALITY_REVISION
+    )
+    assert (
+        script.get_revision(DOCUMENT_ENRICHMENT_REVISION).down_revision
+        == UTILITY_MODEL_REVISION
+    )
 
 
 def test_deletion_upgrade_adds_bounded_restartable_markers_and_closes_processing_delete(

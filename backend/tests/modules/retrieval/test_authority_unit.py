@@ -11,6 +11,7 @@ from openrag.modules.retrieval.authority import (
     candidate_is_authorized,
     validate_candidate_batch,
 )
+from openrag.modules.retrieval.service import retrieval_candidate_limit
 
 ORG_ID = UUID("81000000-0000-0000-0000-000000000001")
 WORKSPACE_ID = UUID("82000000-0000-0000-0000-000000000002")
@@ -118,3 +119,9 @@ def test_qdrant_payload_parser_accepts_only_complete_bounded_identity() -> None:
         },
         fused_score=0.8,
     ) is None
+
+
+def test_authority_retrieval_keeps_room_for_enrichment_duplicates() -> None:
+    assert retrieval_candidate_limit(top_k=8, authority_mode=True) == 32
+    assert retrieval_candidate_limit(top_k=8, authority_mode=False) == 8
+    assert retrieval_candidate_limit(top_k=32, authority_mode=True) == MAX_CANDIDATES

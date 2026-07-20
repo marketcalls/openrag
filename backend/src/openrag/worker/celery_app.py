@@ -54,6 +54,7 @@ def build_celery() -> Celery:
             Queue("interactive"),
             Queue("models"),
             Queue("events"),
+            Queue("enrichment"),
             Queue("evaluations"),
             Queue("ingestion"),
             Queue("runs"),
@@ -61,6 +62,7 @@ def build_celery() -> Celery:
         ),
         task_routes={
             "events.*": {"queue": "events"},
+            "enrichment.*": {"queue": "enrichment"},
             "evaluations.*": {"queue": "evaluations"},
             "quality.*": {"queue": "evaluations"},
             "models.*": {"queue": "models"},
@@ -129,6 +131,16 @@ def build_celery() -> Celery:
                 "task": "models.execute_probe",
                 "schedule": 0.5,
                 "options": {"queue": "models", "expires": 3},
+            },
+            "execute-document-enrichment": {
+                "task": "enrichment.execute_next",
+                "schedule": 0.5,
+                "options": {"queue": "enrichment", "expires": 3},
+            },
+            "schedule-document-enrichment": {
+                "task": "enrichment.schedule_backfill",
+                "schedule": 5.0,
+                "options": {"queue": "enrichment", "expires": 10},
             },
             "refresh-conversation-summary": {
                 "task": "summaries.refresh_next",

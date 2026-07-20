@@ -22,6 +22,7 @@ def test_celery_config() -> None:
     assert {queue.name for queue in celery_app.conf.task_queues} == {
         "default",
         "events",
+        "enrichment",
         "evaluations",
         "ingestion",
         "interactive",
@@ -106,6 +107,17 @@ def test_event_tasks_are_isolated_to_the_events_queue() -> None:
     assert probe_schedule["task"] == "models.execute_probe"
     assert probe_schedule["options"]["queue"] == "models"
     assert probe_schedule["options"]["expires"] <= 3
+    assert celery_app.conf.task_routes["enrichment.*"] == {"queue": "enrichment"}
+    assert "enrichment.execute_next" in celery_app.tasks
+    assert "enrichment.schedule_backfill" in celery_app.tasks
+    enrichment_schedule = celery_app.conf.beat_schedule["execute-document-enrichment"]
+    assert enrichment_schedule["task"] == "enrichment.execute_next"
+    assert enrichment_schedule["options"]["queue"] == "enrichment"
+    assert enrichment_schedule["options"]["expires"] <= 3
+    backfill_schedule = celery_app.conf.beat_schedule["schedule-document-enrichment"]
+    assert backfill_schedule["task"] == "enrichment.schedule_backfill"
+    assert backfill_schedule["options"]["queue"] == "enrichment"
+    assert backfill_schedule["options"]["expires"] <= 10
 
 
 def test_queue_selection_by_size() -> None:

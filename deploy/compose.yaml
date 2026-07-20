@@ -455,6 +455,37 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
+  enrichment-worker:
+    <<: *openrag-backend
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - worker
+      - -Q
+      - enrichment
+      - -l
+      - info
+      - --concurrency=${OPENRAG_ENRICHMENT_CONCURRENCY:-4}
+      - --hostname=enrichment@%h
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      authority-provisioner:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    mem_limit: ${OPENRAG_ENRICHMENT_WORKER_MEMORY_LIMIT:-4g}
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 35s
+    restart: unless-stopped
+
   evaluation-worker:
     <<: *openrag-backend
     command:

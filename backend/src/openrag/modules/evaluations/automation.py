@@ -30,8 +30,22 @@ def config_trigger_key(fingerprint: str) -> str:
 
 
 def workspace_model_fingerprint(model_id: UUID | None) -> str:
+    return workspace_configuration_fingerprint(
+        model_id,
+        enrichment_enabled=False,
+    )
+
+
+def workspace_configuration_fingerprint(
+    model_id: UUID | None,
+    *,
+    enrichment_enabled: bool,
+) -> str:
     value = str(model_id) if model_id is not None else "none"
-    return hashlib.sha256(f"workspace-default-model:v1:{value}".encode()).hexdigest()
+    enrichment = "enabled" if enrichment_enabled else "disabled"
+    return hashlib.sha256(
+        f"workspace-configuration:v2:{value}:{enrichment}".encode()
+    ).hexdigest()
 
 
 def next_scheduled_at(now: datetime, *, interval_hours: int) -> datetime:

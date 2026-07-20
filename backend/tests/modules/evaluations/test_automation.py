@@ -9,6 +9,7 @@ from openrag.modules.evaluations.automation import (
     config_trigger_key,
     next_scheduled_at,
     scheduled_trigger_key,
+    workspace_configuration_fingerprint,
     workspace_model_fingerprint,
 )
 
@@ -55,3 +56,9 @@ def test_workspace_model_fingerprint_is_stable_and_state_sensitive() -> None:
     assert first == second
     assert first != configured
     assert len(first) == 64
+
+
+def test_workspace_configuration_fingerprint_tracks_enrichment() -> None:
+    assert workspace_configuration_fingerprint(
+        None, enrichment_enabled=False
+    ) != workspace_configuration_fingerprint(None, enrichment_enabled=True)

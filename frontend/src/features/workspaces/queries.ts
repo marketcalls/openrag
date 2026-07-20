@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '@/api/client';
+import type { WorkspacePatch } from '@/api/types';
 
 export function useWorkspaces() {
   return useQuery({
@@ -64,11 +65,11 @@ export function usePatchWorkspace() {
   return useMutation({
     mutationFn: async (input: {
       workspaceId: string;
-      defaultModelId: string | null;
+      body: WorkspacePatch;
     }) => {
       const { data, error } = await api.PATCH('/api/v1/workspaces/{workspace_id}', {
         params: { path: { workspace_id: input.workspaceId } },
-        body: { default_model_id: input.defaultModelId },
+        body: input.body,
       });
       if (error) throw new Error('Failed to update workspace');
       return data;
