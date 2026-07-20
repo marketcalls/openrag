@@ -255,7 +255,7 @@ Commit: `feat: expose superadmin rag operations api`
 - Consumes: Task 4 operations endpoints.
 - Produces: lazy `/admin/rag-operations`, visible only to platform superadmins.
 
-- [ ] **Step 1: Write failing page contract tests**
+- [x] **Step 1: Write failing page contract tests**
 
 ```tsx
 it('renders operational KPIs, accessible chart data, and recent errors', async () => {
@@ -267,19 +267,19 @@ it('renders operational KPIs, accessible chart data, and recent errors', async (
 });
 ```
 
-- [ ] **Step 2: Implement coordinated filters and parallel queries**
+- [x] **Step 2: Implement coordinated filters and parallel queries**
 
 Use one URL-backed filter state for range, organization/workspace, route, outcome, and model. Fetch overview, series, runs, and errors in parallel with TanStack Query; refetch every 30 seconds only while the tab is visible.
 
-- [ ] **Step 3: Build the fixed responsive visual hierarchy**
+- [x] **Step 3: Build the fixed responsive visual hierarchy**
 
 Use a four/two/one-column KPI grid, a two-column desktop analysis area, accessible inline SVG throughput/latency charts with point labels and equivalent visually-hidden tables, and scrollable run/error tables. Include skeleton, empty, error/retry, and stale-data states. Do not add a drag/drop dependency.
 
-- [ ] **Step 4: Add drill-down and responsive behavior**
+- [x] **Step 4: Add drill-down and responsive behavior**
 
 Selecting a run or issue opens a keyboard-accessible dialog showing safe stage metadata and trace identifier. On narrow screens, the dialog is full-screen and tables retain horizontal scroll.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `cd frontend && pnpm generate:api && pnpm test -- rag-operations && pnpm typecheck && pnpm lint && pnpm build`
 

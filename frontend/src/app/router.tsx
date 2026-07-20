@@ -33,6 +33,10 @@ const EmbeddingProfilesPage = lazy(async () => {
   const module = await import('@/features/admin/embeddings/embedding-profiles-page');
   return { default: module.EmbeddingProfilesPage };
 });
+const RagOperationsPage = lazy(async () => {
+  const module = await import('@/features/admin/rag-operations/rag-operations-page');
+  return { default: module.RagOperationsPage };
+});
 const RolesPage = lazy(async () => {
   const module = await import('@/features/admin/roles/roles-page');
   return { default: module.RolesPage };
@@ -122,6 +126,20 @@ function EmbeddingProfilesRoute() {
   );
 }
 
+function RagOperationsRoute() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-1 items-center justify-center">
+          <Spinner label="Loading RAG operations…" />
+        </div>
+      }
+    >
+      <RagOperationsPage />
+    </Suspense>
+  );
+}
+
 function RolesRoute() {
   return (
     <Suspense
@@ -166,6 +184,10 @@ export const router = createBrowserRouter(
                 {
                   path: '/admin/embedding-profiles',
                   element: <EmbeddingProfilesRoute />,
+                },
+                {
+                  path: '/admin/rag-operations',
+                  element: <RagOperationsRoute />,
                 },
               ],
             },

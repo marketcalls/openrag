@@ -1,4 +1,4 @@
-import { BrainCircuit, FileText, KeyRound, Orbit, Settings2, Users } from 'lucide-react';
+import { Activity, BrainCircuit, FileText, KeyRound, Orbit, Settings2, Users } from 'lucide-react';
 import { type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 
@@ -77,6 +77,11 @@ export function Sidebar() {
               to="/admin/embedding-profiles"
               label="Embeddings"
               icon={<Orbit className="h-4 w-4" aria-hidden />}
+            />
+            <SideLink
+              to="/admin/rag-operations"
+              label="RAG operations"
+              icon={<Activity className="h-4 w-4" aria-hidden />}
             />
           </>
         ) : null}

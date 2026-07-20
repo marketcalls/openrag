@@ -596,6 +596,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/rag-operations/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Overview */
+        get: operations["overview_api_v1_admin_rag_operations_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag-operations/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Series */
+        get: operations["series_api_v1_admin_rag_operations_series_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag-operations/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Runs */
+        get: operations["runs_api_v1_admin_rag_operations_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag-operations/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Run Detail */
+        get: operations["run_detail_api_v1_admin_rag_operations_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag-operations/errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Errors */
+        get: operations["errors_api_v1_admin_rag_operations_errors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag-operations/errors/{issue_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Error Detail */
+        get: operations["error_detail_api_v1_admin_rag_operations_errors__issue_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/roles/catalog": {
         parameters: {
             query?: never;
@@ -1233,6 +1335,99 @@ export interface components {
             /** Enabled */
             enabled?: boolean | null;
         };
+        /** ErrorIssueOut */
+        ErrorIssueOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Fingerprint */
+            fingerprint: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "validation" | "policy" | "authentication" | "authorization" | "rate_limit" | "admission_overload" | "provider_transient" | "provider_permanent" | "retrieval" | "embedding" | "reranking" | "ingestion" | "ocr" | "storage" | "tool" | "cancellation" | "persistence" | "broker" | "internal";
+            /** Code */
+            code: string;
+            /** Service */
+            service: string;
+            /** Environment */
+            environment: string;
+            /** Exception Type */
+            exception_type: string;
+            /** Top Frame */
+            top_frame: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "resolved" | "ignored";
+            /**
+             * Alert State
+             * @enum {string}
+             */
+            alert_state: "none" | "firing" | "acknowledged";
+            /** Owner */
+            owner: string | null;
+            /** First Release */
+            first_release: string | null;
+            /** Last Release */
+            last_release: string | null;
+            /** Occurrence Count */
+            occurrence_count: number;
+            /**
+             * First Seen At
+             * Format: date-time
+             */
+            first_seen_at: string;
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+            /** Resolved At */
+            resolved_at: string | null;
+        };
+        /** ErrorOccurrenceOut */
+        ErrorOccurrenceOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Issue Id
+             * Format: uuid
+             */
+            issue_id: string;
+            /** Org Id */
+            org_id: string | null;
+            /** Workspace Id */
+            workspace_id: string | null;
+            /** Run Id */
+            run_id: string | null;
+            /** Trace Id */
+            trace_id: string | null;
+            /** Code */
+            code: string;
+            /** Exception Type */
+            exception_type: string;
+            /** Http Method */
+            http_method: ("GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD") | null;
+            /** Route Template */
+            route_template: string | null;
+            /** Http Status */
+            http_status: number | null;
+            /** Release */
+            release: string | null;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1589,6 +1784,187 @@ export interface components {
             group: string;
             /** Description */
             description: string;
+        };
+        /** RagOperationsErrorDetail */
+        RagOperationsErrorDetail: {
+            issue: components["schemas"]["ErrorIssueOut"];
+            /** Occurrences */
+            occurrences: components["schemas"]["ErrorOccurrenceOut"][];
+        };
+        /** RagOperationsErrorPage */
+        RagOperationsErrorPage: {
+            /** Items */
+            items: components["schemas"]["ErrorIssueOut"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** RagOperationsOverview */
+        RagOperationsOverview: {
+            /** Query Count */
+            query_count: number;
+            /** Grounded Count */
+            grounded_count: number;
+            /** No Answer Count */
+            no_answer_count: number;
+            /** Failed Count */
+            failed_count: number;
+            /** Cancelled Count */
+            cancelled_count: number;
+            /** Grounded Rate */
+            grounded_rate: number;
+            /** No Answer Rate */
+            no_answer_rate: number;
+            /** P50 Latency Ms */
+            p50_latency_ms?: number | null;
+            /** P95 Latency Ms */
+            p95_latency_ms?: number | null;
+            /** P99 Latency Ms */
+            p99_latency_ms?: number | null;
+            /** Average Ttft Ms */
+            average_ttft_ms?: number | null;
+            /** Prompt Tokens */
+            prompt_tokens: number;
+            /** Completion Tokens */
+            completion_tokens: number;
+            /** Estimated Cost Microusd */
+            estimated_cost_microusd: number;
+        };
+        /** RagOperationsRunOut */
+        RagOperationsRunOut: {
+            /**
+             * Org Id
+             * Format: uuid
+             */
+            org_id: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /** Model Id */
+            model_id?: string | null;
+            /** Trace Id */
+            trace_id?: string | null;
+            /** Environment */
+            environment: string;
+            /** Release */
+            release?: string | null;
+            /**
+             * Route
+             * @enum {string}
+             */
+            route: "direct" | "conversation" | "rag" | "analytics" | "clarify" | "unknown";
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "grounded" | "conversational" | "no_answer" | "failed" | "cancelled";
+            /** Error Code */
+            error_code?: string | null;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Ttft Ms */
+            ttft_ms?: number | null;
+            /**
+             * Route Ms
+             * @default 0
+             */
+            route_ms: number;
+            /**
+             * Retrieval Ms
+             * @default 0
+             */
+            retrieval_ms: number;
+            /**
+             * Provider Ms
+             * @default 0
+             */
+            provider_ms: number;
+            /**
+             * Persistence Ms
+             * @default 0
+             */
+            persistence_ms: number;
+            /**
+             * Prompt Tokens
+             * @default 0
+             */
+            prompt_tokens: number;
+            /**
+             * Completion Tokens
+             * @default 0
+             */
+            completion_tokens: number;
+            /**
+             * Retrieval Count
+             * @default 0
+             */
+            retrieval_count: number;
+            /**
+             * Citation Count
+             * @default 0
+             */
+            citation_count: number;
+            /**
+             * Memory Item Count
+             * @default 0
+             */
+            memory_item_count: number;
+            /**
+             * Attempts
+             * @default 0
+             */
+            attempts: number;
+            /**
+             * Estimated Cost Microusd
+             * @default 0
+             */
+            estimated_cost_microusd: number;
+            /**
+             * Accepted At
+             * Format: date-time
+             */
+            accepted_at: string;
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+        };
+        /** RagOperationsRunPage */
+        RagOperationsRunPage: {
+            /** Items */
+            items: components["schemas"]["RagOperationsRunOut"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** RagOperationsSeriesPoint */
+        RagOperationsSeriesPoint: {
+            /**
+             * Bucket
+             * Format: date-time
+             */
+            bucket: string;
+            /** Query Count */
+            query_count: number;
+            /** Grounded Count */
+            grounded_count: number;
+            /** No Answer Count */
+            no_answer_count: number;
+            /** Failed Count */
+            failed_count: number;
+            /** P95 Latency Ms */
+            p95_latency_ms?: number | null;
         };
         /** RegenerateRequest */
         RegenerateRequest: {
@@ -3333,6 +3709,229 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelPublic"][];
+                };
+            };
+        };
+    };
+    overview_api_v1_admin_rag_operations_overview_get: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                org_id?: string | null;
+                workspace_id?: string | null;
+                route?: ("direct" | "conversation" | "rag" | "analytics" | "clarify" | "unknown") | null;
+                outcome?: ("grounded" | "conversational" | "no_answer" | "failed" | "cancelled") | null;
+                model_id?: string | null;
+                environment?: string | null;
+                release?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RagOperationsOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    series_api_v1_admin_rag_operations_series_get: {
+        parameters: {
+            query: {
+                interval?: "hour" | "day";
+                from: string;
+                to: string;
+                org_id?: string | null;
+                workspace_id?: string | null;
+                route?: ("direct" | "conversation" | "rag" | "analytics" | "clarify" | "unknown") | null;
+                outcome?: ("grounded" | "conversational" | "no_answer" | "failed" | "cancelled") | null;
+                model_id?: string | null;
+                environment?: string | null;
+                release?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RagOperationsSeriesPoint"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    runs_api_v1_admin_rag_operations_runs_get: {
+        parameters: {
+            query: {
+                cursor?: string | null;
+                limit?: number;
+                from: string;
+                to: string;
+                org_id?: string | null;
+                workspace_id?: string | null;
+                route?: ("direct" | "conversation" | "rag" | "analytics" | "clarify" | "unknown") | null;
+                outcome?: ("grounded" | "conversational" | "no_answer" | "failed" | "cancelled") | null;
+                model_id?: string | null;
+                environment?: string | null;
+                release?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RagOperationsRunPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_detail_api_v1_admin_rag_operations_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RagOperationsRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    errors_api_v1_admin_rag_operations_errors_get: {
+        parameters: {
+            query: {
+                cursor?: string | null;
+                limit?: number;
+                from: string;
+                to: string;
+                org_id?: string | null;
+                workspace_id?: string | null;
+                route?: ("direct" | "conversation" | "rag" | "analytics" | "clarify" | "unknown") | null;
+                outcome?: ("grounded" | "conversational" | "no_answer" | "failed" | "cancelled") | null;
+                model_id?: string | null;
+                environment?: string | null;
+                release?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RagOperationsErrorPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    error_detail_api_v1_admin_rag_operations_errors__issue_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RagOperationsErrorDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -25,6 +25,13 @@ export type EmbeddingProfileOut = components['schemas']['EmbeddingProfileOut'];
 export type EmbeddingProfilePatch = components['schemas']['EmbeddingProfilePatch'];
 export type EmbeddingDeploymentCreate = components['schemas']['EmbeddingDeploymentCreate'];
 export type EmbeddingDeploymentOut = components['schemas']['EmbeddingDeploymentOut'];
+export type RagOperationsOverview = components['schemas']['RagOperationsOverview'];
+export type RagOperationsSeriesPoint = components['schemas']['RagOperationsSeriesPoint'];
+export type RagOperationsRunOut = components['schemas']['RagOperationsRunOut'];
+export type RagOperationsRunPage = components['schemas']['RagOperationsRunPage'];
+export type RagOperationsErrorPage = components['schemas']['RagOperationsErrorPage'];
+export type RagOperationsErrorDetail = components['schemas']['RagOperationsErrorDetail'];
+export type ErrorIssueOut = components['schemas']['ErrorIssueOut'];
 export type MemoryCreate = components['schemas']['MemoryCreate'];
 export type MemoryOut = components['schemas']['MemoryOut'];
 export type MemoryPageOut = components['schemas']['MemoryPageOut'];
@@ -34,6 +41,18 @@ export type MemoryPreferencePatch = components['schemas']['MemoryPreferencePatch
 
 export type DocumentStatus = DocumentOut['status'];
 export type ChatRoute = 'direct' | 'conversation' | 'rag' | 'analytics' | 'clarify';
+
+export interface RagOperationsFilters {
+  from: string;
+  to: string;
+  route?: 'direct' | 'conversation' | 'rag' | 'analytics' | 'clarify' | 'unknown';
+  outcome?: 'grounded' | 'conversational' | 'no_answer' | 'failed' | 'cancelled';
+  org_id?: string;
+  workspace_id?: string;
+  model_id?: string;
+  environment?: string;
+  release?: string;
+}
 
 export interface SourceRef {
   marker: number;
