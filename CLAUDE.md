@@ -59,6 +59,16 @@ versioned specifications and plans under `docs/superpowers/`.
   LiteLLM requests, keep utility/evaluator calls independent, and never expose
   private reasoning traces. Verify provider usage accounting before claiming
   reasoning tokens are counted.
+- Keep routing and policy OpenRAG-owned. Use Agno only behind a replaceable
+  protocol adapter; ordinary grounded questions stay single-pass, and only
+  multi-part, metadata-sensitive, or weak-evidence queries enter a read-only
+  agent loop capped at four iterations.
+- Enforce the completion capability hierarchy (`chat` -> `structured JSON` ->
+  `verifier`) before provider work. Evaluator profiles and budgets remain
+  independent from the model being evaluated.
+- Branch summaries are provenance-bound checkpoints and must be invalidated by
+  edits or regenerations above the checkpoint. Enrichment is opt-in, bounded,
+  and derivative points inherit the parent's full authorization/version filter.
 - Embedding changes require versioned index generations, background reindex,
   evaluation, atomic cutover, rollback, and no destructive active-index reset.
 

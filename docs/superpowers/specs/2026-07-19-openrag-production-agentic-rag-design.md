@@ -39,12 +39,14 @@ questions.
 
 ## Alternatives considered
 
-### Selected: policy-driven agentic RAG
+### Selected: OpenRAG-owned bounded loop with an Agno adapter
 
-A deterministic policy and authorization layer surrounds a bounded Agno
-orchestrator. The agent selects only tenant-bound, allowlisted tools. Retrieval,
-evidence sufficiency, citation validation, and answer release remain OpenRAG
-policy decisions, not model discretion.
+A deterministic policy and authorization layer owns the loop. Agno is retained
+behind the `RunOrchestrator` protocol as a stateless LiteLLM/streaming adapter;
+it does not own routing, authorization, evidence sufficiency, retry policy, or
+answer release. OpenRAG selects tenant-bound, allowlisted tools, enforces a hard
+four-iteration ceiling, and can replace the adapter without changing product
+policy.
 
 This gives agentic routing and multi-step retrieval while keeping latency,
 authorization, refusal, and audit behavior testable.
@@ -61,6 +63,47 @@ adapted as governed workspace policies instead.
 A planner, researcher, writer, and reviewer on every request would increase
 latency and token cost and would jeopardize the 3-5 second target. Expensive
 query decomposition and verification are conditional and bounded.
+
+## Updated reference-practice adoption (2026-07-20)
+
+The updated local benchmark specifications and plans are read-only
+implementation references. OpenRAG adopts the following practices without
+copying another product's identity, legacy LiteLLM Proxy path, or hand-rolled
+provider transport:
+
+- deterministic routing first: direct greetings and thread-meta questions do
+  not pay retrieval cost;
+- single-pass grounded RAG for ordinary substantive questions, escalating to
+  the bounded tool loop only for multi-part, metadata-sensitive, or weak-
+  evidence questions;
+- closed-book refusal by default, with general-knowledge fallback allowed only
+  by an explicit workspace policy, a persistent ungrounded badge, and zero
+  fabricated citations;
+- a fail-closed capability hierarchy: chat completion is required for user
+  answers, structured JSON for schema-bound output, and verifier capability for
+  evaluator/judge selection;
+- an asynchronous post-answer auditor for quality measurement and, in strict
+  workspaces, a synchronous gatekeeper with at most one critique-guided
+  regeneration before a flagged refusal;
+- opt-in, budgeted enrichment with bounded summaries, keywords, and at most
+  three hypothetical questions per chunk; derivative points inherit the exact
+  tenant, workspace, ACL, version, approval, and metadata filters and dedupe to
+  their authoritative parent chunk;
+- branch-correct rolling-summary checkpoints that are invalidated by forks
+  above the checkpoint and fall back to deterministic token truncation when no
+  approved summarizer exists;
+- versioned evaluations on demand, after retrieval/profile/prompt policy
+  changes, and on a schedule, plus a separately runnable red-team CI tier;
+- batched durable delta persistence, cursor replay, cancellation, terminal
+  idempotency, and cross-replica delivery rather than generation tied to one
+  browser connection.
+
+OpenRAG deliberately preserves its stronger controls: immutable document-
+version citations, capability RBAC, PostgreSQL-authoritative durable runs,
+replayable SSE, encrypted request-scoped credentials, versioned index
+generations, and a broader evaluation scorecard. Arbitrary code/plugin
+execution, public web tools by default, voice mode, and ungoverned personal
+memory remain outside the production baseline.
 
 ## Target topology
 
@@ -103,22 +146,26 @@ revalidated against PostgreSQL document policy before prompt inclusion.
    - `rag`: substantive company-knowledge question;
    - `analytics`: RAG answer plus safe structured presentation;
    - `clarify`: ambiguity that materially changes the evidence scope.
-4. For RAG routes, build an evidence plan from the query, explicit filters,
+4. Execute direct and thread-meta routes without retrieval. Ordinary RAG routes
+   use one retrieval/synthesis pass. Escalate to the agent loop only for bounded
+   multi-part, metadata-sensitive, or weak-evidence cases; the loop may perform
+   at most four read-only tool iterations.
+5. For RAG routes, build an evidence plan from the query, explicit filters,
    conversation context, abbreviations, date/version intent, and requested
    document scope.
-5. Retrieve only current approved, effective, non-superseded, ACL-accessible
+6. Retrieve only current approved, effective, non-superseded, ACL-accessible
    versions using parallel dense and sparse candidate generation.
-6. Fuse candidates with reciprocal-rank fusion, deduplicate, rerank, expand
+7. Fuse candidates with reciprocal-rank fusion, deduplicate, rerank, expand
    parent sections, and enforce per-document/section coverage limits.
-7. Compute evidence sufficiency from calibrated retrieval/rerank scores,
+8. Compute evidence sufficiency from calibrated retrieval/rerank scores,
    coverage, requested fields, contradictions, and citation-ready provenance.
-8. Refuse before generation when evidence is insufficient.
-9. Generate a structured, streamed answer through in-process LiteLLM. Retrieved
+9. Refuse before generation when evidence is insufficient.
+10. Generate a structured, streamed answer through in-process LiteLLM. Retrieved
    content is explicitly delimited as untrusted data.
-10. Validate citation markers, citation snapshots, material-claim coverage, and
+11. Validate citation markers, citation snapshots, material-claim coverage, and
     policy compliance. A failed validation replaces the draft with a grounded
     refusal; an unverified draft is never persisted as a successful answer.
-11. Persist the answer, citations, route, prompt/config versions, retrieval facts,
+12. Persist the answer, citations, route, prompt/config versions, retrieval facts,
     usage, latency, and safe error codes. Emit one terminal run event.
 
 The model never receives unrestricted database, URL, shell, browser, MCP, or
@@ -274,7 +321,9 @@ The prompt boundary separates:
 Context assembly uses model-aware tokenization and reserves budgets for system
 policy, current question, thread summary, recent messages, evidence, tool
 results, output, and structured schema. Older turns are summarized with
-provenance instead of silently discarded.
+provenance instead of silently discarded. Summary checkpoints are bound to the
+active message branch; editing or regenerating above a checkpoint invalidates
+it and forces a safe lazy recomputation.
 
 The answer schema includes status, Markdown answer, citation markers,
 no-answer/conflict reason, optional `AnalyticsResponseV1`, and safe suggested
@@ -325,6 +374,12 @@ Workspace policy selects allowed/default completion, embedding, reranker, OCR,
 chunking, retrieval, prompt, and verification profiles. Compatibility is
 validated before saving. Live tests are explicit, cost bounded, redacted, and
 do not print or return stored keys.
+
+Completion profiles declare `supports_chat_completion`,
+`supports_structured_json`, and `supports_verifier` as a fail-closed hierarchy.
+Only chat-capable profiles appear in user model selectors. LLM-judge evaluation
+runs require an explicitly selected enabled verifier profile; evaluator work is
+budgeted independently from the model under test.
 
 ## Enterprise RBAC
 
@@ -407,6 +462,12 @@ Versioned golden datasets measure:
 - version/approval selection correctness;
 - cross-tenant leakage (must be zero);
 - latency, time to first token, token/cost usage, and provider errors.
+
+Runs are available on demand, after retrieval/profile/prompt configuration
+changes, and on a nightly schedule. Deterministic metrics remain usable without
+an evaluator. Optional LLM judging requires a capability-validated verifier,
+closed structured output, separate token/cost ceilings, and independent failure
+handling.
 
 The requested 95-98% accuracy is an acceptance target on representative,
 versioned datasets and is reported with dataset size and confidence. It is not a
@@ -503,8 +564,8 @@ of 100 total points.
 4. Introduce versioned AI profiles and safe index generations/migrations.
 5. Implement policy routing, multi-stage retrieval, reranking, sufficiency, and
    answer/citation verification.
-6. Move orchestration to Agno plus in-process LiteLLM runners on the durable
-   event foundation.
+6. Run the OpenRAG-owned bounded loop through a replaceable Agno + in-process
+   LiteLLM adapter on the durable event foundation.
 7. Complete conversation memory/search/delete and token-efficient context.
 8. Add safe analytical responses and the administration workflows.
 9. Add RAG operations, centralized observability, evaluations, security tests,

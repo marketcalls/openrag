@@ -6,11 +6,13 @@ durable OpenRAG runs, follow-up-aware retrieval, and governed token-efficient
 memory.
 
 **Architecture:** OpenRAG owns authentication, tenant scope, runs, messages,
-memory, retrieval, evidence policy, citations, and event delivery. A
-deterministic policy handles obvious safe routes before a stateless Agno adapter
-may choose only tenant-bound read tools. Provider secrets are decrypted into a
-request-scoped model gateway and passed directly to LiteLLM; they never enter
-environment variables, prompts, events, logs, or browser responses.
+memory, retrieval, evidence policy, citations, tool selection, loop limits, and
+event delivery. A deterministic policy handles obvious safe routes and ordinary
+single-pass RAG before an escalation-only, four-iteration loop invokes a
+stateless Agno adapter with tenant-bound read tools. Provider secrets are
+decrypted into a request-scoped model gateway and passed directly to LiteLLM;
+they never enter environment variables, prompts, events, logs, or browser
+responses.
 
 ## Constraints
 
@@ -20,7 +22,11 @@ environment variables, prompts, events, logs, or browser responses.
 - Referential company follow-ups are rewritten with prior user context and
   still pass through authoritative RAG and citation validation.
 - All substantive company answers remain closed-book and fail closed.
+- General-knowledge fallback requires an explicit workspace policy, is labeled
+  ungrounded, and never emits document citations.
 - The API imports only a `RunOrchestrator` protocol, never Agno or provider SDKs.
+- OpenRAG, not Agno, owns the maximum four iterations, tool schemas,
+  authorization, timeouts, evidence checks, and terminal outcome.
 - Agno and LiteLLM versions are pinned and verified before proxy removal.
 - No SQL transaction or request-scoped session spans provider or tool waits.
 - Existing chat endpoints remain compatible until durable run cutover is proven.
@@ -59,6 +65,9 @@ environment variables, prompts, events, logs, or browser responses.
   environment variables.
 - Add a stateless Agno adapter with allowlisted, tenant-bound read-tool closures,
   bounded iterations, timeouts, and safe public events.
+- Gate chat, structured-output, verifier, reasoning, and tool capabilities before
+  any provider call; evaluator selection requires chat + structured JSON +
+  verifier capabilities.
 - Verify direct streaming, tool routing, cancellation, malformed provider data,
   secret redaction, and concurrent request isolation.
 
@@ -77,6 +86,8 @@ environment variables, prompts, events, logs, or browser responses.
   tombstoned deletion, and derived-data cleanup.
 - Add branch summaries and a token ledger with output reserve and per-section
   budgets.
+- Bind each rolling-summary checkpoint to the active message branch and
+  invalidate it when an edit or regeneration forks above the checkpoint.
 - Persist memory candidates only from exact user messages or approved events;
   never directly from assistant text, retrieved documents, or tool output.
 - Add provenance, conflict/supersession, TTL, suppression fingerprints, scope,
@@ -100,6 +111,21 @@ environment variables, prompts, events, logs, or browser responses.
 - Record actual TTFT, route overhead, event-loop lag, pool saturation, token
   budgets, memory growth, and cross-tenant leakage before release scoring.
 
+### Task 8: Escalation, validation, and enrichment quality gates
+
+- Keep ordinary grounded questions on the single-pass path; escalate only
+  multi-part, metadata-sensitive, or weak-evidence questions to the loop.
+- Run an asynchronous quality auditor for answered messages. In strict
+  workspaces, allow one synchronous critique-guided regeneration before a
+  validation-failed refusal.
+- Add opt-in, budgeted chunk summaries, keywords, and hypothetical questions;
+  derivative search points inherit all tenant/ACL/version filters and dedupe to
+  the parent chunk.
+- Trigger versioned evaluation runs after retrieval/profile/prompt policy
+  changes and nightly, in addition to explicit on-demand runs.
+- Add an independently runnable red-team tier covering injection, ACL/version
+  evasion, ungrounded fallback, malformed tool calls, and citation fabrication.
+
 ## Commit checkpoints
 
 1. `feat: route chat without unconditional retrieval`
@@ -109,4 +135,4 @@ environment variables, prompts, events, logs, or browser responses.
 5. `feat: govern token-efficient conversation memory`
 6. `feat: expose agent routes and memory controls`
 7. `chore: remove litellm proxy runtime`
-
+8. `feat: gate agent escalation with measured quality`
