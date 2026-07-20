@@ -86,7 +86,9 @@ def test_event_tasks_are_isolated_to_the_events_queue() -> None:
     assert "runs.execute_next" in celery_app.tasks
     assert "summaries.refresh_next" in celery_app.tasks
     assert celery_app.conf.task_routes["evaluations.*"] == {"queue": "evaluations"}
+    assert celery_app.conf.task_routes["quality.*"] == {"queue": "evaluations"}
     assert "evaluations.execute_next" in celery_app.tasks
+    assert "quality.execute_next" in celery_app.tasks
     evaluation_schedule = celery_app.conf.beat_schedule["execute-rag-evaluation"]
     assert evaluation_schedule["task"] == "evaluations.execute_next"
     assert evaluation_schedule["options"]["queue"] == "evaluations"
@@ -94,6 +96,10 @@ def test_event_tasks_are_isolated_to_the_events_queue() -> None:
     assert automation_schedule["task"] == "evaluations.schedule_due"
     assert automation_schedule["options"]["queue"] == "evaluations"
     assert "evaluations.schedule_due" in celery_app.tasks
+    quality_schedule = celery_app.conf.beat_schedule["audit-answer-quality"]
+    assert quality_schedule["task"] == "quality.execute_next"
+    assert quality_schedule["options"]["queue"] == "evaluations"
+    assert quality_schedule["options"]["expires"] <= 3
     assert celery_app.conf.task_routes["models.*"] == {"queue": "models"}
     assert "models.execute_probe" in celery_app.tasks
     probe_schedule = celery_app.conf.beat_schedule["execute-model-probe"]

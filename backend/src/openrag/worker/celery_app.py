@@ -62,6 +62,7 @@ def build_celery() -> Celery:
         task_routes={
             "events.*": {"queue": "events"},
             "evaluations.*": {"queue": "evaluations"},
+            "quality.*": {"queue": "evaluations"},
             "models.*": {"queue": "models"},
             "runs.*": {"queue": "runs"},
             "summaries.*": {"queue": "summaries"},
@@ -118,6 +119,11 @@ def build_celery() -> Celery:
                 "task": "evaluations.schedule_due",
                 "schedule": 60.0,
                 "options": {"queue": "evaluations", "expires": 55},
+            },
+            "audit-answer-quality": {
+                "task": "quality.execute_next",
+                "schedule": 0.5,
+                "options": {"queue": "evaluations", "expires": 3},
             },
             "execute-model-probe": {
                 "task": "models.execute_probe",

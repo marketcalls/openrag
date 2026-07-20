@@ -45,6 +45,7 @@ from openrag.modules.chat.prompting import (
     build_messages,
     parse_citation_markers,
 )
+from openrag.modules.chat.quality import schedule_answer_quality_audit
 from openrag.modules.chat.schemas import ChatTreeOut, CitationOut, MessageNode
 from openrag.modules.chat.summaries import (
     history_after_summary,
@@ -853,6 +854,8 @@ async def _persist_assistant(
             chat=chat,
             assistant_message=message,
         )
+        if message.answer_status == "grounded":
+            schedule_answer_quality_audit(session, message=message)
 
         for citation, document, version in legacy_sources:
             session.add(
