@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from uuid import UUID
 
 from qdrant_client import models
@@ -13,6 +14,11 @@ from openrag.modules.documents.authority_storage import AuthorityCollectionSpec
 from openrag.modules.documents.models import DocumentVersion
 from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
 from openrag.modules.embeddings.runtime import build_profile_runtime
+from openrag.modules.retrieval.authority import (
+    MAX_CANDIDATES,
+    candidate_from_payload,
+    revalidate_candidates,
+)
 from openrag.modules.retrieval.client import COLLECTION, get_qdrant
 from openrag.modules.retrieval.embeddings import embed_sparse, get_dense_embedder
 from openrag.modules.tenancy.context import TenantContext
@@ -121,30 +127,59 @@ async def retrieve(
     query: str,
     top_k: int = 8,
 ) -> RetrievalResult:
+    if not 1 <= top_k <= 32:
+        raise ValueError("top_k must be between 1 and 32")
     workspace = await get_workspace_checked(
         session,
         context,
         workspace_id,
     )
-    approved_document_ids = list(
-        (
-            await session.execute(
-                select(DocumentVersion.document_id).where(
-                    DocumentVersion.org_id == context.org_id,
-                    DocumentVersion.workspace_id == workspace_id,
-                    DocumentVersion.state == "approved",
-                    DocumentVersion.superseded_by_id.is_(None),
-                )
-            )
-        ).scalars()
-    )
-    if not approved_document_ids:
-        return RetrievalResult(chunks=[], no_answer=True)
     deployment = await session.scalar(
         select(EmbeddingDeployment).where(
             EmbeddingDeployment.status == "active"
         )
     )
+    now = datetime.now(UTC)
+    eligibility = [
+        DocumentVersion.org_id == context.org_id,
+        DocumentVersion.workspace_id == workspace_id,
+        DocumentVersion.state == "approved",
+        DocumentVersion.superseded_by_id.is_(None),
+    ]
+    if deployment is not None:
+        database_now = now.replace(tzinfo=None)
+        eligibility.extend(
+            [
+                DocumentVersion.provenance_state == "ready",
+                DocumentVersion.source_deleted_at.is_(None),
+                DocumentVersion.source_storage_key.is_not(None),
+                (
+                    DocumentVersion.effective_at.is_(None)
+                    | (DocumentVersion.effective_at <= database_now)
+                ),
+                (
+                    DocumentVersion.expires_at.is_(None)
+                    | (DocumentVersion.expires_at > database_now)
+                ),
+            ]
+        )
+    if deployment is None:
+        approved_document_ids = list(
+            (
+                await session.execute(
+                    select(DocumentVersion.document_id).where(*eligibility)
+                )
+            ).scalars()
+        )
+        if not approved_document_ids:
+            return RetrievalResult(chunks=[], no_answer=True)
+    else:
+        approved_document_ids = []
+        eligible_version = await session.scalar(
+            select(DocumentVersion.id).where(*eligibility).limit(1)
+        )
+        if eligible_version is None:
+            return RetrievalResult(chunks=[], no_answer=True)
     current_approved: bool | None = None
     if deployment is None:
         collection = await ensure_collection(workspace.embedding_model)
@@ -178,13 +213,13 @@ async def retrieve(
                 query=dense_vector,
                 using="dense",
                 filter=tenant_filter,
-                limit=top_k * 4,
+                limit=min(MAX_CANDIDATES, top_k * 4),
             ),
             models.Prefetch(
                 query=sparse_vector,
                 using="sparse",
                 filter=tenant_filter,
-                limit=top_k * 4,
+                limit=min(MAX_CANDIDATES, top_k * 4),
             ),
         ],
         query=models.FusionQuery(fusion=models.Fusion.RRF),
@@ -192,21 +227,51 @@ async def retrieve(
         limit=top_k,
         with_payload=True,
     )
-    chunks = []
-    for point in fused.points:
-        payload = point.payload or {}
-        page_value = payload.get("page")
-        if page_value is None:
-            page_value = payload["page_number"]
-        chunks.append(
-            RetrievedChunk(
-                document_id=UUID(str(payload["document_id"])),
-                page=int(page_value),
-                chunk_index=int(payload.get("chunk_index", 0)),
-                text=str(payload["text"]),
-                score=float(point.score),
+    chunks: list[RetrievedChunk] = []
+    if deployment is None:
+        for point in fused.points:
+            payload = point.payload or {}
+            page_value = payload.get("page")
+            if page_value is None:
+                page_value = payload["page_number"]
+            chunks.append(
+                RetrievedChunk(
+                    document_id=UUID(str(payload["document_id"])),
+                    page=int(page_value),
+                    chunk_index=int(payload.get("chunk_index", 0)),
+                    text=str(payload["text"]),
+                    score=float(point.score),
+                )
             )
+    else:
+        fused_candidates = [
+            candidate
+            for point in fused.points
+            if (
+                candidate := candidate_from_payload(
+                    point.payload or {},
+                    fused_score=float(point.score),
+                )
+            )
+            is not None
+        ]
+        authorized = await revalidate_candidates(
+            session,
+            context,
+            workspace_id,
+            fused_candidates,
+            now=now,
         )
+        chunks = [
+            RetrievedChunk(
+                document_id=evidence.document_id,
+                page=evidence.page_number,
+                chunk_index=evidence.chunk_index,
+                text=evidence.text,
+                score=evidence.fused_score,
+            )
+            for evidence in authorized[:top_k]
+        ]
     if not chunks:
         return RetrievalResult(chunks=[], no_answer=True)
 
@@ -215,10 +280,39 @@ async def retrieve(
         query=dense_vector,
         using="dense",
         query_filter=tenant_filter,
-        limit=1,
-        with_payload=False,
+        limit=(1 if deployment is None else min(MAX_CANDIDATES, top_k * 4)),
+        with_payload=deployment is not None,
     )
-    best_cosine = float(top_dense.points[0].score) if top_dense.points else 0.0
+    if deployment is None:
+        best_cosine = float(top_dense.points[0].score) if top_dense.points else 0.0
+    else:
+        dense_candidates = [
+            candidate
+            for point in top_dense.points
+            if (
+                candidate := candidate_from_payload(
+                    point.payload or {},
+                    fused_score=float(point.score),
+                    dense_score=float(point.score),
+                )
+            )
+            is not None
+        ]
+        dense_authority = await revalidate_candidates(
+            session,
+            context,
+            workspace_id,
+            dense_candidates,
+            now=now,
+        )
+        best_cosine = max(
+            (
+                item.dense_score
+                for item in dense_authority
+                if item.dense_score is not None
+            ),
+            default=0.0,
+        )
     return RetrievalResult(
         chunks=chunks,
         no_answer=best_cosine < workspace.min_score,
