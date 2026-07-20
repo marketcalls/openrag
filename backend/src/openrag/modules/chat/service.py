@@ -2,15 +2,17 @@
 
 from collections import defaultdict
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import Settings
 from openrag.core.db import naive_utc
 from openrag.core.errors import ConflictError, NotFoundError, UpstreamError
+from openrag.modules.chat.claims import ClaimBindingResult, bind_cited_claims
 from openrag.modules.chat.events import (
     CitationRef,
     SourceRef,
@@ -39,7 +41,13 @@ from openrag.modules.documents.lifecycle import (
     LEGACY_VERSION_LABEL,
 )
 from openrag.modules.documents.models import Document, DocumentVersion
+from openrag.modules.grounding.models import GroundingPolicy
 from openrag.modules.models.models import Model
+from openrag.modules.retrieval.authority import (
+    AuthorizedEvidence,
+    CandidateIdentity,
+    revalidate_candidates,
+)
 from openrag.modules.retrieval.service import RetrievalResult
 from openrag.modules.tenancy import service as tenancy_service
 from openrag.modules.tenancy.context import TenantContext
@@ -55,6 +63,8 @@ NO_ANSWER_TEXT = (
     "relevant documents are uploaded and indexed."
 )
 _SNIPPET_CHARS = 300
+PROMPT_CONTRACT_VERSION = "openrag-grounded-v1"
+AUTHORITY_VERIFICATION_STATE = "marker_bound"
 
 
 class Retriever(Protocol):
@@ -388,6 +398,7 @@ async def _persist_assistant(
     model_id: UUID | None,
     usage: LLMUsage | None,
     citations: list[CitationRef],
+    refusal_reason: str = "below_threshold",
 ) -> Message:
     await tenancy_service.get_workspace(
         session,
@@ -406,37 +417,121 @@ async def _persist_assistant(
                 .with_for_update()
             )
         ).scalar_one()
+        authority_sources: list[tuple[CitationRef, AuthorizedEvidence]] = []
+        policy: GroundingPolicy | None = None
+        bindings: ClaimBindingResult | None = None
         if citations and workspace.document_authority_enabled:
-            raise ConflictError(
-                "legacy persistence is disabled for authority-enabled workspace"
+            now = datetime.now(UTC)
+            database_now = now.replace(tzinfo=None)
+            policy = await session.scalar(
+                select(GroundingPolicy).where(
+                    GroundingPolicy.org_id == context.org_id,
+                    GroundingPolicy.workspace_id == chat.workspace_id,
+                    GroundingPolicy.status == "active",
+                    or_(
+                        GroundingPolicy.effective_at.is_(None),
+                        GroundingPolicy.effective_at <= database_now,
+                    ),
+                    or_(
+                        GroundingPolicy.expires_at.is_(None),
+                        GroundingPolicy.expires_at > database_now,
+                    ),
+                )
             )
+            if policy is None:
+                citations = []
+                refusal_reason = "grounding_policy_unavailable"
+            else:
+                markers = [citation.marker for citation in citations]
+                if len(markers) != len(set(markers)) or min(markers) < 1:
+                    citations = []
+                    refusal_reason = "invalid_marker"
+                else:
+                    bindings = bind_cited_claims(content, max_marker=max(markers))
+                    if not bindings.valid or set(bindings.by_marker) != set(markers):
+                        citations = []
+                        refusal_reason = bindings.reason_code or "incomplete_claim_binding"
+
+            candidates: list[CandidateIdentity] = []
+            if citations:
+                for citation in citations:
+                    if (
+                        citation.document_version_id is None
+                        or citation.evidence_span_id is None
+                        or citation.content_hash is None
+                    ):
+                        candidates = []
+                        citations = []
+                        refusal_reason = "authority_identity_missing"
+                        break
+                    try:
+                        candidates.append(
+                            CandidateIdentity(
+                                document_version_id=UUID(citation.document_version_id),
+                                evidence_span_id=UUID(citation.evidence_span_id),
+                                content_hash=citation.content_hash,
+                                fused_score=(
+                                    citation.fused_score
+                                    if citation.fused_score is not None
+                                    else citation.score
+                                ),
+                                dense_score=citation.dense_score,
+                                sparse_score=citation.sparse_score,
+                            )
+                        )
+                    except ValueError:
+                        candidates = []
+                        citations = []
+                        refusal_reason = "authority_identity_invalid"
+                        break
+            if citations:
+                authorized = await revalidate_candidates(
+                    session,
+                    context,
+                    chat.workspace_id,
+                    candidates,
+                    now=now,
+                )
+                by_span = {item.evidence_span_id: item for item in authorized}
+                for citation, candidate in zip(citations, candidates, strict=True):
+                    evidence = by_span.get(candidate.evidence_span_id)
+                    if (
+                        evidence is None
+                        or str(evidence.document_id) != citation.document_id
+                    ):
+                        authority_sources = []
+                        citations = []
+                        refusal_reason = "authority_changed"
+                        break
+                    authority_sources.append((citation, evidence))
 
         legacy_sources: list[tuple[CitationRef, Document, DocumentVersion]] = []
-        for citation in citations:
-            document_id = UUID(citation.document_id)
-            row = (
-                await session.execute(
-                    select(Document, DocumentVersion)
-                    .join(
-                        DocumentVersion,
-                        DocumentVersion.document_id == Document.id,
+        if not workspace.document_authority_enabled:
+            for citation in citations:
+                document_id = UUID(citation.document_id)
+                row = (
+                    await session.execute(
+                        select(Document, DocumentVersion)
+                        .join(
+                            DocumentVersion,
+                            DocumentVersion.document_id == Document.id,
+                        )
+                        .where(
+                            Document.org_id == context.org_id,
+                            Document.workspace_id == chat.workspace_id,
+                            Document.id == document_id,
+                            DocumentVersion.org_id == context.org_id,
+                            DocumentVersion.workspace_id == chat.workspace_id,
+                            DocumentVersion.sequence == 1,
+                            DocumentVersion.version_label == LEGACY_VERSION_LABEL,
+                            DocumentVersion.version_key == LEGACY_VERSION_KEY,
+                        )
                     )
-                    .where(
-                        Document.org_id == context.org_id,
-                        Document.workspace_id == chat.workspace_id,
-                        Document.id == document_id,
-                        DocumentVersion.org_id == context.org_id,
-                        DocumentVersion.workspace_id == chat.workspace_id,
-                        DocumentVersion.sequence == 1,
-                        DocumentVersion.version_label == LEGACY_VERSION_LABEL,
-                        DocumentVersion.version_key == LEGACY_VERSION_KEY,
-                    )
-                )
-            ).one_or_none()
-            if row is None:
-                raise ConflictError("legacy source is not migration-ready")
-            document, version = row
-            legacy_sources.append((citation, document, version))
+                ).one_or_none()
+                if row is None:
+                    raise ConflictError("legacy source is not migration-ready")
+                document, version = row
+                legacy_sources.append((citation, document, version))
 
         persisted_content = content if citations else NO_ANSWER_TEXT
         message = await _prepare_message(
@@ -452,12 +547,23 @@ async def _persist_assistant(
                 usage.completion_tokens if usage is not None else None
             ),
         )
-        if citations:
+        if citations and workspace.document_authority_enabled:
+            assert policy is not None
+            message.answer_status = "grounded"
+            message.refusal_reason = None
+            message.grounding_policy_id = policy.id
+            message.grounding_policy_version = policy.policy_version
+            message.verifier_model_id = policy.verifier_model_id
+            message.prompt_contract_version = PROMPT_CONTRACT_VERSION
+            message.provider_preset_version = policy.provider_preset_version
+            message.binding_revision = policy.binding_revision
+            message.credential_fingerprint = policy.credential_fingerprint
+        elif citations:
             message.answer_status = None
             message.refusal_reason = None
         else:
             message.answer_status = "refused"
-            message.refusal_reason = "below_threshold"
+            message.refusal_reason = refusal_reason
         await session.flush()
 
         for citation, document, version in legacy_sources:
@@ -484,6 +590,44 @@ async def _persist_assistant(
                     verification_state=LEGACY_CITATION_VERIFICATION_STATE,
                 )
             )
+        if authority_sources:
+            assert policy is not None
+            assert bindings is not None
+            for citation, evidence in authority_sources:
+                session.add(
+                    Citation(
+                        org_id=context.org_id,
+                        workspace_id=chat.workspace_id,
+                        message_id=message.id,
+                        document_id=evidence.document_id,
+                        document_version_id=evidence.document_version_id,
+                        evidence_span_id=evidence.evidence_span_id,
+                        chunk_ref=evidence.chunk_ref,
+                        page=evidence.page_number,
+                        score=evidence.fused_score,
+                        marker=citation.marker,
+                        document_name=evidence.document_name,
+                        version_label=evidence.version_label,
+                        section_label=" / ".join(evidence.section_path),
+                        section_path=list(evidence.section_path),
+                        locator_kind=evidence.locator_kind,
+                        locator_label=evidence.locator_label,
+                        content_hash=evidence.content_hash,
+                        dense_score=evidence.dense_score,
+                        sparse_score=evidence.sparse_score,
+                        fused_score=evidence.fused_score,
+                        rerank_score=citation.rerank_score,
+                        claim_ids=list(bindings.by_marker[citation.marker]),
+                        verification_state=AUTHORITY_VERIFICATION_STATE,
+                        prompt_contract_version=PROMPT_CONTRACT_VERSION,
+                        grounding_policy_id=policy.id,
+                        grounding_policy_version=policy.policy_version,
+                        verifier_model_id=policy.verifier_model_id,
+                        provider_preset_version=policy.provider_preset_version,
+                        binding_revision=policy.binding_revision,
+                        credential_fingerprint=policy.credential_fingerprint,
+                    )
+                )
         await session.commit()
         return message
     except Exception:
@@ -523,6 +667,11 @@ async def stream_reply(
             model_id=None,
             usage=None,
             citations=[],
+            refusal_reason=(
+                result.decision.reason_code or "below_threshold"
+                if result.decision is not None
+                else "below_threshold"
+            ),
         )
         yield citations_event([])
         yield done_event(
@@ -576,9 +725,12 @@ async def stream_reply(
             marker=marker,
             document_id=by_marker[marker].document_id,
             chunk_ref=(
-                f"{by_marker[marker].document_id}:"
-                f"{by_marker[marker].page}:"
-                f"{by_marker[marker].chunk_index}"
+                by_marker[marker].evidence_span_id
+                or (
+                    f"{by_marker[marker].document_id}:"
+                    f"{by_marker[marker].page}:"
+                    f"{by_marker[marker].chunk_index}"
+                )
             ),
             page=by_marker[marker].page,
             score=by_marker[marker].score,
@@ -608,19 +760,22 @@ async def stream_reply(
         usage=usage,
         citations=citation_references,
     )
-    if citation_references:
+    persisted_citations = (
+        citation_references if message.answer_status != "refused" else []
+    )
+    if persisted_citations:
         for part in parts:
             yield token_event(part)
     else:
         yield token_event(NO_ANSWER_TEXT)
-    yield citations_event(citation_references)
+    yield citations_event(persisted_citations)
     yield done_event(
         message_id=str(message.id),
         prompt_tokens=usage.prompt_tokens if usage is not None else 0,
         completion_tokens=(
             usage.completion_tokens if usage is not None else 0
         ),
-        no_answer=not citation_references,
+        no_answer=not persisted_citations,
     )
 
 
