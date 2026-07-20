@@ -57,7 +57,7 @@
 - `RagRunFact` is unique on `(org_id, run_id)` and references the tenant-bound durable run.
 - `ErrorIssue` is unique on `(environment, service, fingerprint)`; `ErrorOccurrence` references one issue and may reference a run.
 
-- [ ] **Step 1: Write failing schema/model tests**
+- [x] **Step 1: Write failing schema/model tests**
 
 ```python
 def test_rag_fact_contains_metrics_but_no_raw_content_fields() -> None:
@@ -70,21 +70,21 @@ def test_error_contract_rejects_unbounded_or_unknown_categories() -> None:
         ErrorOccurrenceCreate(category="secret", code="x", service="api", exception_type="X")
 ```
 
-- [ ] **Step 2: Run tests and verify they fail because operations models do not exist**
+- [x] **Step 2: Run tests and verify they fail because operations models do not exist**
 
 Run: `cd backend && uv run pytest -q tests/modules/operations/test_models.py tests/modules/operations/test_schemas.py`
 
-- [ ] **Step 3: Implement bounded models and schemas**
+- [x] **Step 3: Implement bounded models and schemas**
 
 Use closed status/category check constraints, non-negative duration/token/count checks, 64-character lowercase SHA-256 fingerprints, composite tenant foreign keys, bounded strings, and no JSON payload column. `ErrorOccurrence` stores only safe `trace_id`, `run_id`, `code`, `exception_type`, HTTP method/route-template/status, release, and timestamps.
 
-- [ ] **Step 4: Add and offline-compile the migration**
+- [x] **Step 4: Add and offline-compile the migration**
 
-Run: `cd backend && uv run alembic heads && uv run alembic upgrade head --sql > /tmp/openrag-operations.sql && test -s /tmp/openrag-operations.sql`
+Run: `cd backend && uv run alembic heads && uv run pytest -q tests/modules/operations/test_models.py -k migration`
 
-Expected: one head, all PostgreSQL DDL compiles, and downgrade removes only operations tables/indexes.
+Expected: one head; the isolated PostgreSQL operation stream contains all three creates and reverse-order drops. The full historical chain remains covered by the container-backed migration suite because an older RBAC migration deliberately performs live data validation and cannot render offline.
 
-- [ ] **Step 5: Run focused verification and commit**
+- [x] **Step 5: Run focused verification and commit**
 
 Run: `cd backend && uv run ruff check src tests/modules/operations && uv run mypy && uv run pytest -q tests/modules/operations`
 

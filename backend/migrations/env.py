@@ -16,6 +16,7 @@ import openrag.modules.embeddings.models  # noqa: F401
 import openrag.modules.events.models  # noqa: F401
 import openrag.modules.memory.models  # noqa: F401
 import openrag.modules.models.models  # noqa: F401
+import openrag.modules.operations.models  # noqa: F401
 import openrag.modules.runs.models  # noqa: F401
 import openrag.modules.secrets.models  # noqa: F401
 import openrag.modules.tenancy.models  # noqa: F401
