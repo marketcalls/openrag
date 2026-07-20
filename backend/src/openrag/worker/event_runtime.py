@@ -28,6 +28,10 @@ from openrag.modules.events.readiness import (
 )
 from openrag.modules.events.redis_runtime import build_event_redis
 from openrag.modules.events.streams import StreamAdminRedis, ensure_streams
+from openrag.modules.runs.commands import (
+    RunCommandRedis,
+    consume_run_command_batch,
+)
 
 
 async def dispatch_outbox_once(
@@ -116,6 +120,35 @@ async def consume_document_lifecycle_once(
             return await consume_document_lifecycle_batch(
                 session_factory,
                 cast(DocumentLifecycleRedis, connection),
+                consumer=consumer,
+                batch_size=resolved.event_dispatch_batch_size,
+                reclaim_idle_ms=max(
+                    30_000,
+                    resolved.event_dispatch_lease_seconds * 1_000,
+                ),
+            )
+    finally:
+        await redis.aclose()
+        await engine.dispose()
+
+
+async def consume_run_commands_once(
+    *,
+    consumer: str,
+    settings: Settings | None = None,
+) -> dict[str, int]:
+    """Queue attested run commands without holding SQL during execution."""
+
+    resolved = settings or get_settings()
+    engine = build_engine(resolved.database_url)
+    session_factory = build_session_factory(engine)
+    redis = build_event_redis(resolved)
+    try:
+        async with redis.client() as connection:
+            await ensure_streams(cast(StreamAdminRedis, connection))
+            return await consume_run_command_batch(
+                session_factory,
+                cast(RunCommandRedis, connection),
                 consumer=consumer,
                 batch_size=resolved.event_dispatch_batch_size,
                 reclaim_idle_ms=max(

@@ -18,6 +18,7 @@ from openrag.worker.celery_app import celery_app
 from openrag.worker.event_runtime import (
     consume_document_lifecycle_once,
     consume_document_starts_once,
+    consume_run_commands_once,
     dispatch_outbox_once,
 )
 
@@ -64,6 +65,21 @@ def consume_document_lifecycle_task(task: Task) -> dict[str, int]:
     hostname = str(getattr(task.request, "hostname", None) or "event-worker")
     consumer = f"document-lifecycle:{hostname}"[:120]
     return asyncio.run(consume_document_lifecycle_once(consumer=consumer))
+
+
+@celery_app.task(
+    bind=True,
+    name="events.consume_run_commands",
+    ignore_result=True,
+    soft_time_limit=20,
+    time_limit=25,
+)
+def consume_run_commands_task(task: Task) -> dict[str, int]:
+    """Queue one bounded batch of attested durable run commands."""
+
+    hostname = str(getattr(task.request, "hostname", None) or "event-worker")
+    consumer = f"run-commands:{hostname}"[:120]
+    return asyncio.run(consume_run_commands_once(consumer=consumer))
 
 
 @celery_app.task(
