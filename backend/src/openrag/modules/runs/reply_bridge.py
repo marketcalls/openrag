@@ -32,6 +32,7 @@ _SOURCE_FIELDS = (
 _CITATION_FIELDS = (
     "marker",
     "document_id",
+    "chunk_ref",
     "document_version_id",
     "evidence_span_id",
     "document_name",

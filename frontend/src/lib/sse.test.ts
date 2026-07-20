@@ -11,6 +11,15 @@ test('parses a complete event', () => {
   expect(messages).toEqual([{ event: 'token', data: '{"delta":"Hi"}' }]);
 });
 
+test('attaches a valid replay id only to its event', () => {
+  const { messages, parser } = collect();
+  parser.feed('id: e1\nevent: token\ndata: 1\n\ndata: 2\n\n');
+  expect(messages).toEqual([
+    { id: 'e1', event: 'token', data: '1' },
+    { event: 'message', data: '2' },
+  ]);
+});
+
 test('reassembles events split across arbitrary chunk boundaries', () => {
   const { messages, parser } = collect();
   for (const chunk of ['eve', 'nt: tok', 'en\nda', 'ta: {"delta":"a', 'b"}\n', '\n']) {

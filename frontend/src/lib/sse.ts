@@ -1,6 +1,7 @@
 export interface SseMessage {
   event: string;
   data: string;
+  id?: string;
 }
 
 /** Incremental parser for the subset of the WHATWG SSE grammar OpenRAG consumes. */
@@ -10,11 +11,13 @@ export function createSseParser(onMessage: (message: SseMessage) => void): {
 } {
   let buffer = '';
   let event = 'message';
+  let id: string | undefined;
   let dataLines: string[] = [];
 
   const dispatch = () => {
-    if (dataLines.length) onMessage({ event, data: dataLines.join('\n') });
+    if (dataLines.length) onMessage({ event, data: dataLines.join('\n'), ...(id ? { id } : {}) });
     event = 'message';
+    id = undefined;
     dataLines = [];
   };
 
@@ -29,6 +32,7 @@ export function createSseParser(onMessage: (message: SseMessage) => void): {
     let value = colon === -1 ? '' : line.slice(colon + 1);
     if (value.startsWith(' ')) value = value.slice(1);
     if (field === 'event') event = value;
+    else if (field === 'id' && !value.includes('\0')) id = value;
     else if (field === 'data') dataLines.push(value);
   };
 
