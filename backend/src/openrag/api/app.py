@@ -45,6 +45,7 @@ from openrag.modules.chat.service import Retriever
 from openrag.modules.events.redis_runtime import build_event_redis
 from openrag.modules.models.sync import sync_models_to_litellm
 from openrag.modules.operations.errors import record_error, top_application_frame
+from openrag.modules.operations.queue_metrics import collect_queue_ages
 from openrag.modules.operations.schemas import ErrorOccurrenceCreate, HttpMethod
 from openrag.modules.retrieval.service import retrieve
 
@@ -70,11 +71,17 @@ def create_app(
     if session_factory is None:
         owned_engine = build_configured_engine(settings)
         session_factory = build_session_factory(owned_engine)
+
+    async def queue_age_provider() -> dict[str, float]:
+        async with session_factory() as session:
+            return await collect_queue_ages(session)
+
     runtime_metrics = RuntimeMetricsSampler(
         runtime=telemetry,
         engine=owned_engine,
         database_capacity=settings.database_pool_size + settings.database_max_overflow,
         interval_seconds=settings.runtime_metric_interval_seconds,
+        queue_age_provider=queue_age_provider,
     )
     owns_redis = redis_client is None
     if redis_client is None:

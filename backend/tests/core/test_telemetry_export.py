@@ -1,3 +1,4 @@
+import pytest
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.resources import Resource
@@ -65,6 +66,7 @@ def test_rag_metrics_have_only_bounded_operational_labels() -> None:
         event_loop_lag_seconds=0.012,
         database_pool_utilization_ratio=0.5,
     )
+    runtime.record_queue_age(queue="runs", age_seconds=12.5)
 
     data = reader.get_metrics_data()
     metrics = {
@@ -85,8 +87,27 @@ def test_rag_metrics_have_only_bounded_operational_labels() -> None:
         'evaluation.correct_refusal_ratio',
         'event_loop.lag_seconds',
         'db.pool_utilization_ratio',
+        'queue.oldest_job_age_seconds',
     } <= set(metrics)
-    for metric in metrics.values():
+    for name, metric in metrics.items():
         for point in metric.data.data_points:
-            assert set(point.attributes) <= {'route', 'outcome', 'error_category'}
+            if name == 'queue.oldest_job_age_seconds':
+                assert set(point.attributes) == {'queue'}
+                assert point.attributes['queue'] == 'runs'
+            else:
+                assert set(point.attributes) <= {'route', 'outcome', 'error_category'}
+    runtime.shutdown()
+
+
+def test_queue_metric_rejects_unbounded_labels() -> None:
+    reader = InMemoryMetricReader()
+    provider = MeterProvider(metric_readers=[reader])
+    runtime = TelemetryRuntime(
+        endpoint='memory://',
+        resource=Resource.create({'service.name': 'test'}),
+        meter_provider=provider,
+    )
+
+    with pytest.raises(ValueError, match='queue_metric_label_invalid'):
+        runtime.record_queue_age(queue='tenant-controlled-name', age_seconds=1)
     runtime.shutdown()

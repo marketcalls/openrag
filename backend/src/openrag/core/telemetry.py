@@ -77,6 +77,9 @@ _SENSITIVE_KEYS = frozenset(
         "exc_info",
     }
 )
+_QUEUE_METRIC_LABELS = frozenset(
+    {"runs", "ingestion", "summaries", "evaluations", "outbox", "embeddings"}
+)
 
 
 @dataclass(slots=True)
@@ -100,6 +103,7 @@ class TelemetryRuntime:
     _evaluation_refusal: GaugeInstrument | None = field(default=None, init=False)
     _event_loop_lag: GaugeInstrument | None = field(default=None, init=False)
     _database_pool_utilization: GaugeInstrument | None = field(default=None, init=False)
+    _queue_oldest_job_age: GaugeInstrument | None = field(default=None, init=False)
 
     @property
     def export_enabled(self) -> bool:
@@ -216,6 +220,19 @@ class TelemetryRuntime:
                 min(1.0, max(0.0, database_pool_utilization_ratio)),
                 {},
             )
+
+    def record_queue_age(self, *, queue: str, age_seconds: float) -> None:
+        if queue not in _QUEUE_METRIC_LABELS:
+            raise ValueError("queue_metric_label_invalid")
+        if self.meter_provider is None:
+            return
+        if self._queue_oldest_job_age is None:
+            meter = self.meter_provider.get_meter("openrag.runtime")
+            self._queue_oldest_job_age = meter.create_gauge(
+                "queue.oldest_job_age_seconds",
+                unit="s",
+            )
+        self._queue_oldest_job_age.set(max(0.0, age_seconds), {"queue": queue})
 
 
 _ACTIVE_RUNTIME: TelemetryRuntime | None = None
