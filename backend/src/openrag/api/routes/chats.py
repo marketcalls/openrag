@@ -11,7 +11,6 @@ from openrag.core.config import Settings, get_settings
 from openrag.core.errors import ConflictError
 from openrag.modules.chat import service
 from openrag.modules.chat.events import SSEEvent
-from openrag.modules.chat.llm import LLMStreamer
 from openrag.modules.chat.models import Chat
 from openrag.modules.chat.schemas import (
     ChatCreate,
@@ -24,13 +23,17 @@ from openrag.modules.chat.schemas import (
 )
 from openrag.modules.models import service as models_service
 from openrag.modules.models.models import Model
-from openrag.modules.orchestration.runtime import create_model_streamer
+from openrag.modules.orchestration.runtime import (
+    ModelExecution,
+    create_model_execution,
+)
 from openrag.modules.tenancy import service as tenancy_service
 from openrag.modules.tenancy.context import (
     TenantContext,
     get_tenant_context,
     rate_limit_user,
 )
+from openrag.modules.tenancy.models import Workspace
 
 router = APIRouter(tags=["chat"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -47,16 +50,30 @@ _SSE_HEADERS = {
 }
 
 
-async def _streamer(
+async def _execution(
     request: Request,
     settings: Settings,
     session: AsyncSession,
     model: Model,
-) -> LLMStreamer:
-    injected: LLMStreamer | None = request.app.state.llm_streamer
+    context: TenantContext,
+    workspace: Workspace,
+) -> ModelExecution:
+    injected = request.app.state.llm_streamer
     if injected is not None:
-        return injected
-    return await create_model_streamer(session, model, settings)
+        return ModelExecution(
+            streamer=injected,
+            agent_gatherer_factory=None,
+            answer_validator=None,
+        )
+    return await create_model_execution(
+        session,
+        model,
+        settings,
+        session_factory=request.app.state.session_factory,
+        context=context,
+        workspace_id=workspace.id,
+        document_authority_enabled=workspace.document_authority_enabled,
+    )
 
 
 async def _encoded(
@@ -79,17 +96,20 @@ async def _resolve_model(
     context: TenantContext,
     chat: Chat,
     requested_model_id: UUID | None,
-) -> Model:
+) -> tuple[Workspace, Model]:
     workspace = await tenancy_service.get_workspace(
         session,
         context,
         chat.workspace_id,
         "chat.use",
     )
-    return await models_service.resolve_model(
-        session,
-        requested_model_id=requested_model_id,
-        default_model_id=workspace.default_model_id,
+    return (
+        workspace,
+        await models_service.resolve_model(
+            session,
+            requested_model_id=requested_model_id,
+            default_model_id=workspace.default_model_id,
+        ),
     )
 
 
@@ -118,7 +138,7 @@ async def send_message(
     context: SendContextDep,
 ) -> StreamingResponse:
     chat = await service.get_chat(session, context, chat_id)
-    model = await _resolve_model(
+    workspace, model = await _resolve_model(
         session,
         context,
         chat,
@@ -130,7 +150,14 @@ async def send_message(
         body.parent_message_id,
         explicit="parent_message_id" in body.model_fields_set,
     )
-    streamer = await _streamer(request, settings, session, model)
+    execution = await _execution(
+        request,
+        settings,
+        session,
+        model,
+        context,
+        workspace,
+    )
     user_message = await service.add_message(
         session,
         context,
@@ -146,9 +173,12 @@ async def send_message(
             chat=chat,
             user_message=user_message,
             model=model,
-            streamer=streamer,
+            streamer=execution.streamer,
             retriever=request.app.state.retriever,
             settings=settings,
+            agent_gatherer_factory=execution.agent_gatherer_factory,
+            answer_validator=execution.answer_validator,
+            retrieval_min_score=workspace.min_score,
         )
     )
 
@@ -169,7 +199,7 @@ async def regenerate(
     )
     if message.role != service.ROLE_ASSISTANT or message.parent_message_id is None:
         raise ConflictError("only assistant messages can be regenerated")
-    model = await _resolve_model(
+    workspace, model = await _resolve_model(
         session,
         context,
         chat,
@@ -177,7 +207,14 @@ async def regenerate(
     )
     messages = await service.list_messages(session, chat.id)
     user_message = next(item for item in messages if item.id == message.parent_message_id)
-    streamer = await _streamer(request, settings, session, model)
+    execution = await _execution(
+        request,
+        settings,
+        session,
+        model,
+        context,
+        workspace,
+    )
     return _sse(
         service.stream_reply(
             session,
@@ -185,9 +222,12 @@ async def regenerate(
             chat=chat,
             user_message=user_message,
             model=model,
-            streamer=streamer,
+            streamer=execution.streamer,
             retriever=request.app.state.retriever,
             settings=settings,
+            agent_gatherer_factory=execution.agent_gatherer_factory,
+            answer_validator=execution.answer_validator,
+            retrieval_min_score=workspace.min_score,
         )
     )
 

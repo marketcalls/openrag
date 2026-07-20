@@ -217,6 +217,7 @@ async def _execute_started_run(
             session_factory=session_factory,
             context=context,
             workspace_id=workspace.id,
+            document_authority_enabled=workspace.document_authority_enabled,
             reasoning_effort=cast(ReasoningEffort, run.reasoning_effort),
         )
         bridge = DurableReplyBridge(
@@ -241,6 +242,7 @@ async def _execute_started_run(
                 retriever=retrieve,
                 settings=settings,
                 agent_gatherer_factory=execution.agent_gatherer_factory,
+                answer_validator=execution.answer_validator,
                 retrieval_min_score=workspace.min_score,
                 context_recorder=lambda snapshot, memories: record_run_context(
                     session_factory,

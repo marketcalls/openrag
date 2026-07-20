@@ -73,6 +73,7 @@ from openrag.modules.orchestration.agent_loop import (
     EscalationContext,
     decide_escalation,
 )
+from openrag.modules.orchestration.answer_validation import BoundAnswerValidator
 from openrag.modules.orchestration.routing import QueryRoute, decide_route
 from openrag.modules.retrieval.authority import (
     AuthorizedEvidence,
@@ -108,6 +109,15 @@ _DEFAULT_CHAT_TITLE = "New chat"
 class ChatPage:
     items: tuple[Chat, ...]
     next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class StrictDraftResult:
+    answer: str
+    parts: tuple[str, ...]
+    usage: LLMUsage | None
+    citations: list[CitationRef]
+    refusal_reason: str
 
 
 def derive_chat_title(content: str, *, max_chars: int = 80) -> str:
@@ -530,6 +540,132 @@ async def _source_refs(
     return references
 
 
+def _citation_references(
+    answer: str,
+    sources: Sequence[SourceRef],
+) -> list[CitationRef]:
+    markers = parse_citation_markers(answer, len(sources))
+    by_marker = {source.marker: source for source in sources}
+    return [
+        CitationRef(
+            marker=marker,
+            document_id=by_marker[marker].document_id,
+            chunk_ref=(
+                by_marker[marker].evidence_span_id
+                or (
+                    f"{by_marker[marker].document_id}:"
+                    f"{by_marker[marker].page}:"
+                    f"{by_marker[marker].chunk_index}"
+                )
+            ),
+            page=by_marker[marker].page,
+            score=by_marker[marker].score,
+            document_version_id=by_marker[marker].document_version_id,
+            evidence_span_id=by_marker[marker].evidence_span_id,
+            document_name=by_marker[marker].filename,
+            version_label=by_marker[marker].version_label,
+            section_label=by_marker[marker].section_label,
+            section_path=by_marker[marker].section_path,
+            locator_kind=by_marker[marker].locator_kind,
+            locator_label=by_marker[marker].locator_label,
+            content_hash=by_marker[marker].content_hash,
+            dense_score=by_marker[marker].dense_score,
+            sparse_score=by_marker[marker].sparse_score,
+            fused_score=by_marker[marker].fused_score,
+            rerank_score=by_marker[marker].rerank_score,
+        )
+        for marker in markers
+    ]
+
+
+def _merge_usage(left: LLMUsage | None, right: LLMUsage | None) -> LLMUsage | None:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return LLMUsage(
+        prompt_tokens=left.prompt_tokens + right.prompt_tokens,
+        completion_tokens=left.completion_tokens + right.completion_tokens,
+        estimated_cost_microusd=(
+            left.estimated_cost_microusd + right.estimated_cost_microusd
+        ),
+    )
+
+
+async def _validate_strict_draft(
+    *,
+    answer_validator: BoundAnswerValidator | None,
+    streamer: LLMStreamer,
+    model_name: str,
+    prompt: list[dict[str, str]],
+    question: str,
+    initial_parts: Sequence[str],
+    initial_usage: LLMUsage | None,
+    sources: Sequence[SourceRef],
+    evidence_texts: tuple[str, ...],
+) -> StrictDraftResult:
+    parts = list(initial_parts)
+    answer = "".join(parts)
+    citations = _citation_references(answer, sources)
+    usage = initial_usage
+    refusal_reason = "below_threshold"
+    if answer_validator is None or not citations:
+        return StrictDraftResult(answer, tuple(parts), usage, citations, refusal_reason)
+
+    validation = await answer_validator.validate(
+        question=question,
+        answer=answer,
+        evidence=evidence_texts,
+    )
+    usage = _merge_usage(usage, validation.usage)
+    if validation.status == "failed":
+        retry_prompt = [
+            prompt[0],
+            {
+                "role": "system",
+                "content": (
+                    "The previous draft failed grounded-answer validation. "
+                    "Regenerate once using only claims explicitly supported by "
+                    "the supplied evidence, cite every material claim, and omit "
+                    "anything unsupported."
+                ),
+            },
+            *prompt[1:],
+        ]
+        retry_parts: list[str] = []
+        retry_usage: LLMUsage | None = None
+        try:
+            async for item in streamer.stream(
+                model=model_name,
+                messages=retry_prompt,
+            ):
+                if isinstance(item, LLMDelta):
+                    retry_parts.append(item.text)
+                else:
+                    retry_usage = item
+        except UpstreamError:
+            retry_parts.clear()
+        usage = _merge_usage(usage, retry_usage)
+        regenerated = "".join(retry_parts)
+        regenerated_citations = _citation_references(regenerated, sources)
+        if regenerated and regenerated_citations:
+            second_validation = await answer_validator.validate(
+                question=question,
+                answer=regenerated,
+                evidence=evidence_texts,
+            )
+            usage = _merge_usage(usage, second_validation.usage)
+            validation = second_validation
+            if validation.status == "passed":
+                answer = regenerated
+                parts = retry_parts
+                citations = regenerated_citations
+    if validation.status != "passed":
+        citations = []
+        refusal_reason = f"strict_{validation.reason_code}"
+    return StrictDraftResult(answer, tuple(parts), usage, citations, refusal_reason)
+
+
 async def _persist_assistant(
     session: AsyncSession,
     context: TenantContext,
@@ -541,6 +677,9 @@ async def _persist_assistant(
     usage: LLMUsage | None,
     citations: list[CitationRef],
     refusal_reason: str = "below_threshold",
+    validation_policy_id: UUID | None = None,
+    validation_policy_version: int | None = None,
+    validation_verifier_model_id: UUID | None = None,
 ) -> Message:
     await tenancy_service.get_workspace(
         session,
@@ -583,6 +722,13 @@ async def _persist_assistant(
             if policy is None:
                 citations = []
                 refusal_reason = "grounding_policy_unavailable"
+            elif validation_policy_id is not None and (
+                policy.id != validation_policy_id
+                or policy.policy_version != validation_policy_version
+                or policy.verifier_model_id != validation_verifier_model_id
+            ):
+                citations = []
+                refusal_reason = "validation_policy_changed"
             else:
                 markers = [citation.marker for citation in citations]
                 if len(markers) != len(set(markers)) or min(markers) < 1:
@@ -832,6 +978,7 @@ async def stream_reply(
     settings: Settings,
     context_recorder: ContextRecorder | None = None,
     agent_gatherer_factory: AgentGathererFactory | None = None,
+    answer_validator: BoundAnswerValidator | None = None,
     retrieval_top_k: int = 8,
     retrieval_min_score: float = 0.35,
 ) -> AsyncIterator[SSEEvent]:
@@ -1081,39 +1228,25 @@ async def stream_reply(
         yield error_event(exc.detail or "LLM provider error")
         return
 
-    answer = "".join(parts)
-    markers = parse_citation_markers(answer, len(sources))
-    by_marker = {source.marker: source for source in sources}
-    citation_references = [
-        CitationRef(
-            marker=marker,
-            document_id=by_marker[marker].document_id,
-            chunk_ref=(
-                by_marker[marker].evidence_span_id
-                or (
-                    f"{by_marker[marker].document_id}:"
-                    f"{by_marker[marker].page}:"
-                    f"{by_marker[marker].chunk_index}"
-                )
-            ),
-            page=by_marker[marker].page,
-            score=by_marker[marker].score,
-            document_version_id=by_marker[marker].document_version_id,
-            evidence_span_id=by_marker[marker].evidence_span_id,
-            document_name=by_marker[marker].filename,
-            version_label=by_marker[marker].version_label,
-            section_label=by_marker[marker].section_label,
-            section_path=by_marker[marker].section_path,
-            locator_kind=by_marker[marker].locator_kind,
-            locator_label=by_marker[marker].locator_label,
-            content_hash=by_marker[marker].content_hash,
-            dense_score=by_marker[marker].dense_score,
-            sparse_score=by_marker[marker].sparse_score,
-            fused_score=by_marker[marker].fused_score,
-            rerank_score=by_marker[marker].rerank_score,
-        )
-        for marker in markers
-    ]
+    strict_draft = await _validate_strict_draft(
+        answer_validator=answer_validator,
+        streamer=streamer,
+        model_name=model_name,
+        prompt=prompt,
+        question=user_message.content,
+        initial_parts=parts,
+        initial_usage=usage,
+        sources=sources,
+        evidence_texts=tuple(
+            f"[{marker}] {chunk.text[:3_980]}"
+            for marker, chunk in enumerate(result.chunks[:8], start=1)
+        ),
+    )
+    answer = strict_draft.answer
+    parts = list(strict_draft.parts)
+    usage = strict_draft.usage
+    citation_references = strict_draft.citations
+    refusal_reason = strict_draft.refusal_reason
     current_chat, current_parent = await get_message(
         session,
         context,
@@ -1128,6 +1261,16 @@ async def stream_reply(
         model_id=model_id,
         usage=usage,
         citations=citation_references,
+        refusal_reason=refusal_reason,
+        validation_policy_id=(
+            answer_validator.policy_id if answer_validator is not None else None
+        ),
+        validation_policy_version=(
+            answer_validator.policy_version if answer_validator is not None else None
+        ),
+        validation_verifier_model_id=(
+            answer_validator.verifier_model_id if answer_validator is not None else None
+        ),
     )
     persisted_citations = citation_references if message.answer_status != "refused" else []
     if persisted_citations:
