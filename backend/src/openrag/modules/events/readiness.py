@@ -8,6 +8,8 @@ from openrag.modules.events.streams import (
     DOCUMENT_COMMANDS_STREAM,
     DOCUMENT_EVENTS_GROUP,
     DOCUMENT_EVENTS_STREAM,
+    RUN_COMMANDS_GROUP,
+    RUN_COMMANDS_STREAM,
 )
 
 
@@ -77,6 +79,7 @@ async def check_event_transport(
         topology = (
             (DOCUMENT_EVENTS_STREAM, DOCUMENT_EVENTS_GROUP),
             (DOCUMENT_COMMANDS_STREAM, DOCUMENT_COMMANDS_GROUP),
+            (RUN_COMMANDS_STREAM, RUN_COMMANDS_GROUP),
         )
         for stream, expected_group in topology:
             groups = await redis.xinfo_groups(stream)
@@ -92,5 +95,5 @@ async def check_event_transport(
     return EventTransportStatus(
         ready=True,
         redis_version=version,
-        streams_checked=2,
+        streams_checked=3,
     )

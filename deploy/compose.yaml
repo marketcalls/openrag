@@ -82,7 +82,8 @@ services:
           --user default off \
           --user openrag on ">$${password}" "~openrag:*" \
           +ping +info "+config|get" +xadd +xgroup +xinfo \
-          +xreadgroup +xack +xautoclaim +xpending +waitaof
+          +xreadgroup +xread +xrange +xack +xautoclaim +xpending +waitaof \
+          +eval +get +set +incr +expire
     secrets:
       - event_redis_password
     networks:
@@ -209,6 +210,15 @@ services:
       - 0.0.0.0
       - --port
       - "8000"
+    environment:
+      <<: *openrag-environment
+      OPENRAG_EVENT_REDIS_URL: redis://openrag@event-redis:6379/0
+      OPENRAG_EVENT_REDIS_PASSWORD_FILE: /run/secrets/event_redis_password
+    secrets:
+      - event_redis_password
+    networks:
+      - default
+      - event-network
     ports: ["127.0.0.1:${OPENRAG_API_PORT:-8000}:8000"]
     depends_on:
       bootstrap:
@@ -222,6 +232,8 @@ services:
       minio:
         condition: service_healthy
       litellm:
+        condition: service_healthy
+      event-redis:
         condition: service_healthy
     healthcheck:
       test:

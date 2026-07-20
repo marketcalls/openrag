@@ -11,6 +11,8 @@ from openrag.modules.events.streams import (
     DOCUMENT_COMMANDS_STREAM,
     DOCUMENT_EVENTS_GROUP,
     DOCUMENT_EVENTS_STREAM,
+    RUN_COMMANDS_GROUP,
+    RUN_COMMANDS_STREAM,
 )
 
 
@@ -32,6 +34,7 @@ class ReadyRedis:
         expected = {
             DOCUMENT_EVENTS_STREAM: DOCUMENT_EVENTS_GROUP,
             DOCUMENT_COMMANDS_STREAM: DOCUMENT_COMMANDS_GROUP,
+            RUN_COMMANDS_STREAM: RUN_COMMANDS_GROUP,
         }
         return [{b"name": expected[name].encode()}]
 
@@ -41,7 +44,7 @@ async def test_event_transport_readiness_checks_durability_and_groups() -> None:
 
     assert status.ready is True
     assert status.redis_version == "7.4.9"
-    assert status.streams_checked == 2
+    assert status.streams_checked == 3
 
 
 class UnsafePersistenceRedis(ReadyRedis):

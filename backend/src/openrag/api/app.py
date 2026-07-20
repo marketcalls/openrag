@@ -31,6 +31,7 @@ from openrag.core.errors import OpenRAGError
 from openrag.core.logging import configure_logging
 from openrag.modules.chat.llm import LLMStreamer
 from openrag.modules.chat.service import Retriever
+from openrag.modules.events.redis_runtime import build_event_redis
 from openrag.modules.models.sync import sync_models_to_litellm
 from openrag.modules.retrieval.service import retrieve
 
@@ -38,6 +39,7 @@ from openrag.modules.retrieval.service import retrieve
 def create_app(
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     redis_client: Redis | None = None,
+    event_redis_client: Redis | None = None,
     litellm_transport: httpx.AsyncBaseTransport | None = None,
     retriever: Retriever | None = None,
     llm_streamer: LLMStreamer | None = None,
@@ -51,6 +53,15 @@ def create_app(
     owns_redis = redis_client is None
     if redis_client is None:
         redis_client = Redis.from_url(settings.redis_url)
+    owns_event_redis = False
+    if event_redis_client is None:
+        if settings.event_redis_url is not None:
+            event_redis_client = build_event_redis(settings)
+            owns_event_redis = True
+        elif settings.environment.lower() in {"prod", "production"}:
+            raise RuntimeError("event_redis_configuration_required")
+        else:
+            event_redis_client = redis_client
     logger = structlog.get_logger("openrag.api")
 
     @asynccontextmanager
@@ -69,15 +80,19 @@ def create_app(
         try:
             yield
         finally:
+            if owns_event_redis:
+                await runtime_app.state.event_redis.aclose()
             if owns_redis:
                 await runtime_app.state.redis.aclose()
             if owned_engine is not None:
                 await owned_engine.dispose()
 
+    production = settings.environment.lower() in {"prod", "production"}
     app = FastAPI(
         title="OpenRAG",
-        docs_url="/api/docs",
-        openapi_url="/api/openapi.json",
+        docs_url=None if production else "/api/docs",
+        redoc_url=None,
+        openapi_url=None if production else "/api/openapi.json",
         lifespan=lifespan,
     )
     app.add_middleware(
@@ -89,6 +104,7 @@ def create_app(
     )
     app.state.session_factory = session_factory
     app.state.redis = redis_client
+    app.state.event_redis = event_redis_client
     app.state.litellm_transport = litellm_transport
     app.state.retriever = retriever if retriever is not None else retrieve
     app.state.llm_streamer = llm_streamer

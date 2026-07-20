@@ -2,10 +2,8 @@
 
 import argparse
 import asyncio
-from pathlib import Path
 from typing import cast
 
-from redis.asyncio import Redis
 from sqlalchemy import select
 
 from openrag.core.config import Settings, get_settings
@@ -28,44 +26,8 @@ from openrag.modules.events.readiness import (
     ReadinessRedis,
     check_event_transport,
 )
+from openrag.modules.events.redis_runtime import build_event_redis
 from openrag.modules.events.streams import StreamAdminRedis, ensure_streams
-
-
-class EventRuntimeConfigurationError(RuntimeError):
-    """Fail-closed event component configuration error."""
-
-
-def _read_event_redis_password(settings: Settings) -> str:
-    path_value = settings.event_redis_password_file
-    if path_value is None:
-        raise EventRuntimeConfigurationError("event_redis_password_file_required")
-    path = Path(path_value)
-    try:
-        if not path.is_file() or path.stat().st_size > 1024:
-            raise EventRuntimeConfigurationError("event_redis_password_file_invalid")
-        password = path.read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        raise EventRuntimeConfigurationError(
-            "event_redis_password_file_unreadable"
-        ) from exc
-    if not 16 <= len(password) <= 512:
-        raise EventRuntimeConfigurationError("event_redis_password_invalid")
-    return password
-
-
-def _build_event_redis(settings: Settings) -> Redis:
-    if settings.event_redis_url is None:
-        raise EventRuntimeConfigurationError("event_redis_url_required")
-    return cast(
-        Redis,
-        Redis.from_url(
-            settings.event_redis_url,
-            password=_read_event_redis_password(settings),
-            socket_connect_timeout=3,
-            socket_timeout=10,
-            health_check_interval=15,
-        ),
-    )
 
 
 async def dispatch_outbox_once(
@@ -76,7 +38,7 @@ async def dispatch_outbox_once(
     resolved = settings or get_settings()
     engine = build_engine(resolved.database_url)
     session_factory = build_session_factory(engine)
-    redis = _build_event_redis(resolved)
+    redis = build_event_redis(resolved)
     counts = {
         "claimed": 0,
         "published": 0,
@@ -118,7 +80,7 @@ async def consume_document_starts_once(
     resolved = settings or get_settings()
     engine = build_engine(resolved.database_url)
     session_factory = build_session_factory(engine)
-    redis = _build_event_redis(resolved)
+    redis = build_event_redis(resolved)
     try:
         async with redis.client() as connection:
             await ensure_streams(cast(StreamAdminRedis, connection))
@@ -147,7 +109,7 @@ async def consume_document_lifecycle_once(
     resolved = settings or get_settings()
     engine = build_engine(resolved.database_url)
     session_factory = build_session_factory(engine)
-    redis = _build_event_redis(resolved)
+    redis = build_event_redis(resolved)
     try:
         async with redis.client() as connection:
             await ensure_streams(cast(StreamAdminRedis, connection))
@@ -173,7 +135,7 @@ async def event_runtime_readiness(
 
     resolved = settings or get_settings()
     engine = build_engine(resolved.database_url)
-    redis = _build_event_redis(resolved)
+    redis = build_event_redis(resolved)
     try:
         async with engine.connect() as connection:
             await connection.execute(select(1))
