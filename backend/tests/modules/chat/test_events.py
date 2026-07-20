@@ -11,6 +11,7 @@ from openrag.modules.chat.events import (
     done_event,
     error_event,
     retrieval_started_event,
+    route_selected_event,
     sources_event,
     token_event,
 )
@@ -70,6 +71,10 @@ def test_all_event_names_and_payloads() -> None:
     )
 
     assert retrieval_started_event().event == "retrieval_started"
+    assert route_selected_event("direct", "safe_greeting").data == {
+        "route": "direct",
+        "reason_code": "safe_greeting",
+    }
     assert sources_event([source]).data == {
         "sources": [
             {

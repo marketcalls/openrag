@@ -63,6 +63,13 @@ def retrieval_started_event() -> SSEEvent:
     return SSEEvent("retrieval_started", {})
 
 
+def route_selected_event(route: str, reason_code: str) -> SSEEvent:
+    return SSEEvent(
+        "route_selected",
+        {"route": route, "reason_code": reason_code},
+    )
+
+
 def sources_event(sources: list[SourceRef]) -> SSEEvent:
     return SSEEvent(
         "sources",

@@ -103,8 +103,7 @@ export function ChatPage() {
     );
   };
 
-  const busy =
-    stream.status === 'retrieving' || stream.status === 'streaming' || stream.status === 'done';
+  const busy = !['idle', 'error'].includes(stream.status);
   const showStream = stream.status !== 'idle' && !streamedInTree;
 
   return (

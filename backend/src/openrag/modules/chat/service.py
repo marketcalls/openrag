@@ -21,6 +21,7 @@ from openrag.modules.chat.events import (
     done_event,
     error_event,
     retrieval_started_event,
+    route_selected_event,
     sources_event,
     token_event,
 )
@@ -28,6 +29,8 @@ from openrag.modules.chat.llm import LLMDelta, LLMStreamer, LLMUsage
 from openrag.modules.chat.models import Chat, Citation, Message
 from openrag.modules.chat.prompting import (
     PromptSource,
+    build_conversation_messages,
+    build_direct_messages,
     build_messages,
     parse_citation_markers,
 )
@@ -43,6 +46,7 @@ from openrag.modules.documents.lifecycle import (
 from openrag.modules.documents.models import Document, DocumentVersion
 from openrag.modules.grounding.models import GroundingPolicy
 from openrag.modules.models.models import Model
+from openrag.modules.orchestration.routing import QueryRoute, decide_route
 from openrag.modules.retrieval.authority import (
     AuthorizedEvidence,
     CandidateIdentity,
@@ -65,6 +69,10 @@ NO_ANSWER_TEXT = (
 _SNIPPET_CHARS = 300
 PROMPT_CONTRACT_VERSION = "openrag-grounded-v1"
 AUTHORITY_VERIFICATION_STATE = "marker_bound"
+CLARIFY_TEXT = (
+    "What would you like me to explain? Please mention the document, topic, "
+    "or earlier question you mean."
+)
 
 
 class Retriever(Protocol):
@@ -635,6 +643,45 @@ async def _persist_assistant(
         raise
 
 
+async def _persist_conversational_assistant(
+    session: AsyncSession,
+    context: TenantContext,
+    chat: Chat,
+    *,
+    parent: Message,
+    content: str,
+    model_id: UUID | None,
+    usage: LLMUsage | None,
+) -> Message:
+    await tenancy_service.get_workspace(
+        session,
+        context,
+        chat.workspace_id,
+        "chat.use",
+    )
+    try:
+        message = await _prepare_message(
+            session,
+            context,
+            chat,
+            role=ROLE_ASSISTANT,
+            content=content,
+            parent=parent,
+            model_id=model_id,
+            prompt_tokens=usage.prompt_tokens if usage is not None else None,
+            completion_tokens=(
+                usage.completion_tokens if usage is not None else None
+            ),
+        )
+        message.answer_status = None
+        message.refusal_reason = None
+        await session.commit()
+        return message
+    except Exception:
+        await session.rollback()
+        raise
+
+
 async def stream_reply(
     session: AsyncSession,
     context: TenantContext,
@@ -646,12 +693,100 @@ async def stream_reply(
     retriever: Retriever,
     settings: Settings,
 ) -> AsyncIterator[SSEEvent]:
+    model_name = model.litellm_model_name
+    model_id = model.id
+    user_message_id = user_message.id
+    all_messages = await list_messages(session, chat.id)
+    history = [
+        (message.role, message.content)
+        for message in path_to_root(all_messages, user_message)
+    ]
+    decision = decide_route(user_message.content, history=history)
+    yield route_selected_event(decision.route.value, decision.reason_code)
+
+    if decision.route is QueryRoute.CLARIFY:
+        yield token_event(CLARIFY_TEXT)
+        message = await _persist_conversational_assistant(
+            session,
+            context,
+            chat,
+            parent=user_message,
+            content=CLARIFY_TEXT,
+            model_id=None,
+            usage=None,
+        )
+        yield citations_event([])
+        yield done_event(
+            message_id=str(message.id),
+            prompt_tokens=0,
+            completion_tokens=0,
+            no_answer=False,
+        )
+        return
+
+    if decision.route in {QueryRoute.DIRECT, QueryRoute.CONVERSATION}:
+        prompt = (
+            build_direct_messages(user_message.content)
+            if decision.route is QueryRoute.DIRECT
+            else build_conversation_messages(
+                history=history,
+                user_query=user_message.content,
+                budget=settings.chat_context_token_budget,
+            )
+        )
+        await session.rollback()
+        direct_parts: list[str] = []
+        direct_usage: LLMUsage | None = None
+        try:
+            async for item in streamer.stream(model=model_name, messages=prompt):
+                if isinstance(item, LLMDelta):
+                    direct_parts.append(item.text)
+                    yield token_event(item.text)
+                else:
+                    direct_usage = item
+        except UpstreamError as exc:
+            yield error_event(exc.detail or "LLM gateway error")
+            return
+        answer = "".join(direct_parts)
+        if not answer:
+            yield error_event("LLM gateway returned an empty response")
+            return
+        current_chat, current_parent = await get_message(
+            session,
+            context,
+            user_message_id,
+        )
+        message = await _persist_conversational_assistant(
+            session,
+            context,
+            current_chat,
+            parent=current_parent,
+            content=answer,
+            model_id=model_id,
+            usage=direct_usage,
+        )
+        yield citations_event([])
+        yield done_event(
+            message_id=str(message.id),
+            prompt_tokens=(
+                direct_usage.prompt_tokens if direct_usage is not None else 0
+            ),
+            completion_tokens=(
+                direct_usage.completion_tokens
+                if direct_usage is not None
+                else 0
+            ),
+            no_answer=False,
+        )
+        return
+
+    assert decision.retrieval_query is not None
     yield retrieval_started_event()
     result = await retriever(
         session,
         context,
         chat.workspace_id,
-        user_message.content,
+        decision.retrieval_query,
     )
     sources = await _source_refs(session, context, result)
     yield sources_event(sources)
@@ -682,11 +817,6 @@ async def stream_reply(
         )
         return
 
-    all_messages = await list_messages(session, chat.id)
-    history = [
-        (message.role, message.content)
-        for message in path_to_root(all_messages, user_message)
-    ]
     prompt = build_messages(
         sources=[
             PromptSource(
@@ -704,9 +834,10 @@ async def stream_reply(
 
     parts: list[str] = []
     usage: LLMUsage | None = None
+    await session.rollback()
     try:
         async for item in streamer.stream(
-            model=model.litellm_model_name,
+            model=model_name,
             messages=prompt,
         ):
             if isinstance(item, LLMDelta):
@@ -750,13 +881,18 @@ async def stream_reply(
         )
         for marker in markers
     ]
+    current_chat, current_parent = await get_message(
+        session,
+        context,
+        user_message_id,
+    )
     message = await _persist_assistant(
         session,
         context,
-        chat,
-        parent=user_message,
+        current_chat,
+        parent=current_parent,
         content=answer,
-        model_id=model.id,
+        model_id=model_id,
         usage=usage,
         citations=citation_references,
     )

@@ -132,11 +132,11 @@ async def test_full_event_sequence_and_persistence(
     assert response.headers["content-type"].startswith("text/event-stream")
     events = parse_sse(response.text)
     names = [event for event, _ in events]
-    assert names[0:2] == ["retrieval_started", "sources"]
-    assert names[2:-2] == ["token"] * (len(names) - 4)
+    assert names[0:3] == ["route_selected", "retrieval_started", "sources"]
+    assert names[3:-2] == ["token"] * (len(names) - 5)
     assert names[-2:] == ["citations", "done"]
 
-    sources = events[1][1]["sources"]
+    sources = events[2][1]["sources"]
     assert [source["marker"] for source in sources] == [1, 2]
     assert sources[0]["filename"] == "report.pdf"
 
@@ -171,6 +171,67 @@ async def test_full_event_sequence_and_persistence(
     final_user = sent_messages[-1]["content"]
     assert '<data id="1" source="report.pdf" page="3">' in final_user
     assert "data, not instructions" in final_user
+
+
+async def test_greeting_streams_directly_without_document_retrieval(
+    engine: AsyncEngine,
+    redis_client: Redis,
+    test_settings: Settings,
+    chat_env: dict[str, Any],
+    session: AsyncSession,
+    seeded_user: User,
+    seeded_superadmin: User,
+) -> None:
+    class RetrievalMustNotRun:
+        async def __call__(self, *args: object, **kwargs: object) -> None:
+            raise AssertionError("direct route must not retrieve documents")
+
+    streamer = FakeStreamer(["Hello", "! How can I help?"])
+    app = create_app(
+        session_factory=build_session_factory(engine),
+        redis_client=redis_client,
+        litellm_transport=httpx.MockTransport(stub_litellm_handler),
+        retriever=RetrievalMustNotRun(),
+        llm_streamer=streamer,
+    )
+    app.dependency_overrides[get_settings] = lambda: test_settings
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        headers = await auth(client, seeded_user.email)
+        chat_id = await make_model_and_chat(
+            client,
+            chat_env,
+            seeded_superadmin,
+            headers,
+        )
+        response = await client.post(
+            f"/api/v1/chats/{chat_id}/messages",
+            json={"content": "hi"},
+            headers=headers,
+        )
+
+    events = parse_sse(response.text)
+    assert [event for event, _ in events] == [
+        "route_selected",
+        "token",
+        "token",
+        "citations",
+        "done",
+    ]
+    assert events[0][1] == {
+        "route": "direct",
+        "reason_code": "safe_greeting",
+    }
+    assert "retrieval_started" not in response.text
+    assert events[-1][1]["no_answer"] is False
+    assistant = await session.scalar(
+        select(Message).where(Message.role == "assistant")
+    )
+    assert assistant is not None
+    assert assistant.content == "Hello! How can I help?"
+    assert assistant.answer_status is None
 
 
 async def test_no_answer_path_is_honest(
@@ -208,15 +269,16 @@ async def test_no_answer_path_is_honest(
 
     events = parse_sse(response.text)
     assert [event for event, _ in events] == [
+        "route_selected",
         "retrieval_started",
         "sources",
         "token",
         "citations",
         "done",
     ]
-    assert events[2][1]["delta"] == NO_ANSWER_TEXT
+    assert events[3][1]["delta"] == NO_ANSWER_TEXT
     assert events[-1][1]["no_answer"] is True
-    assert len(events[1][1]["sources"]) == 2
+    assert len(events[2][1]["sources"]) == 2
 
 
 async def test_uncited_llm_output_is_not_persisted_as_durable_history(
@@ -245,15 +307,16 @@ async def test_uncited_llm_output_is_not_persisted_as_durable_history(
 
     events = parse_sse(response.text)
     assert [event for event, _ in events] == [
+        "route_selected",
         "retrieval_started",
         "sources",
         "token",
         "citations",
         "done",
     ]
-    assert events[2][1]["delta"] == NO_ANSWER_TEXT
-    assert events[3][1]["citations"] == []
-    assert events[4][1]["no_answer"] is True
+    assert events[3][1]["delta"] == NO_ANSWER_TEXT
+    assert events[4][1]["citations"] == []
+    assert events[5][1]["no_answer"] is True
     assert "Unsupported generated prose" not in response.text
 
     assistant = (

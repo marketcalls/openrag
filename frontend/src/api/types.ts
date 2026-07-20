@@ -27,6 +27,7 @@ export type EmbeddingDeploymentCreate = components['schemas']['EmbeddingDeployme
 export type EmbeddingDeploymentOut = components['schemas']['EmbeddingDeploymentOut'];
 
 export type DocumentStatus = DocumentOut['status'];
+export type ChatRoute = 'direct' | 'conversation' | 'rag' | 'analytics' | 'clarify';
 
 export interface SourceRef {
   marker: number;

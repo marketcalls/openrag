@@ -1,14 +1,22 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 
-import type { CitationRef, SourceRef } from '@/api/types';
+import type { ChatRoute, CitationRef, SourceRef } from '@/api/types';
 
 import { streamChatSse, type ChatSseEvent } from './stream';
 
-export type StreamStatus = 'idle' | 'retrieving' | 'streaming' | 'done' | 'error';
+export type StreamStatus =
+  | 'idle'
+  | 'routing'
+  | 'retrieving'
+  | 'generating'
+  | 'streaming'
+  | 'done'
+  | 'error';
 
 export interface ChatStreamState {
   status: StreamStatus;
+  route: ChatRoute | null;
   text: string;
   sources: SourceRef[];
   citations: CitationRef[];
@@ -20,6 +28,7 @@ export interface ChatStreamState {
 
 const IDLE: ChatStreamState = {
   status: 'idle',
+  route: null,
   text: '',
   sources: [],
   citations: [],
@@ -31,6 +40,17 @@ const IDLE: ChatStreamState = {
 
 function reduceStream(state: ChatStreamState, event: ChatSseEvent): ChatStreamState {
   switch (event.type) {
+    case 'route_selected':
+      return {
+        ...state,
+        route: event.route,
+        status:
+          event.route === 'direct' ||
+          event.route === 'conversation' ||
+          event.route === 'clarify'
+            ? 'generating'
+            : 'retrieving',
+      };
     case 'retrieval_started':
       return { ...state, status: 'retrieving' };
     case 'sources':
@@ -61,7 +81,7 @@ export function useChatStream(chatId: string | null) {
       abortController.current?.abort();
       const controller = new AbortController();
       abortController.current = controller;
-      setState({ ...IDLE, status: 'retrieving', pendingUserContent });
+      setState({ ...IDLE, status: 'routing', pendingUserContent });
       void streamChatSse(
         url,
         body,

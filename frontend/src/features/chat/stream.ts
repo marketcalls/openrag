@@ -1,8 +1,9 @@
 import { authFetch } from '@/api/client';
-import type { CitationRef, DoneInfo, SourceRef } from '@/api/types';
+import type { ChatRoute, CitationRef, DoneInfo, SourceRef } from '@/api/types';
 import { createSseParser, type SseMessage } from '@/lib/sse';
 
 export type ChatSseEvent =
+  | { type: 'route_selected'; route: ChatRoute; reasonCode: string }
   | { type: 'retrieval_started' }
   | { type: 'sources'; sources: SourceRef[] }
   | { type: 'token'; delta: string }
@@ -14,11 +15,32 @@ function objectValue(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : null;
 }
 
+const CHAT_ROUTES = new Set<ChatRoute>([
+  'direct',
+  'conversation',
+  'rag',
+  'analytics',
+  'clarify',
+]);
+
+function isChatRoute(value: unknown): value is ChatRoute {
+  return typeof value === 'string' && CHAT_ROUTES.has(value as ChatRoute);
+}
+
 function toEvent(message: SseMessage): ChatSseEvent {
   try {
     const data = objectValue(JSON.parse(message.data));
     if (!data) throw new Error('event payload is not an object');
     switch (message.event) {
+      case 'route_selected':
+        if (!isChatRoute(data.route) || typeof data.reason_code !== 'string') {
+          throw new Error('route fields missing');
+        }
+        return {
+          type: 'route_selected',
+          route: data.route,
+          reasonCode: data.reason_code,
+        };
       case 'retrieval_started':
         return { type: 'retrieval_started' };
       case 'sources':

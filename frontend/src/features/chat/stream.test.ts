@@ -27,6 +27,7 @@ test('emits authoritative typed events in order across transport chunks', async 
     'fetch',
     vi.fn(async () =>
       sseResponse([
+        'event: route_selected\ndata: {"route":"rag","reason_code":"substantive_default"}\n\n',
         'event: retrieval_started\ndata: {}\n\n',
         'event: sources\ndata: {"sources":[{"marker":1,"document_id":"d1","filename":"a.pdf","page":3,"chunk_index":2,"score":0.7,"snippet":"evidence"}]}\n\n',
         'event: token\ndata: {"del',
@@ -46,6 +47,7 @@ test('emits authoritative typed events in order across transport chunks', async 
   );
 
   expect(events.map((event) => event.type)).toEqual([
+    'route_selected',
     'retrieval_started',
     'sources',
     'token',
@@ -57,6 +59,32 @@ test('emits authoritative typed events in order across transport chunks', async 
     (event): event is Extract<ChatSseEvent, { type: 'token' }> => event.type === 'token',
   );
   expect(tokens.map((event) => event.delta).join('')).toBe('Hello');
+  expect(events[0]).toEqual({
+    type: 'route_selected',
+    route: 'rag',
+    reasonCode: 'substantive_default',
+  });
+});
+
+test('rejects an unknown public route code', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      sseResponse([
+        'event: route_selected\ndata: {"route":"secret_tool","reason_code":"x"}\n\n',
+      ]),
+    ),
+  );
+  const events: ChatSseEvent[] = [];
+
+  await streamChatSse(
+    '/api/v1/chats/c1/messages',
+    {},
+    (event) => events.push(event),
+    new AbortController().signal,
+  );
+
+  expect(events).toEqual([{ type: 'error', detail: 'Malformed route_selected frame' }]);
 });
 
 test('a non-OK response emits its problem detail as a terminal error', async () => {
