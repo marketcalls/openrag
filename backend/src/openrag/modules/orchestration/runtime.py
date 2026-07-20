@@ -16,6 +16,10 @@ from openrag.modules.orchestration.agent_gather import (
     AgentGatherer,
     AgentGathererFactory,
 )
+from openrag.modules.orchestration.agno_analytics import (
+    AgnoAnalyticsComposer,
+    AnalyticsComposer,
+)
 from openrag.modules.orchestration.agno_litellm import AgnoLiteLLMStreamer
 from openrag.modules.orchestration.agno_planner import AgnoPlanner
 from openrag.modules.orchestration.agno_validator import (
@@ -41,6 +45,7 @@ class ModelExecution:
     streamer: LLMStreamer
     agent_gatherer_factory: AgentGathererFactory | None
     answer_validator: BoundAnswerValidator | None
+    analytics_composer: AnalyticsComposer | None
 
 
 def build_agent_gatherer_factory(
@@ -147,6 +152,11 @@ async def create_model_execution(
             ),
         ),
         answer_validator=answer_validator,
+        analytics_composer=(
+            AgnoAnalyticsComposer(runtime)
+            if model.probe_status == "passed" and model.supports_structured_json
+            else None
+        ),
     )
 
 
