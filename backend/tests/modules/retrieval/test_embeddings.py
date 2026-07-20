@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from openrag.core.errors import UpstreamError
+from openrag.modules.retrieval import embeddings
 from openrag.modules.retrieval.embeddings import (
     HashDenseEmbedder,
     LiteLLMDenseEmbedder,
@@ -175,3 +176,30 @@ def test_sparse_bm25_hits_shared_terms() -> None:
 
     assert set(query.indices) & set(document.indices)
     assert all(value > 0 for value in document.values)
+
+
+def test_sparse_bm25_canonicalizes_unsorted_duplicate_indices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Values:
+        def __init__(self, values: list[int] | list[float]) -> None:
+            self._values = values
+
+        def tolist(self) -> list[int] | list[float]:
+            return self._values
+
+    class Result:
+        indices = Values([9, 2, 9])
+        values = Values([1.0, 3.0, 4.0])
+
+    class Model:
+        def embed(self, texts: list[str]) -> list[Result]:
+            assert texts == ["document"]
+            return [Result()]
+
+    monkeypatch.setattr(embeddings, "_bm25_model", lambda: Model())
+
+    [vector] = embed_sparse(["document"])
+
+    assert vector.indices == [2, 9]
+    assert vector.values == [3.0, 5.0]

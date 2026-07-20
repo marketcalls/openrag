@@ -5,12 +5,13 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Any, cast
 
 
 def render_compose(
     *extra_args: str,
     environment_overrides: dict[str, str] | None = None,
-) -> dict:  # type: ignore[type-arg]
+) -> dict[str, Any]:
     compose = Path(__file__).parents[2] / "deploy" / "compose.yaml"
     docker = shutil.which("docker")
     assert docker is not None
@@ -38,7 +39,7 @@ def render_compose(
             env=environment,
         )
     assert secret_value not in rendered.stdout
-    return json.loads(rendered.stdout)
+    return cast(dict[str, Any], json.loads(rendered.stdout))
 
 
 def test_compose_contains_complete_application_stack() -> None:
@@ -201,6 +202,52 @@ def test_event_transport_is_private_durable_and_failure_isolated() -> None:
     assert "secrets" not in services["enrichment-worker"]
     assert services["enrichment-worker"]["security_opt"] == ["no-new-privileges:true"]
     assert services["evaluation-worker"]["security_opt"] == ["no-new-privileges:true"]
+
+
+def test_local_compose_override_exposes_event_transport_on_loopback_only() -> None:
+    local_override = Path(__file__).parents[2] / "deploy" / "compose.local.yaml"
+    config = render_compose("-f", str(local_override))
+
+    assert config["services"]["event-redis"]["ports"] == [
+        {
+            "mode": "ingress",
+            "target": 6379,
+            "published": "56380",
+            "protocol": "tcp",
+            "host_ip": "127.0.0.1",
+        }
+    ]
+    assert set(config["services"]["event-redis"]["networks"]) == {
+        "default",
+        "event-network",
+    }
+    assert config["services"]["event-worker"]["command"][-3:] == [
+        "--concurrency=1",
+        "--pool=solo",
+        "--hostname=event-local@%h",
+    ]
+    assert config["services"]["run-worker"]["command"][-3:] == [
+        "--concurrency=1",
+        "--pool=solo",
+        "--hostname=runs-local@%h",
+    ]
+    assert config["services"]["ingestion-worker"]["command"][-3:] == [
+        "--concurrency=1",
+        "--pool=solo",
+        "--hostname=ingestion-local@%h",
+    ]
+    for service, hostname in (
+        ("worker", "interactive-local@%h"),
+        ("model-worker", "models-local@%h"),
+        ("evaluation-worker", "evaluations-local@%h"),
+        ("enrichment-worker", "enrichment-local@%h"),
+        ("summary-worker", "summaries-local@%h"),
+    ):
+        assert config["services"][service]["command"][-3:] == [
+            "--concurrency=1",
+            "--pool=solo",
+            f"--hostname={hostname}",
+        ]
 
 
 def test_observability_stores_are_private_and_grafana_is_loopback_only() -> None:

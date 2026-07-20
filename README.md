@@ -47,6 +47,45 @@ OpenRAG is planned to provide:
 6. The selected language model generates a streamed, grounded answer with citations.
 7. Usage, retrieval activity, administrative changes, and feedback feed operational and quality reporting.
 
+## Grounded analytical artifacts
+
+When a request explicitly asks for analysis, comparison, metrics, a chart, or a
+table, OpenRAG first produces the same citation-validated grounded Markdown
+answer used by normal RAG. Only after that answer passes the evidence and
+citation contract may a model with a passed `structured JSON` capability probe
+perform one bounded, non-streaming presentation call. The presentation call is
+supplemental: it can never add evidence, convert an insufficient answer into a
+successful answer, or replace the authoritative Markdown response.
+
+The only accepted contract is `analytics.v1`. It allows:
+
+- up to 8 source-bound KPI cards;
+- up to 12 total bar charts, line charts, semantic tables, and Markdown
+  explainers;
+- up to 50 chart categories, 8 series, 200 table rows, 12 columns, and 5
+  suggested follow-ups; and
+- a maximum serialized size of 49,152 UTF-8 bytes.
+
+Every KPI and block must cite one or more markers from the persisted citation
+snapshot. Unknown fields or component kinds, invalid markers, non-finite
+numbers, malformed table/chart shapes, HTML, scripts, URLs, executable
+expressions, control characters, and oversized values fail closed. Composition
+failure leaves the grounded answer intact and simply omits the analytical view.
+
+Artifacts are content-addressed, immutable, tenant scoped, persisted atomically
+with their assistant message, replayed through the durable event stream, and
+returned with historical chats. The browser reparses the contract before every
+render and uses a closed React component registry—never generated code. Charts
+include a screen-reader data table. Table CSV exports use RFC 4180 quoting and
+neutralize spreadsheet formulas; JSON export contains only the validated
+`analytics.v1` object. Export files are created locally in the browser.
+
+The extra model call is capped at 4,096 output tokens and 45 seconds, uses no
+tools or history, and is available only when the selected LiteLLM model has a
+passed structured-output probe. Operational telemetry records bounded timing,
+usage, state, and safe error codes; prompts, evidence text, artifact contents,
+credentials, and provider errors are excluded from logs and traces.
+
 ## Capability-based access control
 
 OpenRAG authorizes every protected request from current PostgreSQL state. A signed
@@ -187,7 +226,7 @@ Every listed service should be running or successfully completed, and readiness 
 
 ```bash
 docker compose -f deploy/compose.yaml logs --tail=200 \
-  api worker ingestion-worker enrichment-worker model-worker \
+  api worker ingestion-worker run-worker summary-worker enrichment-worker model-worker \
   event-worker event-scheduler migrate bootstrap web
 ```
 
@@ -314,10 +353,14 @@ Prerequisites: Docker, Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 2
 Start only the infrastructure:
 
 ```bash
-docker compose -f deploy/compose.yaml up -d postgres redis qdrant minio event-redis
+docker compose -f deploy/compose.yaml -f deploy/compose.local.yaml up -d \
+  postgres redis qdrant minio event-redis
 ```
 
-Prepare and start the backend:
+Prepare the backend, then export one shared local runtime profile for the API
+and every worker. Do not run the API with the TEI default while running workers
+with the hash embedder; query and document vectors must come from the same
+immutable embedding profile.
 
 ```bash
 cd backend
@@ -326,41 +369,60 @@ uv run alembic upgrade head
 OPENRAG_BOOTSTRAP_EMAIL=root@openrag.internal \
 OPENRAG_BOOTSTRAP_PASSWORD=changeme123 \
   uv run python -m openrag.bootstrap
-OPENRAG_EMBEDDING_BACKEND=hash \
-  uv run uvicorn --factory openrag.api.app:create_app --port 8000
+
+export OPENRAG_ENVIRONMENT=dev
+export OPENRAG_EMBEDDING_BACKEND=hash
+export OPENRAG_EMBEDDING_MODEL_ID=openrag-hash-v1
+export OPENRAG_EMBEDDING_DIM=1024
+export OPENRAG_EVENT_REDIS_URL=redis://openrag@127.0.0.1:56380/0
+export OPENRAG_EVENT_REDIS_PASSWORD_FILE=../data/event_redis_password
+
+uv run uvicorn --factory openrag.api.app:create_app --port 8000
 ```
 
-Start the ingestion worker in a second terminal from `backend/`:
+From `backend/`, start the durable event, run, and ingestion workers in three
+additional terminals. The solo pool is deliberate for the 4 GB Docker Desktop
+development profile and for macOS document-parser safety.
 
 ```bash
-OPENRAG_EMBEDDING_BACKEND=hash \
-  uv run celery -A openrag.worker.celery_app:celery_app \
-  worker -Q interactive,default -l info
+uv run celery -A openrag.worker.celery_app:celery_app worker \
+  -Q events -l warning --pool=solo --concurrency=1 \
+  --hostname=event-local@%h --without-gossip --without-mingle
+
+uv run celery -A openrag.worker.celery_app:celery_app worker \
+  -Q runs -l warning --pool=solo --concurrency=1 \
+  --hostname=runs-local@%h --without-gossip --without-mingle
+
+uv run celery -A openrag.worker.celery_app:celery_app worker \
+  -Q ingestion -l warning --pool=solo --concurrency=1 \
+  --hostname=ingestion-local@%h --without-gossip --without-mingle
 ```
 
-For local model registration and connection tests, start the bounded model
-probe queue and scheduler in two additional terminals:
+Use one memory-efficient threaded worker for the remaining local queues, then
+start the scheduler in another terminal:
 
 ```bash
-uv run celery -A openrag.worker.celery_app:celery_app \
-  worker -Q models -l info --concurrency=2
-uv run celery -A openrag.worker.celery_app:celery_app beat -l info
+uv run celery -A openrag.worker.celery_app:celery_app worker \
+  -Q models,evaluations,enrichment,summaries,interactive,default \
+  -l warning --pool=threads --concurrency=8 \
+  --hostname=aux-local@%h --without-gossip --without-mingle
+
+uv run celery -A openrag.worker.celery_app:celery_app beat -l warning
 ```
 
-If workspace document enrichment is enabled, also start its isolated queue:
-
-```bash
-uv run celery -A openrag.worker.celery_app:celery_app \
-  worker -Q enrichment -l info --concurrency=2
-```
+If `run-worker` is absent, a new chat can persist the user question but remain
+in a pending state indefinitely. If the ingestion worker or scheduler is
+absent, uploads remain queued. For a source checkout, keep the scheduler and
+workers on the host together; mixing a host scheduler with Docker workers can
+introduce clock skew and expired Celery ticks. Before building images, keep at
+least 10 GiB of free host disk; do not solve a space issue with
+`docker compose down -v`, because that deletes application data.
 
 New or reconfigured models remain unavailable until their measured LiteLLM
 probe passes. The provider key is decrypted only inside the probe worker and is
 never returned by the API or stored in probe results.
 
-On macOS, add `--pool=solo --concurrency=1` to the worker command. Celery's prefork pool can abort when document-parsing libraries initialize macOS frameworks inside a forked child.
-
-Start the frontend in a third terminal:
+Start the frontend in another terminal:
 
 ```bash
 cd frontend

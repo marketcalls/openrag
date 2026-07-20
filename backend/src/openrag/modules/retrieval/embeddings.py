@@ -180,10 +180,30 @@ def _bm25_model() -> Any:
 
 
 def embed_sparse(texts: list[str]) -> list[models.SparseVector]:
-    return [
-        models.SparseVector(
-            indices=embedding.indices.tolist(),
-            values=embedding.values.tolist(),
+    vectors: list[models.SparseVector] = []
+    for embedding in _bm25_model().embed(texts):
+        raw_indices = embedding.indices.tolist()
+        raw_values = embedding.values.tolist()
+        if len(raw_indices) != len(raw_values):
+            raise UpstreamError("invalid sparse embedding response")
+
+        canonical: dict[int, float] = {}
+        for raw_index, raw_value in zip(
+            raw_indices,
+            raw_values,
+            strict=True,
+        ):
+            index = int(raw_index)
+            value = float(raw_value)
+            if index < 0 or not math.isfinite(value):
+                raise UpstreamError("invalid sparse embedding response")
+            canonical[index] = canonical.get(index, 0.0) + value
+
+        indices = sorted(canonical)
+        vectors.append(
+            models.SparseVector(
+                indices=indices,
+                values=[canonical[index] for index in indices],
+            )
         )
-        for embedding in _bm25_model().embed(texts)
-    ]
+    return vectors

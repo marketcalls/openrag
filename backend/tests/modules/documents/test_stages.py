@@ -7,7 +7,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from openrag.core.db import naive_utc
-from openrag.modules.documents.models import DocumentVersion, IngestStageAttempt
+from openrag.modules.documents.models import (
+    Document,
+    DocumentVersion,
+    IngestStageAttempt,
+)
 from openrag.modules.documents.stages import (
     StageCheckpoint,
     claim_stage,
@@ -219,6 +223,9 @@ async def test_completion_rolls_back_result_and_stage_advance_together(
     session: AsyncSession,
 ) -> None:
     attempt, _ = await _seed_attempt(session)
+    baseline = await session.get(DocumentVersion, attempt.document_version_id)
+    assert baseline is not None
+    baseline_page_count = baseline.source_page_count
     factory = async_sessionmaker(engine, expire_on_commit=False)
     claim = await claim_stage(factory, owner="worker-a", lease_seconds=30)
     assert claim is not None
@@ -247,7 +254,7 @@ async def test_completion_rolls_back_result_and_stage_advance_together(
         count = await verify.scalar(select(func.count()).select_from(IngestStageAttempt))
     assert stored is not None and stored.state == "running"
     assert stored.output_digest is None
-    assert version is not None and version.source_page_count is None
+    assert version is not None and version.source_page_count == baseline_page_count
     assert count == 1
 
 
@@ -320,6 +327,91 @@ async def test_retry_releases_lease_with_backoff_then_terminalizes_at_limit(
     assert version.provenance_state == "failed"
     assert version.processing_error_code == "STAGE_RETRYABLE"
     assert count == 1
+
+
+async def test_terminal_ingestion_failure_advances_exact_legacy_lifecycle(
+    engine: AsyncEngine,
+    session: AsyncSession,
+) -> None:
+    organization, workspace, user = await seed_scope(session)
+    document_id = uuid4()
+    source_key = f"legacy/{document_id}.pdf"
+    document = Document(
+        id=document_id,
+        org_id=organization.id,
+        workspace_id=workspace.id,
+        name="Legacy report.pdf",
+        filename="legacy.pdf",
+        mime="application/pdf",
+        size_bytes=10,
+        content_hash="7" * 64,
+        storage_key=source_key,
+        status="processing",
+        created_by=user.id,
+    )
+    version = DocumentVersion(
+        id=document_id,
+        org_id=organization.id,
+        workspace_id=workspace.id,
+        document_id=document_id,
+        sequence=1,
+        version_label="Legacy 1",
+        version_key="legacy 1",
+        content_hash="7" * 64,
+        source_filename="legacy.pdf",
+        source_mime="application/pdf",
+        source_size_bytes=10,
+        source_storage_key=source_key,
+        source_page_count=1,
+        parser_profile_version="legacy/parser-v1",
+        ocr_profile_version="legacy/ocr-unknown-v1",
+        chunking_profile_version="legacy/chunking-v1",
+        embedding_profile_version="legacy/embedding-v1",
+        index_profile_version="legacy/index-v1",
+        state="processing",
+        provenance_state="building",
+        lifecycle_revision=1,
+        created_by=user.id,
+    )
+    generation_id = uuid4()
+    attempt = IngestStageAttempt(
+        org_id=organization.id,
+        workspace_id=workspace.id,
+        document_version_id=document_id,
+        pipeline_kind="ingestion",
+        stage="embed",
+        checkpoint=f"embed:ingestion:1:{generation_id.hex}",
+        available_at=naive_utc() - timedelta(seconds=1),
+    )
+    session.add_all([document, version, attempt])
+    await session.commit()
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    claim = await claim_stage(factory, owner="worker-a", lease_seconds=30)
+    assert claim is not None
+
+    result = await retry_stage(
+        factory,
+        claim,
+        error_code="EMBEDDING_OUTPUT_INVALID",
+        terminal=True,
+    )
+
+    assert result == "failed"
+    async with factory() as verify:
+        stored_version = await verify.get(DocumentVersion, document_id)
+        stored_document = await verify.get(Document, document_id)
+        stored_attempt = await verify.get(IngestStageAttempt, attempt.id)
+    assert stored_version is not None
+    assert stored_version.state == "failed"
+    assert stored_version.provenance_state == "failed"
+    assert stored_version.lifecycle_revision == 2
+    assert stored_document is not None
+    assert stored_document.status == "failed"
+    assert stored_document.error == "EMBEDDING_OUTPUT_INVALID"
+    assert stored_attempt is not None
+    assert stored_attempt.state == "failed"
+    assert stored_attempt.lease_token is None
 
 
 async def test_final_authority_stage_completes_without_creating_another_stage(

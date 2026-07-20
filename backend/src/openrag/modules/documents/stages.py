@@ -11,7 +11,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from openrag.modules.documents.models import DocumentVersion, IngestStageAttempt
+from openrag.modules.documents.models import (
+    Document,
+    DocumentVersion,
+    IngestStageAttempt,
+)
 from openrag.modules.embeddings.models import EmbeddingDeployment
 
 _STAGES = ("parse", "chunk", "embed", "authority_upsert")
@@ -466,7 +470,21 @@ async def retry_stage(
             )
             if version is not None and row.pipeline_kind != "reindex":
                 if row.pipeline_kind == "ingestion":
+                    document = await session.scalar(
+                        select(Document)
+                        .where(
+                            Document.id == version.document_id,
+                            Document.org_id == row.org_id,
+                            Document.workspace_id == row.workspace_id,
+                        )
+                        .with_for_update()
+                    )
+                    if version.state != "failed":
+                        version.lifecycle_revision += 1
                     version.state = "failed"
+                    if document is not None:
+                        document.status = "failed"
+                        document.error = error_code
                 version.provenance_state = "failed"
                 version.processing_error_code = error_code
             if row.pipeline_kind == "reindex":

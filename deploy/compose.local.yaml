@@ -1,0 +1,121 @@
+services:
+  # Development-only bridge for running the API from source on the host.
+  # The durable event transport remains authenticated and loopback-only.
+  event-redis:
+    ports:
+      - "127.0.0.1:${OPENRAG_EVENT_REDIS_PORT:-56380}:6379"
+    networks:
+      - default
+      - event-network
+
+  event-worker:
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - worker
+      - -Q
+      - events
+      - -l
+      - info
+      - --concurrency=1
+      - --pool=solo
+      - --hostname=event-local@%h
+
+  run-worker:
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - worker
+      - -Q
+      - runs
+      - -l
+      - info
+      - --concurrency=1
+      - --pool=solo
+      - --hostname=runs-local@%h
+
+  ingestion-worker:
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - worker
+      - -Q
+      - ingestion
+      - -l
+      - warning
+      - --concurrency=1
+      - --pool=solo
+      - --hostname=ingestion-local@%h
+
+  worker:
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - worker
+      - -Q
+      - interactive,default
+      - -l
+      - warning
+      - --concurrency=1
+      - --pool=solo
+      - --hostname=interactive-local@%h
+
+  model-worker:
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - worker
+      - -Q
+      - models
+      - -l
+      - warning
+      - --concurrency=1
+      - --pool=solo
+      - --hostname=models-local@%h
+
+  evaluation-worker:
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - worker
+      - -Q
+      - evaluations
+      - -l
+      - warning
+      - --concurrency=1
+      - --pool=solo
+      - --hostname=evaluations-local@%h
+
+  enrichment-worker:
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - worker
+      - -Q
+      - enrichment
+      - -l
+      - warning
+      - --concurrency=1
+      - --pool=solo
+      - --hostname=enrichment-local@%h
+
+  summary-worker:
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - worker
+      - -Q
+      - summaries
+      - -l
+      - warning
+      - --concurrency=1
+      - --pool=solo
+      - --hostname=summaries-local@%h
