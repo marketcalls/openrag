@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from openrag.modules.operations.schemas import (
     ErrorOccurrenceCreate,
+    RagOperationsRunOut,
     RagRunFactCreate,
 )
 
@@ -105,3 +106,32 @@ def test_rag_fact_accepts_bounded_safe_measurements() -> None:
     assert value.latency_ms == 320
     assert value.trace_id == "a" * 32
     assert not hasattr(value, "prompt")
+
+
+def test_operations_run_contract_exposes_metrics_but_never_content() -> None:
+    fields = set(RagOperationsRunOut.model_fields)
+
+    assert {
+        "run_id",
+        "trace_id",
+        "route",
+        "outcome",
+        "latency_ms",
+        "ttft_ms",
+        "retrieval_count",
+        "citation_count",
+        "prompt_tokens",
+        "completion_tokens",
+    } <= fields
+    assert fields.isdisjoint(
+        {
+            "prompt",
+            "response",
+            "query",
+            "document_text",
+            "retrieved_text",
+            "filename",
+            "memory",
+            "provider_payload",
+        }
+    )

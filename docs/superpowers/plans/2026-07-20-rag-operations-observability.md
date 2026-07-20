@@ -206,7 +206,7 @@ Commit: `feat: project durable rag run metrics`
   - `GET /api/v1/admin/rag-operations/errors/{issue_id}`
 - Filters: UTC `from`, `to`, organization, workspace, route, outcome, model, environment, release; maximum range 90 days and maximum page size 100.
 
-- [ ] **Step 1: Write failing authorization, aggregation, and isolation tests**
+- [x] **Step 1: Write failing authorization, aggregation, and isolation tests**
 
 ```python
 async def test_non_platform_admin_cannot_read_operations(client, org_admin_headers) -> None:
@@ -221,15 +221,15 @@ async def test_filtered_overview_uses_only_requested_workspace(superadmin_client
     assert response.json()["queries"] == facts.workspace_a_count
 ```
 
-- [ ] **Step 2: Implement bounded database-side queries**
+- [x] **Step 2: Implement bounded database-side queries**
 
 Use SQL `FILTER`, `date_trunc`, and `percentile_cont` for counts/rates/p50/p95/p99. Use keyset pagination `(accepted_at, run_id)` for run/error lists. Return zero-valued metrics and empty series for periods without data.
 
-- [ ] **Step 3: Add safe drill-down DTOs**
+- [x] **Step 3: Add safe drill-down DTOs**
 
 Run detail exposes stage timings, IDs, route/outcome, model/version identifiers, token counts, citation counts, score summaries, attempts, safe error code, and trace link identifier. It excludes message content, retrieval text, document names, memory, and provider payloads.
 
-- [ ] **Step 4: Verify OpenAPI and commit**
+- [x] **Step 4: Verify OpenAPI and commit**
 
 Run: `cd backend && uv run pytest -q tests/modules/operations/test_queries.py tests/api/test_rag_operations.py && uv run ruff check src tests && uv run mypy`
 

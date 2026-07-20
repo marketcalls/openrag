@@ -134,6 +134,7 @@ class ErrorIssueOut(BaseModel):
     service: str
     environment: str
     exception_type: str
+    top_frame: str | None
     status: Literal["open", "resolved", "ignored"]
     alert_state: Literal["none", "firing", "acknowledged"]
     owner: str | None
@@ -202,3 +203,42 @@ class RagOperationsOverview(BaseModel):
     prompt_tokens: int = Field(ge=0)
     completion_tokens: int = Field(ge=0)
     estimated_cost_microusd: int = Field(ge=0)
+
+
+RagSeriesInterval = Literal["hour", "day"]
+
+
+class RagOperationsSeriesPoint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bucket: AwareDatetime
+    query_count: int = Field(ge=0)
+    grounded_count: int = Field(ge=0)
+    no_answer_count: int = Field(ge=0)
+    failed_count: int = Field(ge=0)
+    p95_latency_ms: float | None = Field(default=None, ge=0)
+
+
+class RagOperationsRunOut(RagRunFactOut):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+
+class RagOperationsRunPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[RagOperationsRunOut] = Field(max_length=100)
+    next_cursor: str | None = Field(default=None, max_length=512)
+
+
+class RagOperationsErrorPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ErrorIssueOut] = Field(max_length=100)
+    next_cursor: str | None = Field(default=None, max_length=512)
+
+
+class RagOperationsErrorDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    issue: ErrorIssueOut
+    occurrences: list[ErrorOccurrenceOut] = Field(max_length=100)

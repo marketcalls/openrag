@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import httpx
+import pytest
 
 from openrag.modules.auth.models import User
 
@@ -60,3 +61,30 @@ async def test_superadmin_reads_empty_bounded_overview(
         "completion_tokens": 0,
         "estimated_cost_microusd": 0,
     }
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/admin/rag-operations/series",
+        "/api/v1/admin/rag-operations/runs",
+        "/api/v1/admin/rag-operations/runs/00000000-0000-0000-0000-000000000001",
+        "/api/v1/admin/rag-operations/errors",
+        "/api/v1/admin/rag-operations/errors/00000000-0000-0000-0000-000000000001",
+    ],
+)
+async def test_all_operations_routes_are_platform_superadmin_only(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    path: str,
+) -> None:
+    headers = await auth(client, seeded_user.email)
+    now = datetime.now(UTC)
+
+    response = await client.get(
+        path,
+        params={"from": (now - timedelta(days=1)).isoformat(), "to": now.isoformat()},
+        headers=headers,
+    )
+
+    assert response.status_code == 403
