@@ -148,14 +148,17 @@ def build_run_list_query(
     )
 
 
-def build_error_list_query(
+def build_run_detail_query(
+    run_id: UUID,
     filters: RagOperationsFilter,
-    *,
-    cursor: tuple[datetime, UUID] | None,
-    limit: int,
-) -> Select[tuple[ErrorIssue]]:
-    if not 1 <= limit <= 100:
-        raise ValueError("operations_limit_invalid")
+) -> Select[tuple[RagRunFact]]:
+    return select(RagRunFact).where(
+        RagRunFact.run_id == run_id,
+        *_fact_conditions(filters),
+    )
+
+
+def _error_issue_conditions(filters: RagOperationsFilter) -> list[ColumnElement[bool]]:
     conditions = [
         ErrorIssue.last_seen_at >= _database_time(filters.from_at),
         ErrorIssue.last_seen_at < _database_time(filters.to_at),
@@ -172,6 +175,18 @@ def build_error_list_query(
         if filters.workspace_id is not None:
             occurrence_scope.append(ErrorOccurrence.workspace_id == filters.workspace_id)
         conditions.append(exists(select(ErrorOccurrence.id).where(*occurrence_scope)))
+    return conditions
+
+
+def build_error_list_query(
+    filters: RagOperationsFilter,
+    *,
+    cursor: tuple[datetime, UUID] | None,
+    limit: int,
+) -> Select[tuple[ErrorIssue]]:
+    if not 1 <= limit <= 100:
+        raise ValueError("operations_limit_invalid")
+    conditions = _error_issue_conditions(filters)
     if cursor is not None:
         cursor_at, cursor_id = cursor
         database_cursor = _database_time(cursor_at)
@@ -189,6 +204,39 @@ def build_error_list_query(
         .where(*conditions)
         .order_by(ErrorIssue.last_seen_at.desc(), ErrorIssue.id.desc())
         .limit(limit + 1)
+    )
+
+
+def build_error_issue_detail_query(
+    issue_id: UUID,
+    filters: RagOperationsFilter,
+) -> Select[tuple[ErrorIssue]]:
+    return select(ErrorIssue).where(
+        ErrorIssue.id == issue_id,
+        *_error_issue_conditions(filters),
+    )
+
+
+def build_error_occurrence_detail_query(
+    issue_id: UUID,
+    filters: RagOperationsFilter,
+) -> Select[tuple[ErrorOccurrence]]:
+    conditions = [
+        ErrorOccurrence.issue_id == issue_id,
+        ErrorOccurrence.occurred_at >= _database_time(filters.from_at),
+        ErrorOccurrence.occurred_at < _database_time(filters.to_at),
+    ]
+    if filters.org_id is not None:
+        conditions.append(ErrorOccurrence.org_id == filters.org_id)
+    if filters.workspace_id is not None:
+        conditions.append(ErrorOccurrence.workspace_id == filters.workspace_id)
+    if filters.release is not None:
+        conditions.append(ErrorOccurrence.release == filters.release)
+    return (
+        select(ErrorOccurrence)
+        .where(*conditions)
+        .order_by(ErrorOccurrence.occurred_at.desc(), ErrorOccurrence.id.desc())
+        .limit(100)
     )
 
 
@@ -260,8 +308,12 @@ async def list_runs(
     )
 
 
-async def get_run(session: AsyncSession, run_id: UUID) -> RagOperationsRunOut:
-    fact = await session.scalar(select(RagRunFact).where(RagRunFact.run_id == run_id))
+async def get_run(
+    session: AsyncSession,
+    run_id: UUID,
+    filters: RagOperationsFilter,
+) -> RagOperationsRunOut:
+    fact = await session.scalar(build_run_detail_query(run_id, filters))
     if fact is None:
         raise NotFoundError("RAG run fact not found")
     return RagOperationsRunOut.model_validate(fact)
@@ -294,17 +346,15 @@ async def list_errors(
 async def get_error(
     session: AsyncSession,
     issue_id: UUID,
+    filters: RagOperationsFilter,
 ) -> RagOperationsErrorDetail:
-    issue = await session.get(ErrorIssue, issue_id)
+    issue = await session.scalar(build_error_issue_detail_query(issue_id, filters))
     if issue is None:
         raise NotFoundError("RAG error issue not found")
     occurrences = list(
         (
             await session.execute(
-                select(ErrorOccurrence)
-                .where(ErrorOccurrence.issue_id == issue_id)
-                .order_by(ErrorOccurrence.occurred_at.desc(), ErrorOccurrence.id.desc())
-                .limit(100)
+                build_error_occurrence_detail_query(issue_id, filters)
             )
         ).scalars()
     )

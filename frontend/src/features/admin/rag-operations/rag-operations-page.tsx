@@ -195,7 +195,7 @@ export function RagOperationsPage() {
                 </article>
                 <article className="rounded-xl border border-line bg-bg p-4 shadow-sm">
                   <div><h2 className="text-[14px] font-semibold text-ink">Active error groups</h2><p className="mt-1 text-[11px] text-muted">Deduplicated, redacted, and trace-correlated.</p></div>
-                  <div className="mt-3 border-t border-line-faint"><ErrorPanel issues={errors.data?.items ?? []} /></div>
+                  <div className="mt-3 border-t border-line-faint"><ErrorPanel issues={errors.data?.items ?? []} filters={filters} /></div>
                 </article>
               </section>
 
@@ -204,7 +204,7 @@ export function RagOperationsPage() {
                   <div><h2 className="text-[14px] font-semibold text-ink">Recent runs</h2><p className="mt-1 text-[11px] text-muted">Content-free execution facts for performance and incident analysis.</p></div>
                   {runs.data?.items.length === 0 ? <SearchX className="h-4 w-4 text-muted" aria-hidden /> : null}
                 </div>
-                <RunTable runs={runs.data?.items ?? []} />
+                <RunTable runs={runs.data?.items ?? []} filters={filters} />
               </section>
             </>
           ) : null}

@@ -112,9 +112,10 @@ async def run_detail(
     run_id: UUID,
     session: SessionDep,
     context: SuperadminDep,
+    filters: FiltersDep,
 ) -> RagOperationsRunOut:
     del context
-    return await queries.get_run(session, run_id)
+    return await queries.get_run(session, run_id, filters)
 
 
 @router.get("/errors", response_model=RagOperationsErrorPage)
@@ -139,6 +140,7 @@ async def error_detail(
     issue_id: UUID,
     session: SessionDep,
     context: SuperadminDep,
+    filters: FiltersDep,
 ) -> RagOperationsErrorDetail:
     del context
-    return await queries.get_error(session, issue_id)
+    return await queries.get_error(session, issue_id, filters)

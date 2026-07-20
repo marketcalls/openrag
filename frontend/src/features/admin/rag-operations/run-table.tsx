@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import type { RagOperationsRunOut } from '@/api/types';
+import type { RagOperationsFilters, RagOperationsRunOut } from '@/api/types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
@@ -30,9 +30,9 @@ function DetailItem({ label, value }: { label: string; value: string | number })
   );
 }
 
-export function RunTable({ runs }: { runs: RagOperationsRunOut[] }) {
+export function RunTable({ runs, filters }: { runs: RagOperationsRunOut[]; filters: RagOperationsFilters }) {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const detail = useRagRunDetail(selectedRunId);
+  const detail = useRagRunDetail(selectedRunId, filters);
 
   if (runs.length === 0) {
     return <div className="py-10 text-center text-[12px] text-muted">No completed runs match these filters.</div>;

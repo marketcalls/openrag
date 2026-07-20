@@ -58,6 +58,10 @@ async function installApi(session: Session, page: Page): Promise<void> {
       await respond(route, 200, session.workspaces ?? []);
       return;
     }
+    if (path === '/api/v1/chats/search') {
+      await respond(route, 200, { items: [], next_cursor: null });
+      return;
+    }
     if (path === '/api/v1/chats') {
       await respond(route, 200, []);
       return;
@@ -117,6 +121,17 @@ async function installApi(session: Session, page: Page): Promise<void> {
       await respond(route, 200, []);
       return;
     }
+    if (
+      path.startsWith('/api/v1/admin/rag-operations')
+      || path.startsWith('/api/v1/admin/evaluations')
+    ) {
+      if (!session.platformSuperadmin) {
+        await respond(route, 403, { detail: 'Platform superadmin required' });
+        return;
+      }
+      await respond(route, 200, []);
+      return;
+    }
 
     await respond(route, 200, []);
   });
@@ -142,6 +157,31 @@ test('Administrator sees organization administration but no platform controls', 
   await expect(page.getByRole('link', { name: 'Roles' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Models' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Secrets' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'RAG operations' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Evaluations' })).toHaveCount(0);
+
+  for (const path of ['/admin/rag-operations', '/admin/evaluations']) {
+    await page.evaluate((nextPath) => {
+      window.history.pushState({}, '', nextPath);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }, path);
+    await expect(page).toHaveURL(/\/chat$/);
+  }
+
+  const denials = await page.evaluate(async () => {
+    const responses = await Promise.all([
+      fetch('/api/v1/admin/rag-operations/overview'),
+      fetch('/api/v1/admin/evaluations/datasets'),
+    ]);
+    return Promise.all(responses.map(async (response) => ({
+      status: response.status,
+      body: await response.json(),
+    })));
+  });
+  expect(denials).toEqual([
+    { status: 403, body: { detail: 'Platform superadmin required' } },
+    { status: 403, body: { detail: 'Platform superadmin required' } },
+  ]);
 });
 
 test('organization role editor cannot select platform superadmin', async ({ page }) => {
@@ -196,6 +236,8 @@ test('platform superadmin retains platform administration', async ({ page }) => 
   await login(page, { permissions: [], platformSuperadmin: true });
 
   await expect(page.getByRole('link', { name: 'Models' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'RAG operations' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Evaluations' })).toBeVisible();
   await page.getByRole('link', { name: 'Models' }).click();
   await expect(page).toHaveURL(/\/admin\/models$/);
   await expect(page.getByRole('table', { name: 'Model registry' })).toBeVisible();

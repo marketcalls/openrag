@@ -4650,7 +4650,17 @@ export interface operations {
     };
     run_detail_api_v1_admin_rag_operations_runs__run_id__get: {
         parameters: {
-            query?: never;
+            query: {
+                from: string;
+                to: string;
+                org_id?: string | null;
+                workspace_id?: string | null;
+                route?: ("direct" | "conversation" | "rag" | "analytics" | "clarify" | "unknown") | null;
+                outcome?: ("grounded" | "conversational" | "no_answer" | "failed" | "cancelled") | null;
+                model_id?: string | null;
+                environment?: string | null;
+                release?: string | null;
+            };
             header?: never;
             path: {
                 run_id: string;
@@ -4722,7 +4732,17 @@ export interface operations {
     };
     error_detail_api_v1_admin_rag_operations_errors__issue_id__get: {
         parameters: {
-            query?: never;
+            query: {
+                from: string;
+                to: string;
+                org_id?: string | null;
+                workspace_id?: string | null;
+                route?: ("direct" | "conversation" | "rag" | "analytics" | "clarify" | "unknown") | null;
+                outcome?: ("grounded" | "conversational" | "no_answer" | "failed" | "cancelled") | null;
+                model_id?: string | null;
+                environment?: string | null;
+                release?: string | null;
+            };
             header?: never;
             path: {
                 issue_id: string;

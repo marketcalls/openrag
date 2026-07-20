@@ -76,13 +76,13 @@ export function useRagOperationsErrors(filters: RagOperationsFilters) {
   });
 }
 
-export function useRagRunDetail(runId: string | null) {
+export function useRagRunDetail(runId: string | null, filters: RagOperationsFilters) {
   return useQuery({
-    queryKey: ['admin', 'rag-operations', 'run', runId],
+    queryKey: ['admin', 'rag-operations', 'run', runId, filters],
     queryFn: async () => {
       if (!runId) throw new Error('Run id is required');
       const { data, error } = await api.GET('/api/v1/admin/rag-operations/runs/{run_id}', {
-        params: { path: { run_id: runId } },
+        params: { path: { run_id: runId }, query: filters },
       });
       if (error) throw new Error(problemDetail(error, 'Failed to load run detail'));
       return data;
@@ -91,13 +91,13 @@ export function useRagRunDetail(runId: string | null) {
   });
 }
 
-export function useRagErrorDetail(issueId: string | null) {
+export function useRagErrorDetail(issueId: string | null, filters: RagOperationsFilters) {
   return useQuery({
-    queryKey: ['admin', 'rag-operations', 'error', issueId],
+    queryKey: ['admin', 'rag-operations', 'error', issueId, filters],
     queryFn: async () => {
       if (!issueId) throw new Error('Issue id is required');
       const { data, error } = await api.GET('/api/v1/admin/rag-operations/errors/{issue_id}', {
-        params: { path: { issue_id: issueId } },
+        params: { path: { issue_id: issueId }, query: filters },
       });
       if (error) throw new Error(problemDetail(error, 'Failed to load error detail'));
       return data;

@@ -6,8 +6,11 @@ from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 
 from openrag.modules.operations.queries import (
+    build_error_issue_detail_query,
     build_error_list_query,
+    build_error_occurrence_detail_query,
     build_overview_query,
+    build_run_detail_query,
     build_run_list_query,
     build_series_query,
     decode_operations_cursor,
@@ -119,6 +122,46 @@ def test_error_list_query_uses_occurrence_scope_without_loading_occurrences() ->
     assert "error_occurrences.org_id" in sql
     assert "error_occurrences.workspace_id" in sql
     assert "LIMIT" in sql
+
+
+def test_run_detail_query_cannot_escape_active_tenant_scope() -> None:
+    filters = _window(org_id=uuid4(), workspace_id=uuid4())
+    sql = str(
+        build_run_detail_query(uuid4(), filters).compile(
+            dialect=postgresql.dialect(),  # type: ignore[no-untyped-call]
+            compile_kwargs={"literal_binds": False},
+        )
+    )
+
+    assert "rag_run_facts.run_id" in sql
+    assert "rag_run_facts.org_id" in sql
+    assert "rag_run_facts.workspace_id" in sql
+    assert "rag_run_facts.accepted_at" in sql
+
+
+def test_error_detail_queries_cannot_mix_occurrences_across_tenant_scope() -> None:
+    filters = _window(org_id=uuid4(), workspace_id=uuid4())
+    issue_id = uuid4()
+    issue_sql = str(
+        build_error_issue_detail_query(issue_id, filters).compile(
+            dialect=postgresql.dialect(),  # type: ignore[no-untyped-call]
+            compile_kwargs={"literal_binds": False},
+        )
+    )
+    occurrence_sql = str(
+        build_error_occurrence_detail_query(issue_id, filters).compile(
+            dialect=postgresql.dialect(),  # type: ignore[no-untyped-call]
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+
+    assert "EXISTS" in issue_sql
+    assert "error_occurrences.org_id" in issue_sql
+    assert "error_occurrences.workspace_id" in issue_sql
+    assert "error_occurrences.org_id" in occurrence_sql
+    assert "error_occurrences.workspace_id" in occurrence_sql
+    assert "error_occurrences.occurred_at" in occurrence_sql
+    assert "LIMIT 100" in occurrence_sql
 
 
 def test_operations_cursor_round_trips_and_rejects_malformed_input() -> None:

@@ -112,7 +112,7 @@ function responseFor(request: Request) {
 function renderPage(fetchMock: ReturnType<typeof vi.fn>) {
   vi.stubGlobal('fetch', fetchMock);
   render(
-    <MemoryRouter initialEntries={['/admin/rag-operations?range=24h']}>
+    <MemoryRouter initialEntries={[`/admin/rag-operations?range=24h&org_id=${run.org_id}&workspace_id=${run.workspace_id}`]}>
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <RagOperationsPage />
       </QueryClientProvider>
@@ -148,8 +148,10 @@ test('coordinates filters across the operations overview, chart, runs, and error
 });
 
 test('opens safe, content-free run and error drilldowns', async () => {
+  const requests: Request[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     if (!(input instanceof Request)) throw new Error('Expected Request');
+    requests.push(input);
     return Response.json(responseFor(input));
   });
   const user = userEvent.setup();
@@ -163,4 +165,11 @@ test('opens safe, content-free run and error drilldowns', async () => {
   await user.click(screen.getByRole('button', { name: `Inspect error ${issue.code}` }));
   expect(await screen.findByRole('dialog')).toHaveTextContent(issue.exception_type);
   expect(screen.getByRole('dialog')).not.toHaveTextContent('prompt');
+
+  const runDetail = requests.find((request) => request.url.includes(`/runs/${RUN_ID}`));
+  const errorDetail = requests.find((request) => request.url.includes(`/errors/${ISSUE_ID}`));
+  expect(runDetail?.url).toContain(`org_id=${run.org_id}`);
+  expect(runDetail?.url).toContain(`workspace_id=${run.workspace_id}`);
+  expect(errorDetail?.url).toContain(`org_id=${run.org_id}`);
+  expect(errorDetail?.url).toContain(`workspace_id=${run.workspace_id}`);
 });

@@ -1,16 +1,16 @@
 import { AlertTriangle, BellRing, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 
-import type { ErrorIssueOut } from '@/api/types';
+import type { ErrorIssueOut, RagOperationsFilters } from '@/api/types';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
 import { StatusPill } from '@/components/ui/status-pill';
 
 import { useRagErrorDetail } from './queries';
 
-export function ErrorPanel({ issues }: { issues: ErrorIssueOut[] }) {
+export function ErrorPanel({ issues, filters }: { issues: ErrorIssueOut[]; filters: RagOperationsFilters }) {
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
-  const detail = useRagErrorDetail(selectedIssueId);
+  const detail = useRagErrorDetail(selectedIssueId, filters);
 
   if (issues.length === 0) {
     return (
