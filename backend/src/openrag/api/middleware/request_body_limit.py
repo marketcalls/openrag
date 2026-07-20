@@ -4,6 +4,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from openrag.core.errors import PayloadTooLarge
+from openrag.core.telemetry import current_trace_id
 
 _DETAIL = "request body exceeds the upload limit"
 
@@ -22,9 +23,7 @@ def _is_document_upload(scope: Scope) -> bool:
 
 def _content_length(scope: Scope) -> int | None:
     values = [
-        value
-        for name, value in scope.get("headers", [])
-        if name.lower() == b"content-length"
+        value for name, value in scope.get("headers", []) if name.lower() == b"content-length"
     ]
     if len(values) != 1:
         return None
@@ -43,6 +42,7 @@ async def _reject(scope: Scope, receive: Receive, send: Send) -> None:
             "title": "Payload too large",
             "status": 413,
             "detail": _DETAIL,
+            "trace_id": current_trace_id(),
         },
         media_type="application/problem+json",
     )

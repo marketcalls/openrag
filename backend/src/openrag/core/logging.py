@@ -1,11 +1,10 @@
-import re
 from collections.abc import MutableMapping
 from logging import INFO
 from typing import Any
 
 import structlog
 
-_SENSITIVE = re.compile(r"password|secret|token|api_key|key$", re.IGNORECASE)
+from openrag.core.telemetry import safe_log_fields
 
 
 def redact_sensitive(
@@ -13,9 +12,10 @@ def redact_sensitive(
     method_name: str,
     event_dict: MutableMapping[str, Any],
 ) -> MutableMapping[str, Any]:
-    for key in list(event_dict):
-        if _SENSITIVE.search(key):
-            event_dict[key] = "[REDACTED]"
+    safe = safe_log_fields(event_dict)
+    event_dict.clear()
+    if isinstance(safe, dict):
+        event_dict.update(safe)
     return event_dict
 
 

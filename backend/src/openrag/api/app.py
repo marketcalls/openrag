@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import cast
 
 import httpx
 import structlog
@@ -9,6 +10,7 @@ from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from openrag.api.middleware.correlation import TraceCorrelationMiddleware
 from openrag.api.middleware.request_body_limit import UploadBodyLimitMiddleware
 from openrag.api.routes.admin_secrets import router as admin_secrets_router
 from openrag.api.routes.auth import router as auth_router
@@ -30,10 +32,13 @@ from openrag.core.config import get_settings
 from openrag.core.db import build_engine, build_session_factory
 from openrag.core.errors import OpenRAGError
 from openrag.core.logging import configure_logging
+from openrag.core.telemetry import current_trace_id
 from openrag.modules.chat.llm import LLMStreamer
 from openrag.modules.chat.service import Retriever
 from openrag.modules.events.redis_runtime import build_event_redis
 from openrag.modules.models.sync import sync_models_to_litellm
+from openrag.modules.operations.errors import record_error, top_application_frame
+from openrag.modules.operations.schemas import ErrorOccurrenceCreate, HttpMethod
 from openrag.modules.retrieval.service import retrieve
 
 
@@ -99,10 +104,10 @@ def create_app(
     app.add_middleware(
         UploadBodyLimitMiddleware,
         maximum_bytes=(
-            settings.max_upload_mb * 1024 * 1024
-            + settings.upload_multipart_overhead_kb * 1024
+            settings.max_upload_mb * 1024 * 1024 + settings.upload_multipart_overhead_kb * 1024
         ),
     )
+    app.add_middleware(TraceCorrelationMiddleware)
     app.state.session_factory = session_factory
     app.state.redis = redis_client
     app.state.event_redis = event_redis_client
@@ -118,6 +123,7 @@ def create_app(
                 "title": title,
                 "status": status,
                 "detail": detail,
+                "trace_id": current_trace_id(),
             },
             media_type="application/problem+json",
         )
@@ -143,12 +149,38 @@ def create_app(
 
     @app.exception_handler(Exception)
     async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
+        trace_id = current_trace_id()
+        route = request.scope.get("route")
+        route_template = getattr(route, "path", None)
+        try:
+            await record_error(
+                request.app.state.session_factory,
+                ErrorOccurrenceCreate(
+                    category="internal",
+                    code="internal.unhandled",
+                    service="api",
+                    environment=settings.environment,
+                    release=settings.release,
+                    exception_type=type(exc).__name__,
+                    top_frame=top_application_frame(exc),
+                    trace_id=trace_id,
+                    http_method=cast(HttpMethod, request.method),
+                    route_template=(route_template if isinstance(route_template, str) else None),
+                    http_status=500,
+                ),
+            )
+        except Exception as record_exc:  # noqa: BLE001 - response must remain available
+            logger.error(
+                "error_recording_failed",
+                trace_id=trace_id,
+                exception_type=type(record_exc).__name__,
+            )
         logger.error(
             "unhandled_exception",
             method=request.method,
-            path=request.url.path,
-            client=request.client.host if request.client else "unknown",
-            exc_info=exc,
+            route_template=route_template,
+            trace_id=trace_id,
+            exception_type=type(exc).__name__,
         )
         return problem(500, "Internal error", "an unexpected error occurred")
 

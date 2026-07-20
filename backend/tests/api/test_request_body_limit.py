@@ -72,9 +72,7 @@ def _downstream() -> tuple[ASGIApp, list[bytes]]:
 def _response(messages: list[Message]) -> tuple[int, dict[str, Any]]:
     start = next(message for message in messages if message["type"] == "http.response.start")
     body = b"".join(
-        message.get("body", b"")
-        for message in messages
-        if message["type"] == "http.response.body"
+        message.get("body", b"") for message in messages if message["type"] == "http.response.body"
     )
     return int(start["status"]), json.loads(body)
 
@@ -97,7 +95,9 @@ async def test_declared_oversized_upload_is_rejected_without_reading_body() -> N
         "title": "Payload too large",
         "status": 413,
         "detail": "request body exceeds the upload limit",
+        "trace_id": problem["trace_id"],
     }
+    assert len(problem["trace_id"]) == 32
     assert receive_calls == 0
     assert bodies == []
 
@@ -129,8 +129,9 @@ async def test_non_upload_route_is_not_limited() -> None:
         content_length="21",
     )
 
-    assert next(message for message in messages if message["type"] == "http.response.start")[
-        "status"
-    ] == 204
+    assert (
+        next(message for message in messages if message["type"] == "http.response.start")["status"]
+        == 204
+    )
     assert receive_calls == 1
     assert bodies == [b"more than eight bytes"]

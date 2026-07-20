@@ -1,13 +1,16 @@
+import re
 from collections.abc import AsyncIterator
 
 import httpx
 import pytest
 from redis.asyncio import Redis
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from openrag.api.app import create_app
 from openrag.core.db import build_session_factory
 from openrag.modules.auth.models import User
+from openrag.modules.operations.models import ErrorIssue, ErrorOccurrence
 
 
 @pytest.fixture
@@ -31,6 +34,7 @@ async def crashy_client(
 
 async def test_catch_all_returns_generic_problem_json(
     crashy_client: httpx.AsyncClient,
+    engine: AsyncEngine,
 ) -> None:
     response = await crashy_client.get("/probe/boom")
 
@@ -38,6 +42,18 @@ async def test_catch_all_returns_generic_problem_json(
     assert response.headers["content-type"].startswith("application/problem+json")
     assert response.json()["title"] == "Internal error"
     assert "kaboom" not in response.text
+    trace_id = response.headers["X-Trace-ID"]
+    assert re.fullmatch(r"[0-9a-f]{32}", trace_id)
+    assert response.json()["trace_id"] == trace_id
+
+    async with build_session_factory(engine)() as session:
+        issue = (await session.execute(select(ErrorIssue))).scalar_one()
+        occurrence = (await session.execute(select(ErrorOccurrence))).scalar_one()
+    assert issue.code == "internal.unhandled"
+    assert issue.exception_type == "RuntimeError"
+    assert occurrence.trace_id == trace_id
+    assert not hasattr(issue, "message")
+    assert not hasattr(occurrence, "detail")
 
 
 async def test_integrity_error_maps_to_409(

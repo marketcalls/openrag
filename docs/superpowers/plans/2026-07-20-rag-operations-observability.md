@@ -109,7 +109,7 @@ Commit: `feat: persist safe rag operations facts`
 - Produces: `current_trace_id() -> str`, `safe_log_fields(value) -> object`, and `record_error(session_factory, occurrence) -> UUID`.
 - Consumes: `ErrorIssue` and `ErrorOccurrence` from Task 1.
 
-- [ ] **Step 1: Write failing redaction and correlation tests**
+- [x] **Step 1: Write failing redaction and correlation tests**
 
 ```python
 def test_recursive_redaction_bounds_nested_values() -> None:
@@ -125,19 +125,19 @@ async def test_invalid_inbound_trace_id_is_replaced(client) -> None:
     assert re.fullmatch(r"[0-9a-f]{32}", response.headers["X-Trace-ID"])
 ```
 
-- [ ] **Step 2: Implement server-owned correlation context**
+- [x] **Step 2: Implement server-owned correlation context**
 
 Use `contextvars.ContextVar`, accept only exact `[0-9a-f]{32}`, bind `trace_id`, method, route template, service, release, and environment to structlog, then reset the token after the response.
 
-- [ ] **Step 3: Implement recursive allowlist/redaction and grouping**
+- [x] **Step 3: Implement recursive allowlist/redaction and grouping**
 
 Fingerprint only `(category, code, service, exception_type, top_application_frame)`. Never hash or retain exception messages because messages may contain provider or customer data. Upsert issue counts and bounded occurrences in a short independent transaction.
 
-- [ ] **Step 4: Wire safe exception recording**
+- [x] **Step 4: Wire safe exception recording**
 
 OpenRAG typed 4xx errors remain expected and are not grouped as internal issues. Unexpected API and worker errors record safe codes and `trace_id`; client problem responses include `trace_id` but no exception detail.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `cd backend && uv run pytest -q tests/core/test_telemetry.py tests/api/test_correlation.py tests/modules/operations/test_errors.py && uv run ruff check src tests && uv run mypy`
 
@@ -154,7 +154,7 @@ Commit: `feat: correlate and group safe errors`
 - Modify: `backend/src/openrag/modules/chat/service.py`
 - Modify: `backend/src/openrag/modules/retrieval/service.py`
 - Test: `backend/tests/modules/operations/test_facts.py`
-- Test: `backend/tests/modules/runs/test_runner.py`
+- Test: `backend/tests/modules/runs/test_service.py`
 
 **Interfaces:**
 - Produces: `record_run_fact(session_factory, run_id, observation) -> None` and bounded `RunObservation`.
@@ -181,7 +181,7 @@ Completed, failed, refused/no-answer, and cancelled runs all emit one fact with 
 
 - [ ] **Step 4: Verify and commit**
 
-Run: `cd backend && uv run pytest -q tests/modules/operations/test_facts.py tests/modules/runs/test_runner.py && uv run ruff check src tests && uv run mypy`
+Run: `cd backend && uv run pytest -q tests/modules/operations/test_facts.py tests/modules/runs/test_service.py && uv run ruff check src tests && uv run mypy`
 
 Commit: `feat: project durable rag run metrics`
 

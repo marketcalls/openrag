@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.db import naive_utc
 from openrag.core.errors import ConflictError, NotFoundError
+from openrag.core.telemetry import current_trace_id
 from openrag.modules.chat import service as chat_service
 from openrag.modules.chat.models import Chat, Message
 from openrag.modules.events.envelopes import (
@@ -131,6 +132,7 @@ async def accept_run(
         input_message_id=user_message.id,
         model_id=resolved_model_id,
         client_request_id=command.client_request_id,
+        trace_id=current_trace_id(),
     )
     session.add(run)
     await session.flush()
@@ -236,6 +238,7 @@ async def accept_regeneration(
         input_message_id=user_message_id,
         model_id=resolved_model_id,
         client_request_id=command.client_request_id,
+        trace_id=current_trace_id(),
     )
     session.add(run)
     await session.flush()

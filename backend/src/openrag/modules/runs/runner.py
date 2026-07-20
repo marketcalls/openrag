@@ -15,6 +15,8 @@ from openrag.modules.auth.models import User
 from openrag.modules.chat import service as chat_service
 from openrag.modules.chat.models import Message
 from openrag.modules.models import service as models_service
+from openrag.modules.operations.errors import record_error, top_application_frame
+from openrag.modules.operations.schemas import ErrorCategory, ErrorOccurrenceCreate
 from openrag.modules.orchestration.runtime import create_model_streamer
 from openrag.modules.retrieval.service import retrieve
 from openrag.modules.runs.context import record_run_context
@@ -43,6 +45,44 @@ RunnerTickResult = Literal[
     "cancelled",
 ]
 _logger = structlog.get_logger("openrag.run_worker")
+
+
+async def _record_run_error(
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    claim: RunLeaseClaim,
+    *,
+    category: ErrorCategory,
+    code: str,
+    exc: BaseException,
+) -> None:
+    try:
+        async with session_factory() as session:
+            trace_id = await session.scalar(
+                select(AgentRun.trace_id).where(AgentRun.id == claim.run_id)
+            )
+        await record_error(
+            session_factory,
+            ErrorOccurrenceCreate(
+                category=category,
+                code=code,
+                service="run-worker",
+                environment=settings.environment,
+                release=settings.release,
+                exception_type=type(exc).__name__,
+                top_frame=top_application_frame(exc),
+                org_id=claim.org_id,
+                workspace_id=claim.workspace_id,
+                run_id=claim.run_id,
+                trace_id=trace_id,
+            ),
+        )
+    except Exception as record_exc:  # noqa: BLE001 - terminal transition must continue
+        _logger.error(
+            "error_recording_failed",
+            run_id=str(claim.run_id),
+            exception_type=type(record_exc).__name__,
+        )
 
 
 async def _next_cancelled_run_id(
@@ -261,7 +301,15 @@ async def execute_queued_run_once(
     except ConflictError:
         await lifecycle.fail(run_id, error_code="model_unavailable")
         return "failed"
-    except UpstreamError:
+    except UpstreamError as exc:
+        await _record_run_error(
+            session_factory,
+            settings,
+            claim,
+            category="provider_transient",
+            code="provider.transient",
+            exc=exc,
+        )
         await lifecycle.fail(run_id, error_code="provider_transient")
         return "failed"
     except Exception as exc:
@@ -271,6 +319,14 @@ async def execute_queued_run_once(
             run_id=str(run_id),
             error_id=str(error_id),
             exception_type=type(exc).__name__,
+        )
+        await _record_run_error(
+            session_factory,
+            settings,
+            claim,
+            category="internal",
+            code="run.internal",
+            exc=exc,
         )
         await lifecycle.fail(run_id, error_code="internal")
         return "failed"

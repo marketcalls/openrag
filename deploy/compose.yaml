@@ -4,6 +4,7 @@ x-openrag-environment: &openrag-environment
   OPENRAG_DATABASE_URL: postgresql+asyncpg://openrag:openrag@postgres:5432/openrag
   OPENRAG_REDIS_URL: redis://redis:6379/0
   OPENRAG_ENVIRONMENT: ${OPENRAG_ENVIRONMENT:-dev}
+  OPENRAG_RELEASE: ${OPENRAG_RELEASE:-dev}
   OPENRAG_QDRANT_URL: http://qdrant:6333
   OPENRAG_MINIO_ENDPOINT: http://minio:9000
   OPENRAG_MINIO_ACCESS_KEY: openrag

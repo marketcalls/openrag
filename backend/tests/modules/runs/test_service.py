@@ -1,3 +1,4 @@
+import re
 from uuid import uuid4
 
 from sqlalchemy import func, select
@@ -70,6 +71,8 @@ async def test_accept_run_persists_message_run_and_outbox_atomically(
     assert accepted.created is True
     assert accepted.run.client_request_id == request_id
     assert accepted.run.status == "accepted"
+    assert accepted.run.trace_id is not None
+    assert re.fullmatch(r"[0-9a-f]{32}", accepted.run.trace_id)
     assert chat.title == "hello"
     assert await session.scalar(select(func.count()).select_from(Message)) == 1
     assert await session.scalar(select(func.count()).select_from(OutboxEvent)) == 1

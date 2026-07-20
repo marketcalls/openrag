@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     run_event_block_ms: int = Field(default=15_000, ge=100, le=60_000)
     run_lease_seconds: int = Field(default=60, ge=15, le=600)
     environment: str = "dev"
+    release: str = Field(
+        default="dev",
+        min_length=1,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,99}$",
+    )
     kek_file: str = "./data/openrag_kek"
     access_token_ttl_seconds: int = 900
     refresh_token_ttl_seconds: int = 1_209_600
