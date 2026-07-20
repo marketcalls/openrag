@@ -367,8 +367,9 @@ Useful service URLs:
 # Backend
 cd backend
 uv run pytest -q
+OPENRAG_RUN_LOAD_TESTS=1 uv run pytest tests/load -q
 uv run ruff check src tests
-uv run mypy src
+uv run mypy src/openrag
 uv run lint-imports
 uv run alembic check
 
@@ -418,6 +419,35 @@ exact organization/workspace ID/name records before deleting anything. A
 mismatch fails closed and rolls the transaction back; cleanup never infers
 ownership from a name. The script never requires a model provider or spends
 model tokens.
+
+The deterministic durable-stream load gate is opt-in so the normal unit suite
+stays fast. It drives 100 streams concurrently, reconnects half from a real
+event cursor, cancels ten midstream, and verifies ordering, deduplication,
+retention bounds, and workspace envelope isolation:
+
+```bash
+cd backend
+OPENRAG_RUN_LOAD_TESTS=1 uv run pytest tests/load/test_100_run_streams.py -q
+```
+
+After the full Compose stack is ready, run the live run-event smoke with
+credentials supplied only through the process environment. It validates
+readiness, login, workspace/chat creation, idempotent acceptance, Redis-backed
+SSE ordering, worker cancellation, and—when a second user is supplied—tenant
+denial. It prints fixed stage names and never prints tokens, passwords, or
+response bodies:
+
+```bash
+cd backend
+OPENRAG_SMOKE_EMAIL="$OPENRAG_BOOTSTRAP_EMAIL" \
+OPENRAG_SMOKE_PASSWORD="$OPENRAG_BOOTSTRAP_PASSWORD" \
+  uv run python scripts/smoke_run_events.py
+```
+
+For the optional tenant-denial assertion, also set
+`OPENRAG_SMOKE_SECOND_EMAIL` and `OPENRAG_SMOKE_SECOND_PASSWORD`. A remote
+`OPENRAG_SMOKE_API_URL` must use HTTPS; plain HTTP is accepted only for
+loopback development.
 
 The automated API and isolation selections used for the RBAC handoff are:
 

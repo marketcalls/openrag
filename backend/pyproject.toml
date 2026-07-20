@@ -79,6 +79,9 @@ packages = ["openrag"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "load: deterministic concurrency, soak, and resource-bound tests",
+]
 
 [tool.importlinter]
 root_package = "openrag"
