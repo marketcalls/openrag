@@ -3,7 +3,6 @@
 import asyncio
 import html
 import json
-import math
 import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -26,6 +25,17 @@ AgentFinishReason = Literal[
 MetadataScalar = str | int | float | bool
 
 _ALLOWED_TOOLS = frozenset({"search", "search_by_metadata", "get_document"})
+_ALLOWED_METADATA_KEYS = frozenset(
+    {
+        "document_name",
+        "department",
+        "document_type",
+        "version_label",
+        "revision_date_from",
+        "revision_date_to",
+        "section",
+    }
+)
 _MULTI_PART_TERMS = re.compile(
     r"\b(?:compare|explain|summarize|list|identify|calculate|show|why|how|what|which)\b",
     re.IGNORECASE,
@@ -104,12 +114,12 @@ class AgentToolCall:
             if not 1 <= len(metadata) <= 10:
                 raise ValueError("tool_metadata_invalid")
             for key, value in metadata.items():
-                if type(value) not in {str, int, float, bool}:  # noqa: E721
-                    raise ValueError("tool_metadata_invalid")
+                if key not in _ALLOWED_METADATA_KEYS:
+                    raise ValueError("tool_metadata_key_not_allowed")
                 if (
                     not 1 <= len(key) <= 100
-                    or isinstance(value, str) and len(value) > 500
-                    or isinstance(value, float) and not math.isfinite(value)
+                    or not isinstance(value, str)
+                    or not 1 <= len(value) <= 500
                 ):
                     raise ValueError("tool_metadata_invalid")
             object.__setattr__(self, "metadata", metadata)
