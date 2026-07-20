@@ -589,6 +589,25 @@ class DocumentVersionProjection(UUIDPk, Base):
             "applied_revision >= 1",
             name="ck_document_version_projections_applied_revision",
         ),
+        CheckConstraint(
+            "sync_state IN ('queued','leased','retry','applied','failed')",
+            name="ck_document_version_projections_sync_state",
+        ),
+        CheckConstraint(
+            "sync_attempts BETWEEN 0 AND 1000000",
+            name="ck_document_version_projections_sync_attempts",
+        ),
+        CheckConstraint(
+            "(sync_lease_owner IS NULL AND sync_lease_token IS NULL "
+            "AND sync_lease_expires_at IS NULL) OR "
+            "(sync_lease_owner IS NOT NULL AND sync_lease_token IS NOT NULL "
+            "AND sync_lease_expires_at IS NOT NULL)",
+            name="ck_document_version_projections_sync_lease",
+        ),
+        CheckConstraint(
+            "vector_applied_revision IS NULL OR vector_applied_revision >= 1",
+            name="ck_document_version_projections_vector_revision",
+        ),
         ForeignKeyConstraint(
             ["org_id", "workspace_id", "document_version_id"],
             [
@@ -607,6 +626,16 @@ class DocumentVersionProjection(UUIDPk, Base):
     is_current_eligible: Mapped[bool] = mapped_column(default=False, index=True)
     applied_revision: Mapped[int]
     applied_at: Mapped[datetime] = mapped_column(default=naive_utc)
+    sync_state: Mapped[str] = mapped_column(String(16), default="queued", index=True)
+    sync_attempts: Mapped[int] = mapped_column(default=0)
+    sync_available_at: Mapped[datetime] = mapped_column(default=naive_utc, index=True)
+    sync_lease_owner: Mapped[str | None] = mapped_column(String(200), default=None)
+    sync_lease_token: Mapped[UUID | None] = mapped_column(default=None, index=True)
+    sync_lease_expires_at: Mapped[datetime | None] = mapped_column(default=None)
+    sync_error_code: Mapped[str | None] = mapped_column(String(100), default=None)
+    vector_applied_generation_id: Mapped[UUID | None] = mapped_column(default=None)
+    vector_applied_revision: Mapped[int | None] = mapped_column(default=None)
+    vector_applied_at: Mapped[datetime | None] = mapped_column(default=None)
 
 
 class DocumentAuthorityReadiness(UUIDPk, Base):

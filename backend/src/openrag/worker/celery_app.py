@@ -67,6 +67,11 @@ def build_celery() -> Celery:
                 "schedule": 1.0,
                 "options": {"queue": "ingestion", "expires": 5},
             },
+            "sync-vector-eligibility": {
+                "task": "documents.sync_vector_eligibility",
+                "schedule": 1.0,
+                "options": {"queue": "ingestion", "expires": 5},
+            },
         },
         broker_connection_retry_on_startup=True,
     )

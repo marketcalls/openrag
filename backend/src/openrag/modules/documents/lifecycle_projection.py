@@ -82,6 +82,9 @@ async def project_document_lifecycle(
         is_current_eligible=is_current_eligible(version),
         applied_revision=envelope.lifecycle_revision,
         applied_at=naive_utc(),
+        sync_state="queued",
+        sync_attempts=0,
+        sync_available_at=naive_utc(),
     )
     await session.execute(
         statement.on_conflict_do_update(
@@ -91,6 +94,13 @@ async def project_document_lifecycle(
                 "is_current_eligible": statement.excluded.is_current_eligible,
                 "applied_revision": statement.excluded.applied_revision,
                 "applied_at": statement.excluded.applied_at,
+                "sync_state": statement.excluded.sync_state,
+                "sync_attempts": statement.excluded.sync_attempts,
+                "sync_available_at": statement.excluded.sync_available_at,
+                "sync_lease_owner": None,
+                "sync_lease_token": None,
+                "sync_lease_expires_at": None,
+                "sync_error_code": None,
             },
             where=(
                 DocumentVersionProjection.applied_revision

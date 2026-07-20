@@ -9,6 +9,9 @@ from celery import Task, chain
 from openrag.core.config import get_settings
 from openrag.modules.documents import ingest
 from openrag.modules.documents.pipeline import IngestFailure
+from openrag.modules.documents.projection_runtime import (
+    run_eligibility_projection_once,
+)
 from openrag.modules.documents.stage_runtime import run_durable_stage_once
 from openrag.modules.embeddings.deployment_runtime import run_deployment_scan_once
 from openrag.worker.celery_app import celery_app
@@ -97,6 +100,23 @@ def scan_embedding_deployment_task(task: Task) -> dict[str, object]:
         "emitted": result.emitted,
         "scan_complete": result.scan_complete,
     }
+
+
+@celery_app.task(
+    bind=True,
+    name="documents.sync_vector_eligibility",
+    ignore_result=True,
+    soft_time_limit=25,
+    time_limit=30,
+)
+def sync_vector_eligibility_task(task: Task) -> dict[str, object]:
+    """Apply one lease-fenced lifecycle projection to active vector storage."""
+
+    hostname = str(getattr(task.request, "hostname", None) or "ingestion-worker")
+    task_id = str(getattr(task.request, "id", None) or "tick")
+    owner = f"vector-eligibility:{hostname}:{task_id}"[:200]
+    result = asyncio.run(run_eligibility_projection_once(owner=owner))
+    return {"state": result.state, "revision": result.revision}
 
 
 class IngestTask(Task):  # type: ignore[misc]

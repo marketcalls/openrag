@@ -43,6 +43,10 @@ def test_celery_config() -> None:
     assert stage_schedule["task"] == "documents.run_durable_stage"
     assert stage_schedule["options"]["queue"] == "ingestion"
     assert stage_schedule["options"]["expires"] <= 10
+    eligibility_schedule = celery_app.conf.beat_schedule["sync-vector-eligibility"]
+    assert eligibility_schedule["task"] == "documents.sync_vector_eligibility"
+    assert eligibility_schedule["options"]["queue"] == "ingestion"
+    assert eligibility_schedule["options"]["expires"] <= 10
     parse_limits = celery_app.conf.task_annotations["documents.parse"]
     assert parse_limits["soft_time_limit"] == 305
     assert parse_limits["time_limit"] == 330
@@ -61,6 +65,7 @@ def test_event_tasks_are_isolated_to_the_events_queue() -> None:
     assert "events.consume_document_starts" in celery_app.tasks
     assert "events.consume_document_lifecycle" in celery_app.tasks
     assert "documents.run_durable_stage" in celery_app.tasks
+    assert "documents.sync_vector_eligibility" in celery_app.tasks
 
 
 def test_queue_selection_by_size() -> None:
