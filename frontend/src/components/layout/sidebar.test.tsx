@@ -64,6 +64,7 @@ test('a user sees no administration links', async () => {
   setAccessToken(tokenFor(['chat.use', 'document.read']));
   renderSidebar();
   expect(await screen.findByText('Finance')).toBeInTheDocument();
+  expect(screen.getByText('Memory')).toBeInTheDocument();
   expect(screen.queryByText('Users')).not.toBeInTheDocument();
   expect(screen.queryByText('Models')).not.toBeInTheDocument();
   expect(screen.queryByText('Embeddings')).not.toBeInTheDocument();

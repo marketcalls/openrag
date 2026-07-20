@@ -175,6 +175,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chats/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search Chats */
+        get: operations["search_chats_api_v1_chats_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chats/{chat_id}": {
         parameters: {
             query?: never;
@@ -438,6 +455,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/memories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Memories */
+        get: operations["list_memories_api_v1_workspaces__workspace_id__memories_get"];
+        put?: never;
+        /** Create Memory */
+        post: operations["create_memory_api_v1_workspaces__workspace_id__memories_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/memories/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Memories */
+        get: operations["export_memories_api_v1_workspaces__workspace_id__memories_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/memories/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Preferences */
+        get: operations["get_preferences_api_v1_workspaces__workspace_id__memories_preferences_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Preferences */
+        patch: operations["update_preferences_api_v1_workspaces__workspace_id__memories_preferences_patch"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/memories/{memory_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Memory */
+        get: operations["get_memory_api_v1_workspaces__workspace_id__memories__memory_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Memory */
+        patch: operations["update_memory_api_v1_workspaces__workspace_id__memories__memory_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/memories/{memory_id}/forget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Forget Memory */
+        post: operations["forget_memory_api_v1_workspaces__workspace_id__memories__memory_id__forget_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/models": {
         parameters: {
             query?: never;
@@ -555,6 +660,91 @@ export interface paths {
         /** Replace Role Bindings */
         put: operations["replace_role_bindings_api_v1_users__user_id__role_bindings_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chats/{chat_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept Run */
+        post: operations["accept_run_api_v1_chats__chat_id__runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/messages/{message_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept Regeneration */
+        post: operations["accept_regeneration_api_v1_messages__message_id__runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run */
+        get: operations["get_run_api_v1_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Replay Run Events */
+        get: operations["replay_run_events_api_v1_runs__run_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Run */
+        post: operations["cancel_run_api_v1_runs__run_id__cancel_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -729,6 +919,13 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** ChatPageOut */
+        ChatPageOut: {
+            /** Items */
+            items: components["schemas"]["ChatOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
         };
         /** ChatPatch */
         ChatPatch: {
@@ -1087,6 +1284,193 @@ export interface components {
              */
             user_id: string;
         };
+        /** MemoryCreate */
+        MemoryCreate: {
+            /**
+             * Client Request Id
+             * Format: uuid
+             */
+            client_request_id: string;
+            /** Canonical Key */
+            canonical_key: string;
+            /** Content */
+            content: string;
+            /** Structured Value */
+            structured_value?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Memory Type
+             * @enum {string}
+             */
+            memory_type: "semantic" | "episodic";
+            /**
+             * Scope
+             * @constant
+             */
+            scope: "user_workspace";
+            /**
+             * Confidence
+             * @default 1
+             */
+            confidence: number;
+            /**
+             * Importance
+             * @default 0.5
+             */
+            importance: number;
+            /**
+             * Sensitivity
+             * @default internal
+             * @enum {string}
+             */
+            sensitivity: "public" | "internal" | "confidential" | "restricted";
+            /** Expires At */
+            expires_at?: string | null;
+        };
+        /** MemoryExportOut */
+        MemoryExportOut: {
+            /**
+             * Exported At
+             * Format: date-time
+             */
+            exported_at: string;
+            /** Items */
+            items: components["schemas"]["MemoryOut"][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** MemoryForget */
+        MemoryForget: {
+            /**
+             * Client Request Id
+             * Format: uuid
+             */
+            client_request_id: string;
+        };
+        /** MemoryOut */
+        MemoryOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            /** Canonical Key */
+            canonical_key: string;
+            /** Content */
+            content: string;
+            /** Structured Value */
+            structured_value: {
+                [key: string]: unknown;
+            } | null;
+            /** Memory Type */
+            memory_type: string;
+            /** Scope */
+            scope: string;
+            /** Status */
+            status: string;
+            /** Confidence */
+            confidence: number;
+            /** Importance */
+            importance: number;
+            /** Sensitivity */
+            sensitivity: string;
+            /** Expires At */
+            expires_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Provenance */
+            provenance?: components["schemas"]["MemoryProvenanceOut"][];
+        };
+        /** MemoryPageOut */
+        MemoryPageOut: {
+            /** Items */
+            items: components["schemas"]["MemoryOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** MemoryPatch */
+        MemoryPatch: {
+            /**
+             * Client Request Id
+             * Format: uuid
+             */
+            client_request_id: string;
+            /** Content */
+            content?: string | null;
+            /** Structured Value */
+            structured_value?: {
+                [key: string]: unknown;
+            } | null;
+            /** Importance */
+            importance?: number | null;
+            /** Sensitivity */
+            sensitivity?: ("public" | "internal" | "confidential" | "restricted") | null;
+            /** Expires At */
+            expires_at?: string | null;
+        };
+        /** MemoryPreferenceOut */
+        MemoryPreferenceOut: {
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            /** Extraction Enabled */
+            extraction_enabled: boolean;
+            /** Semantic Enabled */
+            semantic_enabled: boolean;
+            /** Episodic Enabled */
+            episodic_enabled: boolean;
+            /** Procedural Enabled */
+            procedural_enabled: boolean;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** MemoryPreferencePatch */
+        MemoryPreferencePatch: {
+            /** Extraction Enabled */
+            extraction_enabled?: boolean | null;
+            /** Semantic Enabled */
+            semantic_enabled?: boolean | null;
+            /** Episodic Enabled */
+            episodic_enabled?: boolean | null;
+        };
+        /** MemoryProvenanceOut */
+        MemoryProvenanceOut: {
+            /** Source Kind */
+            source_kind: string;
+            /**
+             * Source Event Id
+             * Format: uuid
+             */
+            source_event_id: string;
+            /** Source Message Id */
+            source_message_id: string | null;
+            /** Source Hash */
+            source_hash: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** MessageNode */
         MessageNode: {
             /**
@@ -1256,6 +1640,101 @@ export interface components {
             description?: string | null;
             /** Permissions */
             permissions?: ("audit.read" | "chat.use" | "document.approve" | "document.read" | "document.upload" | "model.configure" | "rag.evaluate" | "role.manage" | "user.manage" | "workspace.manage" | "workspace.read_all")[] | null;
+        };
+        /** RunAccepted */
+        RunAccepted: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Input Message Id
+             * Format: uuid
+             */
+            input_message_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "queued" | "running" | "completed" | "failed" | "cancelled";
+            /** Created */
+            created: boolean;
+            /** Events Url */
+            events_url: string;
+        };
+        /** RunCreate */
+        RunCreate: {
+            /** Content */
+            content: string;
+            /**
+             * Client Request Id
+             * Format: uuid
+             */
+            client_request_id: string;
+            /** Parent Message Id */
+            parent_message_id?: string | null;
+            /** Model Id */
+            model_id?: string | null;
+        };
+        /** RunRegenerate */
+        RunRegenerate: {
+            /**
+             * Client Request Id
+             * Format: uuid
+             */
+            client_request_id: string;
+            /** Model Id */
+            model_id?: string | null;
+        };
+        /**
+         * RunStatusOut
+         * @description Operational state only: no prompts, credentials, or internal traces.
+         */
+        RunStatusOut: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Chat Id
+             * Format: uuid
+             */
+            chat_id: string;
+            /**
+             * Input Message Id
+             * Format: uuid
+             */
+            input_message_id: string;
+            /** Assistant Message Id */
+            assistant_message_id: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "queued" | "running" | "completed" | "failed" | "cancelled";
+            /** Route */
+            route: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Prompt Tokens */
+            prompt_tokens: number;
+            /** Completion Tokens */
+            completion_tokens: number;
+            /**
+             * Accepted At
+             * Format: date-time
+             */
+            accepted_at: string;
+            /** Started At */
+            started_at: string | null;
+            /** First Token At */
+            first_token_at: string | null;
+            /** Cancel Requested At */
+            cancel_requested_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
         };
         /** SearchRequest */
         SearchRequest: {
@@ -1696,6 +2175,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_chats_api_v1_chats_search_get: {
+        parameters: {
+            query: {
+                workspace_id: string;
+                q?: string | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatPageOut"];
                 };
             };
             /** @description Validation Error */
@@ -2418,6 +2931,275 @@ export interface operations {
             };
         };
     };
+    list_memories_api_v1_workspaces__workspace_id__memories_get: {
+        parameters: {
+            query?: {
+                include_history?: boolean;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryPageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_memory_api_v1_workspaces__workspace_id__memories_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_memories_api_v1_workspaces__workspace_id__memories_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryExportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_preferences_api_v1_workspaces__workspace_id__memories_preferences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryPreferenceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_preferences_api_v1_workspaces__workspace_id__memories_preferences_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryPreferencePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryPreferenceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_memory_api_v1_workspaces__workspace_id__memories__memory_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_memory_api_v1_workspaces__workspace_id__memories__memory_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    forget_memory_api_v1_workspaces__workspace_id__memories__memory_id__forget_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryForget"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_models_api_v1_admin_models_get: {
         parameters: {
             query?: never;
@@ -2714,6 +3496,171 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_run_api_v1_chats__chat_id__runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_regeneration_api_v1_messages__message_id__runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunRegenerate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_api_v1_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replay_run_events_api_v1_runs__run_id__events_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Last-Event-ID"?: string | null;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_run_api_v1_runs__run_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunStatusOut"];
                 };
             };
             /** @description Validation Error */

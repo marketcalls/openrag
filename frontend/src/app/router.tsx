@@ -17,6 +17,10 @@ const DocumentsPage = lazy(async () => {
   const module = await import('@/features/documents/documents-page');
   return { default: module.DocumentsPage };
 });
+const MemoryPage = lazy(async () => {
+  const module = await import('@/features/memory/memory-page');
+  return { default: module.MemoryPage };
+});
 const UsersPage = lazy(async () => {
   const module = await import('@/features/admin/users/users-page');
   return { default: module.UsersPage };
@@ -58,6 +62,20 @@ function DocumentsRoute() {
       }
     >
       <DocumentsPage />
+    </Suspense>
+  );
+}
+
+function MemoryRoute() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-1 items-center justify-center">
+          <Spinner label="Loading memory…" />
+        </div>
+      }
+    >
+      <MemoryPage />
     </Suspense>
   );
 }
@@ -132,6 +150,7 @@ export const router = createBrowserRouter(
             { path: '/chat', element: <ChatRoute /> },
             { path: '/chat/:chatId', element: <ChatRoute /> },
             { path: '/documents', element: <DocumentsRoute /> },
+            { path: '/memory', element: <MemoryRoute /> },
             {
               element: <RequirePermission permission="user.manage" />,
               children: [{ path: '/admin/users', element: <UsersRoute /> }],

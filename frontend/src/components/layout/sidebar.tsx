@@ -1,4 +1,4 @@
-import { FileText, KeyRound, Orbit, Settings2, Users } from 'lucide-react';
+import { BrainCircuit, FileText, KeyRound, Orbit, Settings2, Users } from 'lucide-react';
 import { type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 
@@ -46,6 +46,11 @@ export function Sidebar() {
           to="/documents"
           label="Documents"
           icon={<FileText className="h-4 w-4" aria-hidden />}
+        />
+        <SideLink
+          to="/memory"
+          label="Memory"
+          icon={<BrainCircuit className="h-4 w-4" aria-hidden />}
         />
         {canManageUsers ? (
           <SideLink

@@ -25,6 +25,12 @@ export type EmbeddingProfileOut = components['schemas']['EmbeddingProfileOut'];
 export type EmbeddingProfilePatch = components['schemas']['EmbeddingProfilePatch'];
 export type EmbeddingDeploymentCreate = components['schemas']['EmbeddingDeploymentCreate'];
 export type EmbeddingDeploymentOut = components['schemas']['EmbeddingDeploymentOut'];
+export type MemoryCreate = components['schemas']['MemoryCreate'];
+export type MemoryOut = components['schemas']['MemoryOut'];
+export type MemoryPageOut = components['schemas']['MemoryPageOut'];
+export type MemoryPatch = components['schemas']['MemoryPatch'];
+export type MemoryPreferenceOut = components['schemas']['MemoryPreferenceOut'];
+export type MemoryPreferencePatch = components['schemas']['MemoryPreferencePatch'];
 
 export type DocumentStatus = DocumentOut['status'];
 export type ChatRoute = 'direct' | 'conversation' | 'rag' | 'analytics' | 'clarify';
