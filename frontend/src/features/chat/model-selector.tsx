@@ -5,12 +5,33 @@ export function ModelSelector({
   models,
   value,
   onChange,
+  loading = false,
+  error = false,
 }: {
   models: ModelPublic[];
   value: string | null;
   onChange: (id: string) => void;
+  loading?: boolean;
+  error?: boolean;
 }) {
-  if (!models.length) return <span className="text-[12px] text-muted">No models</span>;
+  if (loading) return <span className="text-[12px] text-muted">Loading models…</span>;
+  if (error) {
+    return (
+      <span className="text-[12px] text-danger" role="status">
+        Models unavailable
+      </span>
+    );
+  }
+  if (!models.length) {
+    return (
+      <span
+        className="text-[12px] text-muted"
+        title="Configured models appear here after their capability probe passes"
+      >
+        No ready models
+      </span>
+    );
+  }
   return (
     <NativeSelect
       aria-label="Model"

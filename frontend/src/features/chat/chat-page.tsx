@@ -51,7 +51,8 @@ export function ChatPage() {
   const navigate = useNavigate();
   const { workspaceId } = useWorkspace();
   const { data: workspaces } = useWorkspaces();
-  const { data: models } = useModels();
+  const modelsQuery = useModels();
+  const models = modelsQuery.data;
   const chatQuery = useChat(chatId);
   const createChat = useCreateChat();
   const stream = useChatStream(chatId);
@@ -149,6 +150,8 @@ export function ChatPage() {
             <ModelSelector
               models={models ?? []}
               value={effectiveModelId}
+              loading={modelsQuery.isPending}
+              error={modelsQuery.isError}
               onChange={(nextModelId) => {
                 setModelId(nextModelId);
                 setReasoningOverride(null);
