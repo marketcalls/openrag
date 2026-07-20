@@ -78,6 +78,20 @@ class ReplyEventBus(Protocol):
     ) -> RunEventEnvelope: ...
 
 
+class ReplyStageObserver(Protocol):
+    def route_selected(self) -> None: ...
+
+    def retrieval_started(self) -> None: ...
+
+    def retrieval_completed(self) -> None: ...
+
+    def first_token(self) -> None: ...
+
+    def persistence_started(self) -> None: ...
+
+    def persistence_completed(self) -> None: ...
+
+
 def _safe_records(
     value: object,
     fields: tuple[str, ...],
@@ -116,10 +130,21 @@ class DurableReplyBridge:
         bus: ReplyEventBus,
         *,
         on_route: Callable[[str], Awaitable[None]] | None = None,
+        stage_observer: ReplyStageObserver | None = None,
     ) -> None:
         self._lifecycle = lifecycle
         self._bus = bus
         self._on_route = on_route
+        self._stage_observer = stage_observer
+
+    async def _persist[T](self, operation: Awaitable[T]) -> T:
+        if self._stage_observer is not None:
+            self._stage_observer.persistence_started()
+        try:
+            return await operation
+        finally:
+            if self._stage_observer is not None:
+                self._stage_observer.persistence_completed()
 
     async def _append(
         self,
@@ -154,15 +179,19 @@ class DurableReplyBridge:
             # A persisted `done` frame must race as completion, otherwise a late
             # cancel could leave an already-committed assistant message orphaned.
             if event.event != "done" and await self._lifecycle.is_cancel_requested(identity.run_id):
-                await self._lifecycle.acknowledge_cancel(identity.run_id)
+                await self._persist(self._lifecycle.acknowledge_cancel(identity.run_id))
                 return "cancelled"
 
             if event.event == "route_selected":
                 route = event.data.get("route")
                 reason = event.data.get("reason_code")
                 if not isinstance(route, str) or not isinstance(reason, str):
-                    await self._lifecycle.fail(identity.run_id, error_code="internal")
+                    await self._persist(
+                        self._lifecycle.fail(identity.run_id, error_code="internal")
+                    )
                     return "failed"
+                if self._stage_observer is not None:
+                    self._stage_observer.route_selected()
                 if self._on_route is not None:
                     await self._on_route(route[:32])
                 await self._append(
@@ -172,6 +201,8 @@ class DurableReplyBridge:
                     dedupe_key="route.selected",
                 )
             elif event.event == "retrieval_started":
+                if self._stage_observer is not None:
+                    self._stage_observer.retrieval_started()
                 await self._append(
                     identity,
                     "retrieval.started",
@@ -180,6 +211,8 @@ class DurableReplyBridge:
                 )
             elif event.event == "sources":
                 sources = _safe_records(event.data.get("sources"), _SOURCE_FIELDS)
+                if self._stage_observer is not None:
+                    self._stage_observer.retrieval_completed()
                 await self._append(
                     identity,
                     "retrieval.sources",
@@ -197,6 +230,8 @@ class DurableReplyBridge:
                 if not isinstance(delta, str) or not delta:
                     continue
                 if not first_token_seen:
+                    if self._stage_observer is not None:
+                        self._stage_observer.first_token()
                     await self._lifecycle.first_token(identity.run_id)
                     first_token_seen = True
                 for start in range(0, len(delta), 16_000):
@@ -220,7 +255,9 @@ class DurableReplyBridge:
                     prompt_tokens = _integer(event.data.get("prompt_tokens"))
                     completion_tokens = _integer(event.data.get("completion_tokens"))
                 except (KeyError, ValueError):
-                    await self._lifecycle.fail(identity.run_id, error_code="internal")
+                    await self._persist(
+                        self._lifecycle.fail(identity.run_id, error_code="internal")
+                    )
                     return "failed"
                 no_answer = event.data.get("no_answer") is True
                 await self._append(
@@ -242,18 +279,22 @@ class DurableReplyBridge:
                     },
                     dedupe_key="usage.updated",
                 )
-                completed = await self._lifecycle.complete(
-                    identity.run_id,
-                    assistant_message_id=message_id,
-                    usage=(prompt_tokens, completion_tokens),
+                completed = await self._persist(
+                    self._lifecycle.complete(
+                        identity.run_id,
+                        assistant_message_id=message_id,
+                        usage=(prompt_tokens, completion_tokens),
+                    )
                 )
                 return "completed" if completed else "cancelled"
             elif event.event == "error":
-                await self._lifecycle.fail(
-                    identity.run_id,
-                    error_code="provider_rejected",
+                await self._persist(
+                    self._lifecycle.fail(
+                        identity.run_id,
+                        error_code="provider_rejected",
+                    )
                 )
                 return "failed"
 
-        await self._lifecycle.fail(identity.run_id, error_code="internal")
+        await self._persist(self._lifecycle.fail(identity.run_id, error_code="internal"))
         return "failed"

@@ -16,6 +16,12 @@ from openrag.modules.chat import service as chat_service
 from openrag.modules.chat.models import Message
 from openrag.modules.models import service as models_service
 from openrag.modules.operations.errors import record_error, top_application_frame
+from openrag.modules.operations.facts import (
+    RunObservation,
+    RunStageTimer,
+    reconcile_run_fact_once,
+    record_run_fact,
+)
 from openrag.modules.operations.schemas import ErrorCategory, ErrorOccurrenceCreate
 from openrag.modules.orchestration.runtime import create_model_streamer
 from openrag.modules.retrieval.service import retrieve
@@ -45,6 +51,45 @@ RunnerTickResult = Literal[
     "cancelled",
 ]
 _logger = structlog.get_logger("openrag.run_worker")
+
+
+async def _record_terminal_fact(
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    run_id: UUID,
+    observation: RunObservation,
+) -> None:
+    try:
+        await record_run_fact(
+            session_factory,
+            run_id,
+            observation,
+            environment=settings.environment,
+            release=settings.release,
+        )
+    except Exception as exc:  # noqa: BLE001 - the user run is already terminal
+        _logger.error(
+            "run_fact_projection_failed",
+            run_id=str(run_id),
+            exception_type=type(exc).__name__,
+        )
+
+
+async def _reconcile_terminal_fact(
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+) -> None:
+    try:
+        await reconcile_run_fact_once(
+            session_factory,
+            environment=settings.environment,
+            release=settings.release,
+        )
+    except Exception as exc:  # noqa: BLE001 - reconciliation must not block new work
+        _logger.error(
+            "run_fact_reconciliation_failed",
+            exception_type=type(exc).__name__,
+        )
 
 
 async def _record_run_error(
@@ -126,6 +171,7 @@ async def _execute_started_run(
     lifecycle: RunLifecycle,
     bus: ReplyEventBus,
     attempt: int,
+    stage_timer: RunStageTimer,
 ) -> RunOutcome:
     async with session_factory() as session:
         run = await session.get(AgentRun, identity.run_id)
@@ -167,6 +213,7 @@ async def _execute_started_run(
         bridge = DurableReplyBridge(
             lifecycle,
             bus,
+            stage_observer=stage_timer,
             on_route=lambda route: _record_route(
                 session_factory,
                 identity.run_id,
@@ -201,6 +248,7 @@ async def _execute_with_heartbeat(
     claim: RunLeaseClaim,
     lifecycle: RunLifecycle,
     bus: ReplyEventBus,
+    stage_timer: RunStageTimer,
 ) -> RunOutcome | Literal["contested"]:
     identity = RunIdentity(
         run_id=claim.run_id,
@@ -216,6 +264,7 @@ async def _execute_with_heartbeat(
             lifecycle,
             bus,
             claim.attempt,
+            stage_timer,
         )
     )
     heartbeat_seconds = max(5.0, settings.run_lease_seconds / 3)
@@ -246,6 +295,7 @@ async def execute_queued_run_once(
 ) -> RunnerTickResult:
     """A conditional lifecycle transition makes parallel worker ticks safe."""
 
+    await _reconcile_terminal_fact(session_factory, settings)
     cancellation_lifecycle = RunLifecycle(
         SqlRunTransitionRepository(session_factory),
         bus,
@@ -253,7 +303,15 @@ async def execute_queued_run_once(
     cancelled_id = await _next_cancelled_run_id(session_factory)
     if cancelled_id is not None:
         acknowledged = await cancellation_lifecycle.acknowledge_cancel(cancelled_id)
-        return "cancelled" if acknowledged else "contested"
+        if acknowledged:
+            await _record_terminal_fact(
+                session_factory,
+                settings,
+                cancelled_id,
+                RunObservation(),
+            )
+            return "cancelled"
+        return "contested"
 
     exhausted = await fail_exhausted_run(session_factory)
     if exhausted is not None:
@@ -265,6 +323,12 @@ async def execute_queued_run_once(
                 chat_id=exhausted.chat_id,
             ),
             error_code="retry_exhausted",
+        )
+        await _record_terminal_fact(
+            session_factory,
+            settings,
+            exhausted.run_id,
+            RunObservation(),
         )
         return "failed"
 
@@ -280,6 +344,7 @@ async def execute_queued_run_once(
         SqlRunTransitionRepository(session_factory, lease_token=claim.token),
         bus,
     )
+    stage_timer = RunStageTimer()
     try:
         await lifecycle.announce_start(
             RunIdentity(
@@ -291,15 +356,31 @@ async def execute_queued_run_once(
             attempt=claim.attempt,
             recovered=claim.recovered,
         )
-        return await _execute_with_heartbeat(
+        outcome = await _execute_with_heartbeat(
             session_factory,
             settings,
             claim,
             lifecycle,
             bus,
+            stage_timer,
         )
+        if outcome != "contested":
+            await _record_terminal_fact(
+                session_factory,
+                settings,
+                run_id,
+                stage_timer.snapshot(),
+            )
+        return outcome
     except ConflictError:
-        await lifecycle.fail(run_id, error_code="model_unavailable")
+        transitioned = await lifecycle.fail(run_id, error_code="model_unavailable")
+        if transitioned:
+            await _record_terminal_fact(
+                session_factory,
+                settings,
+                run_id,
+                stage_timer.snapshot(),
+            )
         return "failed"
     except UpstreamError as exc:
         await _record_run_error(
@@ -310,7 +391,14 @@ async def execute_queued_run_once(
             code="provider.transient",
             exc=exc,
         )
-        await lifecycle.fail(run_id, error_code="provider_transient")
+        transitioned = await lifecycle.fail(run_id, error_code="provider_transient")
+        if transitioned:
+            await _record_terminal_fact(
+                session_factory,
+                settings,
+                run_id,
+                stage_timer.snapshot(),
+            )
         return "failed"
     except Exception as exc:
         error_id = uuid4()
@@ -328,5 +416,12 @@ async def execute_queued_run_once(
             code="run.internal",
             exc=exc,
         )
-        await lifecycle.fail(run_id, error_code="internal")
+        transitioned = await lifecycle.fail(run_id, error_code="internal")
+        if transitioned:
+            await _record_terminal_fact(
+                session_factory,
+                settings,
+                run_id,
+                stage_timer.snapshot(),
+            )
         return "failed"

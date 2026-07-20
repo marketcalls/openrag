@@ -49,6 +49,29 @@ class RecordingBus:
         )
 
 
+class RecordingStageObserver:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def route_selected(self) -> None:
+        self.calls.append("route")
+
+    def retrieval_started(self) -> None:
+        self.calls.append("retrieval_started")
+
+    def retrieval_completed(self) -> None:
+        self.calls.append("retrieval_completed")
+
+    def first_token(self) -> None:
+        self.calls.append("first_token")
+
+    def persistence_started(self) -> None:
+        self.calls.append("persistence_started")
+
+    def persistence_completed(self) -> None:
+        self.calls.append("persistence_completed")
+
+
 @dataclass
 class FakeLifecycle:
     cancelled: bool = False
@@ -143,6 +166,42 @@ async def test_bridge_streams_safe_durable_events_and_completes() -> None:
     assert [event["payload"] for event in bus.events if event["event_type"] == "message.delta"] == [
         {"delta": "Hello"},
         {"delta": "!"},
+    ]
+
+
+async def test_bridge_reports_monotonic_stage_boundaries() -> None:
+    identity = _identity()
+    lifecycle = FakeLifecycle()
+    bus = RecordingBus()
+    observer = RecordingStageObserver()
+    bridge = DurableReplyBridge(lifecycle, bus, stage_observer=observer)
+
+    await bridge.consume(
+        identity,
+        _events(
+            SSEEvent("route_selected", {"route": "rag", "reason_code": "documents"}),
+            SSEEvent("retrieval_started", {}),
+            SSEEvent("sources", {"sources": []}),
+            SSEEvent("token", {"delta": "No evidence"}),
+            SSEEvent(
+                "done",
+                {
+                    "message_id": str(uuid4()),
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "no_answer": True,
+                },
+            ),
+        ),
+    )
+
+    assert observer.calls == [
+        "route",
+        "retrieval_started",
+        "retrieval_completed",
+        "first_token",
+        "persistence_started",
+        "persistence_completed",
     ]
 
 

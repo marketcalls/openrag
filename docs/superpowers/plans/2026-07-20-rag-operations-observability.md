@@ -160,7 +160,7 @@ Commit: `feat: correlate and group safe errors`
 - Produces: `record_run_fact(session_factory, run_id, observation) -> None` and bounded `RunObservation`.
 - Fact writes are idempotent per run and never hold SQL while retrieval or provider calls execute.
 
-- [ ] **Step 1: Write failing idempotency and timing tests**
+- [x] **Step 1: Write failing idempotency and timing tests**
 
 ```python
 async def test_projection_is_idempotent_and_derives_terminal_metrics(factory, completed_run) -> None:
@@ -171,15 +171,15 @@ async def test_projection_is_idempotent_and_derives_terminal_metrics(factory, co
     assert facts[0].latency_ms >= facts[0].ttft_ms >= 0
 ```
 
-- [ ] **Step 2: Instrument monotonic stage timings**
+- [x] **Step 2: Instrument monotonic stage timings**
 
 Measure route, retrieval, provider wait, TTFT, persistence, and total duration with `time.perf_counter_ns()`. Store integer milliseconds only after terminal persistence. Derive prompt/completion tokens from the durable run and retrieval/context counts from bounded recorders.
 
-- [ ] **Step 3: Project every terminal outcome**
+- [x] **Step 3: Project every terminal outcome**
 
 Completed, failed, refused/no-answer, and cancelled runs all emit one fact with safe outcome/error code. A projection failure is logged and retried independently; it must not change the already terminal user run.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 Run: `cd backend && uv run pytest -q tests/modules/operations/test_facts.py tests/modules/runs/test_service.py && uv run ruff check src tests && uv run mypy`
 
