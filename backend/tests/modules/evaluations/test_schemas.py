@@ -7,6 +7,7 @@ from openrag.modules.evaluations.schemas import (
     EvaluationCaseCreate,
     EvaluationDatasetVersionCreate,
     EvaluationEvidenceCreate,
+    EvaluationPolicyUpsert,
     EvaluationRunCreate,
 )
 
@@ -75,3 +76,25 @@ def test_evaluation_run_requires_explicit_case_token_and_cost_budgets() -> None:
         invalid = valid | {field: 0}
         with pytest.raises(ValidationError):
             EvaluationRunCreate.model_validate(invalid)
+
+
+def test_evaluation_policy_has_bounded_cadence_budgets_and_judge_contract() -> None:
+    valid = {
+        "dataset_id": uuid4(),
+        "model_id": uuid4(),
+        "interval_hours": 24,
+        "max_cases": 100,
+        "max_tokens": 500_000,
+        "max_cost_microusd": 25_000_000,
+    }
+
+    policy = EvaluationPolicyUpsert.model_validate(valid)
+
+    assert policy.enabled is True
+    assert policy.trigger_on_config_change is True
+    assert policy.use_llm_judge is False
+    for field in ("interval_hours", "max_cases", "max_tokens", "max_cost_microusd"):
+        with pytest.raises(ValidationError):
+            EvaluationPolicyUpsert.model_validate(valid | {field: 0})
+    with pytest.raises(ValidationError, match="evaluation_judge_model_required"):
+        EvaluationPolicyUpsert.model_validate(valid | {"use_llm_judge": True})

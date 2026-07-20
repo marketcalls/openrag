@@ -19,6 +19,7 @@ def test_evaluation_api_exposes_dataset_and_run_workflows() -> None:
     assert "get" in paths["/api/v1/admin/evaluations/versions/{version_id}"]
     assert set(paths["/api/v1/admin/evaluations/runs"]) >= {"get", "post"}
     assert "get" in paths["/api/v1/admin/evaluations/runs/{run_id}"]
+    assert set(paths["/api/v1/admin/evaluations/policies"]) >= {"get", "put"}
 
 
 async def _auth(client: httpx.AsyncClient, user: User) -> dict[str, str]:
@@ -47,6 +48,19 @@ async def _auth(client: httpx.AsyncClient, user: User) -> dict[str, str]:
         ),
         ("GET", f"/api/v1/admin/evaluations/versions/{uuid4()}", None),
         ("GET", "/api/v1/admin/evaluations/runs", None),
+        ("GET", "/api/v1/admin/evaluations/policies", None),
+        (
+            "PUT",
+            "/api/v1/admin/evaluations/policies",
+            {
+                "dataset_id": str(uuid4()),
+                "model_id": str(uuid4()),
+                "interval_hours": 24,
+                "max_cases": 10,
+                "max_tokens": 1000,
+                "max_cost_microusd": 10_000,
+            },
+        ),
         (
             "POST",
             "/api/v1/admin/evaluations/runs",

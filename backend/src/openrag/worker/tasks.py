@@ -15,7 +15,10 @@ from openrag.modules.documents.projection_runtime import (
 from openrag.modules.documents.stage_runtime import run_durable_stage_once
 from openrag.modules.embeddings.deployment_runtime import run_deployment_scan_once
 from openrag.worker.celery_app import celery_app
-from openrag.worker.evaluation_runtime import run_evaluation_once
+from openrag.worker.evaluation_runtime import (
+    run_evaluation_once,
+    run_evaluation_scheduler_once,
+)
 from openrag.worker.event_runtime import (
     consume_document_lifecycle_once,
     consume_document_starts_once,
@@ -131,6 +134,18 @@ def execute_evaluation_task(task: Task) -> str:
     task_id = str(getattr(task.request, "id", None) or "tick")
     owner = f"evaluation:{hostname}:{task_id}"[:200]
     return asyncio.run(run_evaluation_once(owner=owner))
+
+
+@celery_app.task(
+    name="evaluations.schedule_due",
+    ignore_result=True,
+    soft_time_limit=25,
+    time_limit=30,
+)
+def schedule_evaluations_task() -> int:
+    """Queue due policies without running provider work in the scheduler."""
+
+    return asyncio.run(run_evaluation_scheduler_once())
 
 
 @celery_app.task(

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 EvaluationRunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
 EvaluationCaseStatus = Literal["queued", "completed", "failed", "skipped"]
+EvaluationTriggerKind = Literal["manual", "scheduled", "config_change"]
 
 
 class EvaluationEvidenceCreate(BaseModel):
@@ -120,6 +121,53 @@ class EvaluationRunCreate(BaseModel):
         return self
 
 
+class EvaluationPolicyUpsert(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: UUID
+    model_id: UUID
+    evaluator_model_id: UUID | None = None
+    use_llm_judge: bool = False
+    enabled: bool = True
+    trigger_on_config_change: bool = True
+    interval_hours: int = Field(default=24, ge=1, le=720)
+    max_cases: int = Field(ge=1, le=10_000)
+    max_tokens: int = Field(ge=1, le=50_000_000)
+    max_cost_microusd: int = Field(ge=1, le=100_000_000_000)
+
+    @model_validator(mode="after")
+    def validate_evaluator(self) -> Self:
+        if self.use_llm_judge and self.evaluator_model_id is None:
+            raise ValueError("evaluation_judge_model_required")
+        if not self.use_llm_judge and self.evaluator_model_id is not None:
+            raise ValueError("evaluation_judge_model_unused")
+        return self
+
+
+class EvaluationPolicyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    id: UUID
+    org_id: UUID
+    workspace_id: UUID
+    dataset_id: UUID
+    model_id: UUID
+    evaluator_model_id: UUID | None
+    use_llm_judge: bool
+    enabled: bool
+    trigger_on_config_change: bool
+    interval_hours: int
+    max_cases: int
+    max_tokens: int
+    max_cost_microusd: int
+    next_run_at: datetime
+    last_enqueued_at: datetime | None
+    last_error_code: str | None
+    created_by: UUID
+    created_at: datetime
+    updated_at: datetime
+
+
 class EvaluationRunOut(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
@@ -130,6 +178,9 @@ class EvaluationRunOut(BaseModel):
     model_id: UUID
     evaluator_model_id: UUID | None
     use_llm_judge: bool
+    policy_id: UUID | None
+    trigger_kind: EvaluationTriggerKind
+    trigger_key: str | None
     status: EvaluationRunStatus
     max_cases: int
     max_tokens: int

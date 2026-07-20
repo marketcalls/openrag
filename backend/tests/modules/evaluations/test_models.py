@@ -6,6 +6,7 @@ from openrag.modules.evaluations.models import (
     EvaluationCaseResult,
     EvaluationDataset,
     EvaluationDatasetVersion,
+    EvaluationPolicy,
     EvaluationRun,
 )
 
@@ -26,6 +27,7 @@ def test_all_evaluation_entities_have_tenant_scope() -> None:
         EvaluationDatasetVersion,
         EvaluationCase,
         EvaluationCaseEvidence,
+        EvaluationPolicy,
         EvaluationRun,
         EvaluationCaseResult,
     ):
@@ -41,3 +43,22 @@ def test_runs_have_explicit_budgets_and_complete_lease_fencing() -> None:
     for name in ("lease_owner", "lease_token", "lease_expires_at"):
         assert name in columns
     assert "use_llm_judge" in columns
+
+
+def test_automation_policies_are_bounded_and_runs_record_trigger_provenance() -> None:
+    policy_columns = EvaluationPolicy.__table__.c
+    run_columns = EvaluationRun.__table__.c
+
+    for name in (
+        "dataset_id",
+        "model_id",
+        "interval_hours",
+        "next_run_at",
+        "max_cases",
+        "max_tokens",
+        "max_cost_microusd",
+        "trigger_on_config_change",
+    ):
+        assert name in policy_columns
+    for name in ("trigger_kind", "trigger_key", "policy_id"):
+        assert name in run_columns

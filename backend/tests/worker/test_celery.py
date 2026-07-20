@@ -89,6 +89,10 @@ def test_event_tasks_are_isolated_to_the_events_queue() -> None:
     evaluation_schedule = celery_app.conf.beat_schedule["execute-rag-evaluation"]
     assert evaluation_schedule["task"] == "evaluations.execute_next"
     assert evaluation_schedule["options"]["queue"] == "evaluations"
+    automation_schedule = celery_app.conf.beat_schedule["schedule-rag-evaluations"]
+    assert automation_schedule["task"] == "evaluations.schedule_due"
+    assert automation_schedule["options"]["queue"] == "evaluations"
+    assert "evaluations.schedule_due" in celery_app.tasks
 
 
 def test_queue_selection_by_size() -> None:

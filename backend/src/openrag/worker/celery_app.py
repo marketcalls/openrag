@@ -112,6 +112,11 @@ def build_celery() -> Celery:
                 "schedule": 0.5,
                 "options": {"queue": "evaluations", "expires": 3},
             },
+            "schedule-rag-evaluations": {
+                "task": "evaluations.schedule_due",
+                "schedule": 60.0,
+                "options": {"queue": "evaluations", "expires": 55},
+            },
             "refresh-conversation-summary": {
                 "task": "summaries.refresh_next",
                 "schedule": 1.0,

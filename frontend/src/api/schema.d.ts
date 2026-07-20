@@ -421,6 +421,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/evaluations/policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Policies */
+        get: operations["list_policies_api_v1_admin_evaluations_policies_get"];
+        /** Upsert Policy */
+        put: operations["upsert_policy_api_v1_admin_evaluations_policies_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/evaluations/datasets": {
         parameters: {
             query?: never;
@@ -1793,6 +1811,115 @@ export interface components {
              */
             evidence_span_id: string;
         };
+        /** EvaluationPolicyOut */
+        EvaluationPolicyOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Org Id
+             * Format: uuid
+             */
+            org_id: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            /**
+             * Dataset Id
+             * Format: uuid
+             */
+            dataset_id: string;
+            /**
+             * Model Id
+             * Format: uuid
+             */
+            model_id: string;
+            /** Evaluator Model Id */
+            evaluator_model_id: string | null;
+            /** Use Llm Judge */
+            use_llm_judge: boolean;
+            /** Enabled */
+            enabled: boolean;
+            /** Trigger On Config Change */
+            trigger_on_config_change: boolean;
+            /** Interval Hours */
+            interval_hours: number;
+            /** Max Cases */
+            max_cases: number;
+            /** Max Tokens */
+            max_tokens: number;
+            /** Max Cost Microusd */
+            max_cost_microusd: number;
+            /**
+             * Next Run At
+             * Format: date-time
+             */
+            next_run_at: string;
+            /** Last Enqueued At */
+            last_enqueued_at: string | null;
+            /** Last Error Code */
+            last_error_code: string | null;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** EvaluationPolicyUpsert */
+        EvaluationPolicyUpsert: {
+            /**
+             * Dataset Id
+             * Format: uuid
+             */
+            dataset_id: string;
+            /**
+             * Model Id
+             * Format: uuid
+             */
+            model_id: string;
+            /** Evaluator Model Id */
+            evaluator_model_id?: string | null;
+            /**
+             * Use Llm Judge
+             * @default false
+             */
+            use_llm_judge: boolean;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Trigger On Config Change
+             * @default true
+             */
+            trigger_on_config_change: boolean;
+            /**
+             * Interval Hours
+             * @default 24
+             */
+            interval_hours: number;
+            /** Max Cases */
+            max_cases: number;
+            /** Max Tokens */
+            max_tokens: number;
+            /** Max Cost Microusd */
+            max_cost_microusd: number;
+        };
         /** EvaluationRunCreate */
         EvaluationRunCreate: {
             /**
@@ -1852,6 +1979,15 @@ export interface components {
             evaluator_model_id: string | null;
             /** Use Llm Judge */
             use_llm_judge: boolean;
+            /** Policy Id */
+            policy_id: string | null;
+            /**
+             * Trigger Kind
+             * @enum {string}
+             */
+            trigger_kind: "manual" | "scheduled" | "config_change";
+            /** Trigger Key */
+            trigger_key: string | null;
             /**
              * Status
              * @enum {string}
@@ -1941,6 +2077,15 @@ export interface components {
             evaluator_model_id: string | null;
             /** Use Llm Judge */
             use_llm_judge: boolean;
+            /** Policy Id */
+            policy_id: string | null;
+            /**
+             * Trigger Kind
+             * @enum {string}
+             */
+            trigger_kind: "manual" | "scheduled" | "config_change";
+            /** Trigger Key */
+            trigger_key: string | null;
             /**
              * Status
              * @enum {string}
@@ -3876,6 +4021,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EmbeddingDeploymentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_policies_api_v1_admin_evaluations_policies_get: {
+        parameters: {
+            query?: {
+                workspace_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationPolicyOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_policy_api_v1_admin_evaluations_policies_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluationPolicyUpsert"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationPolicyOut"];
                 };
             };
             /** @description Validation Error */

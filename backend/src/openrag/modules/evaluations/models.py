@@ -187,6 +187,73 @@ class EvaluationCaseEvidence(UUIDPk, Base):
     position: Mapped[int]
 
 
+class EvaluationPolicy(UUIDPk, Base):
+    """Bounded automation policy; provider work remains on the evaluation queue."""
+
+    __tablename__ = "evaluation_policies"
+    __table_args__ = (
+        UniqueConstraint(
+            "org_id", "workspace_id", "id", name="uq_evaluation_policies_scope_id"
+        ),
+        UniqueConstraint(
+            "org_id",
+            "workspace_id",
+            "dataset_id",
+            name="uq_evaluation_policies_scope_dataset",
+        ),
+        ForeignKeyConstraint(
+            ["org_id", "workspace_id", "dataset_id"],
+            [
+                "evaluation_datasets.org_id",
+                "evaluation_datasets.workspace_id",
+                "evaluation_datasets.id",
+            ],
+            name="fk_evaluation_policies_scope_dataset",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["org_id", "created_by"],
+            ["users.org_id", "users.id"],
+            name="fk_evaluation_policies_scope_creator",
+        ),
+        CheckConstraint(
+            "interval_hours BETWEEN 1 AND 720",
+            name="ck_evaluation_policies_interval",
+        ),
+        CheckConstraint(
+            "max_cases BETWEEN 1 AND 10000 AND max_tokens BETWEEN 1 AND 50000000 "
+            "AND max_cost_microusd BETWEEN 1 AND 100000000000",
+            name="ck_evaluation_policies_budgets",
+        ),
+        CheckConstraint(
+            "(use_llm_judge AND evaluator_model_id IS NOT NULL) OR "
+            "(NOT use_llm_judge AND evaluator_model_id IS NULL)",
+            name="ck_evaluation_policies_judge",
+        ),
+        Index("ix_evaluation_policies_due", "enabled", "next_run_at", "id"),
+    )
+
+    org_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    workspace_id: Mapped[UUID] = mapped_column(index=True)
+    dataset_id: Mapped[UUID] = mapped_column(index=True)
+    model_id: Mapped[UUID] = mapped_column(ForeignKey("models.id"), index=True)
+    evaluator_model_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("models.id"), default=None
+    )
+    use_llm_judge: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    trigger_on_config_change: Mapped[bool] = mapped_column(Boolean, default=True)
+    interval_hours: Mapped[int] = mapped_column(default=24)
+    max_cases: Mapped[int]
+    max_tokens: Mapped[int]
+    max_cost_microusd: Mapped[int] = mapped_column(BigInteger)
+    next_run_at: Mapped[datetime] = mapped_column(index=True)
+    last_enqueued_at: Mapped[datetime | None] = mapped_column(default=None)
+    last_error_code: Mapped[str | None] = mapped_column(String(64), default=None)
+    created_by: Mapped[UUID] = mapped_column(index=True)
+    updated_at: Mapped[datetime] = mapped_column(default=naive_utc, onupdate=naive_utc)
+
+
 class EvaluationRun(UUIDPk, Base):
     __tablename__ = "evaluation_runs"
     __table_args__ = (
@@ -212,6 +279,20 @@ class EvaluationRun(UUIDPk, Base):
             ["org_id", "created_by"],
             ["users.org_id", "users.id"],
             name="fk_evaluation_runs_scope_creator",
+        ),
+        ForeignKeyConstraint(
+            ["org_id", "workspace_id", "policy_id"],
+            [
+                "evaluation_policies.org_id",
+                "evaluation_policies.workspace_id",
+                "evaluation_policies.id",
+            ],
+            name="fk_evaluation_runs_scope_policy",
+        ),
+        UniqueConstraint(
+            "policy_id",
+            "trigger_key",
+            name="uq_evaluation_runs_policy_trigger",
         ),
         CheckConstraint(
             "status IN ('queued','running','completed','failed','cancelled')",
@@ -247,6 +328,12 @@ class EvaluationRun(UUIDPk, Base):
             name="ck_evaluation_runs_judge",
         ),
         CheckConstraint(
+            "(trigger_kind = 'manual' AND policy_id IS NULL AND trigger_key IS NULL) OR "
+            "(trigger_kind IN ('scheduled','config_change') AND policy_id IS NOT NULL "
+            "AND trigger_key IS NOT NULL)",
+            name="ck_evaluation_runs_trigger",
+        ),
+        CheckConstraint(
             "(recall IS NULL OR recall BETWEEN 0 AND 1) "
             "AND (precision IS NULL OR precision BETWEEN 0 AND 1) "
             "AND (mrr IS NULL OR mrr BETWEEN 0 AND 1) "
@@ -269,6 +356,9 @@ class EvaluationRun(UUIDPk, Base):
         ForeignKey("models.id"), default=None
     )
     use_llm_judge: Mapped[bool] = mapped_column(Boolean, default=False)
+    policy_id: Mapped[UUID | None] = mapped_column(default=None, index=True)
+    trigger_kind: Mapped[str] = mapped_column(String(20), default="manual", index=True)
+    trigger_key: Mapped[str | None] = mapped_column(String(120), default=None)
     client_request_id: Mapped[UUID | None] = mapped_column(default=None)
     status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
     max_cases: Mapped[int]

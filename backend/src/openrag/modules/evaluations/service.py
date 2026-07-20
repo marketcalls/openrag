@@ -3,21 +3,31 @@
 import hashlib
 import json
 from collections import defaultdict
+from datetime import datetime
+from typing import cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from openrag.core.db import naive_utc
 from openrag.core.errors import ConflictError, InvalidRequestError, NotFoundError
 from openrag.modules.audit.service import record_audit
 from openrag.modules.documents.models import DocumentEvidenceSpan, DocumentVersion
+from openrag.modules.evaluations.automation import (
+    build_due_policy_query,
+    config_trigger_key,
+    next_scheduled_at,
+    scheduled_trigger_key,
+)
 from openrag.modules.evaluations.models import (
     EvaluationCase,
     EvaluationCaseEvidence,
     EvaluationCaseResult,
     EvaluationDataset,
     EvaluationDatasetVersion,
+    EvaluationPolicy,
     EvaluationRun,
 )
 from openrag.modules.evaluations.schemas import (
@@ -28,6 +38,7 @@ from openrag.modules.evaluations.schemas import (
     EvaluationDatasetVersionDetail,
     EvaluationDatasetVersionOut,
     EvaluationEvidenceCreate,
+    EvaluationPolicyUpsert,
     EvaluationRunCreate,
     EvaluationRunDetail,
     EvaluationRunOut,
@@ -35,6 +46,56 @@ from openrag.modules.evaluations.schemas import (
 from openrag.modules.models.models import Model
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Workspace
+
+
+async def _validate_run_models(
+    session: AsyncSession,
+    *,
+    model_id: UUID,
+    evaluator_model_id: UUID | None,
+) -> Model:
+    model = await session.scalar(
+        select(Model).where(
+            Model.id == model_id,
+            Model.enabled.is_(True),
+            Model.supports_chat_completion.is_(True),
+        )
+    )
+    if model is None:
+        raise InvalidRequestError("evaluation model is not an enabled chat model")
+    if evaluator_model_id is not None:
+        evaluator = await session.scalar(
+            select(Model).where(
+                Model.id == evaluator_model_id,
+                Model.enabled.is_(True),
+                Model.supports_chat_completion.is_(True),
+                Model.supports_structured_json.is_(True),
+                Model.supports_verifier.is_(True),
+            )
+        )
+        if evaluator is None:
+            raise InvalidRequestError("evaluator model lacks verifier capabilities")
+    return model
+
+
+async def _latest_dataset_version(
+    session: AsyncSession,
+    *,
+    org_id: UUID,
+    dataset_id: UUID,
+) -> EvaluationDatasetVersion | None:
+    return cast(
+        EvaluationDatasetVersion | None,
+        await session.scalar(
+            select(EvaluationDatasetVersion)
+            .where(
+                EvaluationDatasetVersion.org_id == org_id,
+                EvaluationDatasetVersion.dataset_id == dataset_id,
+            )
+            .order_by(EvaluationDatasetVersion.version.desc())
+            .limit(1)
+        ),
+    )
 
 
 def _corpus_digest(body: EvaluationDatasetVersionCreate) -> str:
@@ -320,26 +381,11 @@ async def create_run(
     )
     if version is None:
         raise NotFoundError("evaluation dataset version not found")
-    model = await session.scalar(
-        select(Model).where(
-            Model.id == body.model_id,
-            Model.enabled.is_(True),
-            Model.supports_chat_completion.is_(True),
-        )
+    model = await _validate_run_models(
+        session,
+        model_id=body.model_id,
+        evaluator_model_id=body.evaluator_model_id,
     )
-    if model is None:
-        raise InvalidRequestError("evaluation model is not an enabled chat model")
-    if body.evaluator_model_id is not None:
-        evaluator = await session.scalar(
-            select(Model).where(
-                Model.id == body.evaluator_model_id,
-                Model.enabled.is_(True),
-                Model.supports_structured_json.is_(True),
-                Model.supports_verifier.is_(True),
-            )
-        )
-        if evaluator is None:
-            raise InvalidRequestError("evaluator model lacks verifier capabilities")
     request_id = body.client_request_id or uuid4()
     existing = await session.scalar(
         select(EvaluationRun).where(
@@ -390,6 +436,253 @@ async def create_run(
             raise
         return raced
     return run
+
+
+async def upsert_policy(
+    session: AsyncSession,
+    context: TenantContext,
+    body: EvaluationPolicyUpsert,
+) -> EvaluationPolicy:
+    dataset = await session.scalar(
+        select(EvaluationDataset).where(
+            EvaluationDataset.org_id == context.org_id,
+            EvaluationDataset.id == body.dataset_id,
+            EvaluationDataset.archived.is_(False),
+        )
+    )
+    if dataset is None:
+        raise NotFoundError("evaluation dataset not found")
+    if await _latest_dataset_version(
+        session,
+        org_id=context.org_id,
+        dataset_id=dataset.id,
+    ) is None:
+        raise InvalidRequestError("evaluation policy requires a sealed dataset version")
+    await _validate_run_models(
+        session,
+        model_id=body.model_id,
+        evaluator_model_id=body.evaluator_model_id,
+    )
+    policy = await session.scalar(
+        select(EvaluationPolicy)
+        .where(
+            EvaluationPolicy.org_id == context.org_id,
+            EvaluationPolicy.workspace_id == dataset.workspace_id,
+            EvaluationPolicy.dataset_id == dataset.id,
+        )
+        .with_for_update()
+    )
+    now = naive_utc()
+    action = "evaluation_policy.updated"
+    if policy is None:
+        action = "evaluation_policy.created"
+        policy = EvaluationPolicy(
+            org_id=context.org_id,
+            workspace_id=dataset.workspace_id,
+            dataset_id=dataset.id,
+            model_id=body.model_id,
+            evaluator_model_id=body.evaluator_model_id,
+            use_llm_judge=body.use_llm_judge,
+            enabled=body.enabled,
+            trigger_on_config_change=body.trigger_on_config_change,
+            interval_hours=body.interval_hours,
+            max_cases=body.max_cases,
+            max_tokens=body.max_tokens,
+            max_cost_microusd=body.max_cost_microusd,
+            next_run_at=next_scheduled_at(
+                now,
+                interval_hours=body.interval_hours,
+            ),
+            created_by=context.user_id,
+        )
+        session.add(policy)
+    else:
+        policy.model_id = body.model_id
+        policy.evaluator_model_id = body.evaluator_model_id
+        policy.use_llm_judge = body.use_llm_judge
+        policy.enabled = body.enabled
+        policy.trigger_on_config_change = body.trigger_on_config_change
+        policy.interval_hours = body.interval_hours
+        policy.max_cases = body.max_cases
+        policy.max_tokens = body.max_tokens
+        policy.max_cost_microusd = body.max_cost_microusd
+        policy.next_run_at = next_scheduled_at(
+            now,
+            interval_hours=body.interval_hours,
+        )
+        policy.last_error_code = None
+    try:
+        await session.flush()
+        await record_audit(
+            session,
+            org_id=context.org_id,
+            actor_id=context.user_id,
+            action=action,
+            target_type="evaluation_policy",
+            target_id=str(policy.id),
+        )
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise ConflictError("evaluation policy conflicted with another writer") from exc
+    return policy
+
+
+async def list_policies(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID | None,
+) -> list[EvaluationPolicy]:
+    statement = select(EvaluationPolicy).where(
+        EvaluationPolicy.org_id == context.org_id
+    )
+    if workspace_id is not None:
+        statement = statement.where(EvaluationPolicy.workspace_id == workspace_id)
+    return list(
+        (
+            await session.scalars(
+                statement.order_by(EvaluationPolicy.created_at.desc()).limit(100)
+            )
+        ).all()
+    )
+
+
+async def _queue_policy_run(
+    session: AsyncSession,
+    policy: EvaluationPolicy,
+    *,
+    trigger_kind: str,
+    trigger_key: str,
+    now: datetime,
+) -> EvaluationRun | None:
+    existing = await session.scalar(
+        select(EvaluationRun.id).where(
+            EvaluationRun.policy_id == policy.id,
+            EvaluationRun.trigger_key == trigger_key,
+        )
+    )
+    if existing is not None:
+        return None
+    version = await _latest_dataset_version(
+        session,
+        org_id=policy.org_id,
+        dataset_id=policy.dataset_id,
+    )
+    if version is None:
+        policy.last_error_code = "evaluation_policy_dataset_unversioned"
+        return None
+    try:
+        await _validate_run_models(
+            session,
+            model_id=policy.model_id,
+            evaluator_model_id=policy.evaluator_model_id,
+        )
+    except InvalidRequestError:
+        policy.last_error_code = "evaluation_policy_model_invalid"
+        return None
+    run = EvaluationRun(
+        org_id=policy.org_id,
+        workspace_id=policy.workspace_id,
+        dataset_version_id=version.id,
+        model_id=policy.model_id,
+        evaluator_model_id=policy.evaluator_model_id,
+        use_llm_judge=policy.use_llm_judge,
+        policy_id=policy.id,
+        trigger_kind=trigger_kind,
+        trigger_key=trigger_key,
+        client_request_id=None,
+        status="queued",
+        max_cases=policy.max_cases,
+        max_tokens=policy.max_tokens,
+        max_cost_microusd=policy.max_cost_microusd,
+        total_cases=min(version.case_count, policy.max_cases),
+        created_by=policy.created_by,
+    )
+    session.add(run)
+    policy.last_enqueued_at = now
+    policy.last_error_code = None
+    await session.flush()
+    await record_audit(
+        session,
+        org_id=policy.org_id,
+        actor_id=policy.created_by,
+        action="evaluation_run.automated_queued",
+        target_type="evaluation_run",
+        target_id=str(run.id),
+    )
+    return run
+
+
+async def schedule_due_policies(
+    session: AsyncSession,
+    *,
+    now: datetime | None = None,
+    limit: int = 25,
+) -> int:
+    scheduled_at = now or naive_utc()
+    policies = list(
+        (
+            await session.scalars(
+                build_due_policy_query(scheduled_at, limit=limit)
+            )
+        ).all()
+    )
+    queued = 0
+    for policy in policies:
+        trigger_key = scheduled_trigger_key(policy.next_run_at)
+        policy.next_run_at = next_scheduled_at(
+            scheduled_at,
+            interval_hours=policy.interval_hours,
+        )
+        run = await _queue_policy_run(
+            session,
+            policy,
+            trigger_kind="scheduled",
+            trigger_key=trigger_key,
+            now=scheduled_at,
+        )
+        queued += int(run is not None)
+    await session.commit()
+    return queued
+
+
+async def queue_config_change_runs(
+    session: AsyncSession,
+    *,
+    org_id: UUID,
+    workspace_id: UUID,
+    configuration_fingerprint: str,
+    now: datetime | None = None,
+) -> int:
+    queued_at = now or naive_utc()
+    trigger_key = config_trigger_key(configuration_fingerprint)
+    policies = list(
+        (
+            await session.scalars(
+                select(EvaluationPolicy)
+                .where(
+                    EvaluationPolicy.org_id == org_id,
+                    EvaluationPolicy.workspace_id == workspace_id,
+                    EvaluationPolicy.enabled.is_(True),
+                    EvaluationPolicy.trigger_on_config_change.is_(True),
+                )
+                .order_by(EvaluationPolicy.id)
+                .with_for_update(skip_locked=True)
+            )
+        ).all()
+    )
+    queued = 0
+    for policy in policies:
+        run = await _queue_policy_run(
+            session,
+            policy,
+            trigger_kind="config_change",
+            trigger_key=trigger_key,
+            now=queued_at,
+        )
+        queued += int(run is not None)
+    await session.commit()
+    return queued
 
 
 async def list_runs(

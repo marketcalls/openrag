@@ -14,6 +14,8 @@ from openrag.modules.evaluations.schemas import (
     EvaluationDatasetVersionCreate,
     EvaluationDatasetVersionDetail,
     EvaluationDatasetVersionOut,
+    EvaluationPolicyOut,
+    EvaluationPolicyUpsert,
     EvaluationRunCreate,
     EvaluationRunDetail,
     EvaluationRunOut,
@@ -23,6 +25,29 @@ from openrag.modules.tenancy.context import TenantContext, require_platform_supe
 router = APIRouter(prefix="/admin/evaluations", tags=["evaluations"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SuperadminDep = Annotated[TenantContext, Depends(require_platform_superadmin())]
+
+
+@router.get("/policies", response_model=list[EvaluationPolicyOut])
+async def list_policies(
+    session: SessionDep,
+    context: SuperadminDep,
+    workspace_id: UUID | None = None,
+) -> list[EvaluationPolicyOut]:
+    return [
+        EvaluationPolicyOut.model_validate(policy)
+        for policy in await service.list_policies(session, context, workspace_id)
+    ]
+
+
+@router.put("/policies", response_model=EvaluationPolicyOut)
+async def upsert_policy(
+    body: EvaluationPolicyUpsert,
+    session: SessionDep,
+    context: SuperadminDep,
+) -> EvaluationPolicyOut:
+    return EvaluationPolicyOut.model_validate(
+        await service.upsert_policy(session, context, body)
+    )
 
 
 @router.get("/datasets", response_model=list[EvaluationDatasetOut])
