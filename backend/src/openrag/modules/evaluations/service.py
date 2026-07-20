@@ -605,7 +605,7 @@ async def _queue_policy_run(
     await record_audit(
         session,
         org_id=policy.org_id,
-        actor_id=policy.created_by,
+        actor_id=None,
         action="evaluation_run.automated_queued",
         target_type="evaluation_run",
         target_id=str(run.id),

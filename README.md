@@ -30,6 +30,8 @@ OpenRAG is planned to provide:
 - Agentic retrieval for multi-step questions using read-only search tools
 - Hosted and local model registration, capability probing, fallback chains, and BYOK
 - Encrypted secret storage, quotas, budgets, usage reporting, and audit logs
+- Versioned golden datasets with deterministic metrics, optional verifier
+  judging, and budgeted on-demand or recurring evaluation runs
 - Connectors for object storage, shared drives, knowledge systems, and websites
 - Docker Compose, Kubernetes, and air-gapped deployment options
 

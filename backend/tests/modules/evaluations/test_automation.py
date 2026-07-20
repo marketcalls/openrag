@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 from sqlalchemy.dialects import postgresql
@@ -8,6 +9,7 @@ from openrag.modules.evaluations.automation import (
     config_trigger_key,
     next_scheduled_at,
     scheduled_trigger_key,
+    workspace_model_fingerprint,
 )
 
 
@@ -41,3 +43,15 @@ def test_schedule_keys_are_deterministic_bounded_and_utc_normalized() -> None:
     assert config_trigger_key("a" * 64) == f"config:{'a' * 64}"
     with pytest.raises(ValueError, match="fingerprint"):
         config_trigger_key("not-a-digest")
+
+
+def test_workspace_model_fingerprint_is_stable_and_state_sensitive() -> None:
+    first = workspace_model_fingerprint(None)
+    second = workspace_model_fingerprint(None)
+    configured = workspace_model_fingerprint(
+        UUID("550e8400-e29b-41d4-a716-446655440004")
+    )
+
+    assert first == second
+    assert first != configured
+    assert len(first) == 64

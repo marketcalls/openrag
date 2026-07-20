@@ -3,6 +3,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   Beaker,
+  CalendarClock,
   CircleDollarSign,
   FlaskConical,
   LockKeyhole,
@@ -11,7 +12,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
-import type { EvaluationRunOut } from '@/api/types';
+import type { EvaluationPolicyOut, EvaluationRunOut } from '@/api/types';
 import { TopBar } from '@/components/layout/top-bar';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
@@ -30,9 +31,11 @@ import {
   useCreateEvaluationRun,
   useCreateEvaluationVersion,
   useEvaluationDatasets,
+  useEvaluationPolicies,
   useEvaluationRun,
   useEvaluationRuns,
   useEvaluationVersions,
+  useUpsertEvaluationPolicy,
 } from './queries';
 
 const METRICS = [
@@ -259,6 +262,114 @@ function RunDialog({ open, onOpenChange, versionId, caseCount, onQueued }: {
   );
 }
 
+function AutomationDialog({
+  open,
+  onOpenChange,
+  datasetId,
+  caseCount,
+  policy,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  datasetId: string | null;
+  caseCount: number;
+  policy: EvaluationPolicyOut | null;
+  onSaved: (policy: EvaluationPolicyOut) => void;
+}) {
+  const models = useAdminModels();
+  const mutation = useUpsertEvaluationPolicy();
+  const enabledModels = useMemo(
+    () => (models.data ?? []).filter(
+      (model) => model.enabled && model.supports_chat_completion,
+    ),
+    [models.data],
+  );
+  const evaluatorModels = useMemo(
+    () => enabledModels.filter(
+      (model) => model.supports_structured_json && model.supports_verifier,
+    ),
+    [enabledModels],
+  );
+  const [modelId, setModelId] = useState('');
+  const [enabled, setEnabled] = useState(true);
+  const [triggerOnConfigChange, setTriggerOnConfigChange] = useState(true);
+  const [intervalHours, setIntervalHours] = useState(24);
+  const [maxCases, setMaxCases] = useState(Math.max(caseCount, 1));
+  const [maxTokens, setMaxTokens] = useState(50_000);
+  const [maxCostUsd, setMaxCostUsd] = useState(5);
+  const [useLlmJudge, setUseLlmJudge] = useState(false);
+  const [evaluatorModelId, setEvaluatorModelId] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setModelId(policy?.model_id ?? enabledModels[0]?.id ?? '');
+    setEnabled(policy?.enabled ?? true);
+    setTriggerOnConfigChange(policy?.trigger_on_config_change ?? true);
+    setIntervalHours(policy?.interval_hours ?? 24);
+    setMaxCases(policy?.max_cases ?? Math.max(caseCount, 1));
+    setMaxTokens(policy?.max_tokens ?? 50_000);
+    setMaxCostUsd((policy?.max_cost_microusd ?? 5_000_000) / 1_000_000);
+    setUseLlmJudge(policy?.use_llm_judge ?? false);
+    setEvaluatorModelId(
+      policy?.evaluator_model_id ?? evaluatorModels[0]?.id ?? '',
+    );
+    setConfirmed(false);
+  }, [caseCount, enabledModels, evaluatorModels, open, policy]);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!datasetId || !confirmed) return;
+    mutation.mutate({
+      dataset_id: datasetId,
+      model_id: modelId,
+      evaluator_model_id: useLlmJudge ? evaluatorModelId : null,
+      use_llm_judge: useLlmJudge,
+      enabled,
+      trigger_on_config_change: triggerOnConfigChange,
+      interval_hours: intervalHours,
+      max_cases: maxCases,
+      max_tokens: maxTokens,
+      max_cost_microusd: Math.round(maxCostUsd * 1_000_000),
+    }, {
+      onSuccess: (saved) => {
+        onSaved(saved);
+        onOpenChange(false);
+      },
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        title="Evaluation automation"
+        description="Queue bounded regression runs on a fixed cadence and after governed configuration changes."
+      >
+        <form className="space-y-4" onSubmit={submit}>
+          <div><Label htmlFor="automation-model">Automation model</Label><NativeSelect id="automation-model" aria-label="Automation model" required value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">Select a model</option>{enabledModels.map((model) => <option key={model.id} value={model.id}>{model.display_name}</option>)}</NativeSelect></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label htmlFor="automation-interval">Run every hours</Label><Input id="automation-interval" aria-label="Run every hours" type="number" min={1} max={720} value={intervalHours} onChange={(event) => setIntervalHours(event.target.valueAsNumber)} /></div>
+            <div><Label htmlFor="automation-cases">Maximum cases</Label><Input id="automation-cases" type="number" min={1} max={10_000} value={maxCases} onChange={(event) => setMaxCases(event.target.valueAsNumber)} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label htmlFor="automation-tokens">Maximum tokens per run</Label><Input id="automation-tokens" type="number" min={1} max={50_000_000} value={maxTokens} onChange={(event) => setMaxTokens(event.target.valueAsNumber)} /></div>
+            <div><Label htmlFor="automation-cost">Maximum cost per run (USD)</Label><Input id="automation-cost" type="number" min={0.01} step={0.01} value={maxCostUsd} onChange={(event) => setMaxCostUsd(event.target.valueAsNumber)} /></div>
+          </div>
+          <label className="flex items-center gap-2 text-[12px] font-medium text-ink"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />Automation enabled</label>
+          <label className="flex items-center gap-2 text-[12px] font-medium text-ink"><input type="checkbox" checked={triggerOnConfigChange} onChange={(event) => setTriggerOnConfigChange(event.target.checked)} />Run after supported workspace AI-policy changes</label>
+          <label className="flex items-center gap-2 text-[12px] font-medium text-ink"><input type="checkbox" aria-label="Use automation LLM judge" checked={useLlmJudge} disabled={!evaluatorModels.length} onChange={(event) => setUseLlmJudge(event.target.checked)} />Use a structured-output verifier</label>
+          {useLlmJudge ? <div><Label htmlFor="automation-evaluator">Automation evaluator</Label><NativeSelect id="automation-evaluator" required value={evaluatorModelId} onChange={(event) => setEvaluatorModelId(event.target.value)}><option value="">Select an evaluator</option>{evaluatorModels.map((model) => <option key={model.id} value={model.id}>{model.display_name}</option>)}</NativeSelect></div> : null}
+          <div className="rounded-lg border border-warning bg-warning-soft p-3 text-[12px] text-warning"><CircleDollarSign className="mr-2 inline h-4 w-4" aria-hidden />Each automated run is independently stopped by the case, token, and cost ceilings above.</div>
+          <label className="flex items-start gap-2 text-[12px] font-medium text-ink"><input aria-label="I confirm this recurring evaluation budget" className="mt-0.5" type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />I confirm this recurring evaluation budget and understand each run may incur provider charges.</label>
+          {mutation.isError ? <p role="alert" className="text-[12px] text-danger">{mutation.error.message}</p> : null}
+          <DialogFooter><Button onClick={() => onOpenChange(false)}>Cancel</Button><Button type="submit" variant="primary" disabled={!confirmed || !modelId || (useLlmJudge && !evaluatorModelId) || mutation.isPending}>{mutation.isPending ? 'Saving…' : 'Save automation'}</Button></DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function MetricComparison({ runs }: { runs: EvaluationRunOut[] }) {
   const completed = runs.filter((run) => run.status === 'completed');
   const [baselineId, setBaselineId] = useState('');
@@ -306,12 +417,14 @@ export function EvaluationsPage() {
   const { workspaceId } = useWorkspace();
   const datasets = useEvaluationDatasets(workspaceId);
   const [datasetId, setDatasetId] = useState('');
+  const policies = useEvaluationPolicies(workspaceId);
   const versions = useEvaluationVersions(datasetId || null);
   const [versionId, setVersionId] = useState('');
   const runs = useEvaluationRuns(versionId || null);
   const [datasetOpen, setDatasetOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
+  const [automationOpen, setAutomationOpen] = useState(false);
   const [detailRunId, setDetailRunId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
 
@@ -323,8 +436,9 @@ export function EvaluationsPage() {
   }, [versionId, versions.data]);
 
   const selectedVersion = versions.data?.find((version) => version.id === versionId) ?? versions.data?.[0];
+  const selectedPolicy = policies.data?.find((policy) => policy.dataset_id === datasetId) ?? null;
   const activeRuns = useMemo(() => (runs.data ?? []).filter((run) => run.status === 'queued' || run.status === 'running'), [runs.data]);
-  const firstError = [datasets, versions, runs].find((query) => query.isError)?.error;
+  const firstError = [datasets, policies, versions, runs].find((query) => query.isError)?.error;
 
   return (
     <>
@@ -334,12 +448,13 @@ export function EvaluationsPage() {
           <section className="rounded-xl border border-line bg-bg p-5 shadow-sm">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-2xl"><div className="flex items-center gap-2"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-ink text-bg"><FlaskConical className="h-4 w-4" aria-hidden /></span><div><h2 className="text-[17px] font-semibold tracking-[-0.025em] text-ink">Quality gates before production</h2><p className="mt-0.5 text-[11px] text-secondary">Measure retrieval, citations, grounding, refusal, latency, tokens, and cost on versioned evidence.</p></div></div></div>
-              <div className="flex flex-wrap gap-2"><Button onClick={() => setDatasetOpen(true)}><Plus className="h-3.5 w-3.5" aria-hidden />Dataset</Button><Button disabled={!datasetId} onClick={() => setVersionOpen(true)}><LockKeyhole className="h-3.5 w-3.5" aria-hidden />Seal version</Button><Button variant="primary" disabled={!selectedVersion} onClick={() => setRunOpen(true)}><Play className="h-3.5 w-3.5" aria-hidden />Run evaluation</Button></div>
+              <div className="flex flex-wrap gap-2"><Button onClick={() => setDatasetOpen(true)}><Plus className="h-3.5 w-3.5" aria-hidden />Dataset</Button><Button disabled={!datasetId} onClick={() => setVersionOpen(true)}><LockKeyhole className="h-3.5 w-3.5" aria-hidden />Seal version</Button><Button disabled={!selectedVersion} onClick={() => setAutomationOpen(true)}><CalendarClock className="h-3.5 w-3.5" aria-hidden />Automation</Button><Button variant="primary" disabled={!selectedVersion} onClick={() => setRunOpen(true)}><Play className="h-3.5 w-3.5" aria-hidden />Run evaluation</Button></div>
             </div>
             <div className="mt-4 grid gap-3 border-t border-line-faint pt-4 sm:grid-cols-2">
               <label className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Dataset<NativeSelect aria-label="Evaluation dataset" className="mt-1 normal-case tracking-normal" value={datasetId} onChange={(event) => { setDatasetId(event.target.value); setVersionId(''); }}><option value="">Select a dataset</option>{datasets.data?.map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.name}</option>)}</NativeSelect></label>
               <label className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Sealed corpus<NativeSelect aria-label="Dataset version" className="mt-1 normal-case tracking-normal" value={versionId} onChange={(event) => setVersionId(event.target.value)}><option value="">Select a version</option>{versions.data?.map((version) => <option key={version.id} value={version.id}>v{version.version} · {version.label ?? 'Unlabelled'} · {version.case_count} cases</option>)}</NativeSelect></label>
             </div>
+            {selectedPolicy ? <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line-faint pt-3 text-[11px] text-secondary"><StatusPill tone={selectedPolicy.enabled ? 'success' : 'warning'}>{selectedPolicy.enabled ? 'Automation enabled' : 'Automation paused'}</StatusPill><span>Every {selectedPolicy.interval_hours}h</span><span>Next {new Date(selectedPolicy.next_run_at).toLocaleString()}</span>{selectedPolicy.trigger_on_config_change ? <span>· configuration-change gate enabled</span> : null}{selectedPolicy.last_error_code ? <span className="font-mono text-danger">{selectedPolicy.last_error_code}</span> : null}</div> : null}
           </section>
 
           <div aria-live="polite" className={announcement ? 'rounded-xl border border-success bg-success-soft p-3 text-[12px] text-success' : 'sr-only'}>{announcement}</div>
@@ -351,7 +466,7 @@ export function EvaluationsPage() {
 
           <section className="rounded-xl border border-line bg-bg p-4 shadow-sm">
             <div className="mb-3"><h2 className="text-[14px] font-semibold text-ink">Evaluation history</h2><p className="mt-1 text-[11px] text-muted">Run progress is polled only while work is active and this tab is visible.</p></div>
-            <Table aria-label="Evaluation runs"><THead><TR><TH>Run</TH><TH>Status</TH><TH>Progress</TH><TH>Grounded</TH><TH>Tokens</TH><TH>Cost</TH><TH><span className="sr-only">Actions</span></TH></TR></THead><TBody>{(runs.data ?? []).map((run) => <TR key={run.id}><TD className="font-mono text-[11px]">{shortId(run.id)}</TD><TD><StatusPill tone={statusTone(run.status)}>{run.status}</StatusPill></TD><TD>{run.completed_cases}/{run.total_cases}</TD><TD>{percent(run.groundedness)}</TD><TD>{run.consumed_tokens.toLocaleString()}</TD><TD>${(run.consumed_cost_microusd / 1_000_000).toFixed(3)}</TD><TD><Button size="sm" aria-label={`Inspect evaluation ${run.id}`} onClick={() => setDetailRunId(run.id)}>Inspect</Button></TD></TR>)}</TBody></Table>
+            <Table aria-label="Evaluation runs"><THead><TR><TH>Run</TH><TH>Trigger</TH><TH>Status</TH><TH>Progress</TH><TH>Grounded</TH><TH>Tokens</TH><TH>Cost</TH><TH><span className="sr-only">Actions</span></TH></TR></THead><TBody>{(runs.data ?? []).map((run) => <TR key={run.id}><TD className="font-mono text-[11px]">{shortId(run.id)}</TD><TD className="capitalize">{run.trigger_kind.replace('_', ' ')}</TD><TD><StatusPill tone={statusTone(run.status)}>{run.status}</StatusPill></TD><TD>{run.completed_cases}/{run.total_cases}</TD><TD>{percent(run.groundedness)}</TD><TD>{run.consumed_tokens.toLocaleString()}</TD><TD>${(run.consumed_cost_microusd / 1_000_000).toFixed(3)}</TD><TD><Button size="sm" aria-label={`Inspect evaluation ${run.id}`} onClick={() => setDetailRunId(run.id)}>Inspect</Button></TD></TR>)}</TBody></Table>
             {!versionId ? <div className="py-8 text-center text-[12px] text-muted"><Beaker className="mx-auto mb-2 h-5 w-5" aria-hidden />Select a sealed dataset version to inspect its runs.</div> : null}
           </section>
         </div>
@@ -359,6 +474,7 @@ export function EvaluationsPage() {
       {workspaceId ? <DatasetDialog open={datasetOpen} onOpenChange={setDatasetOpen} workspaceId={workspaceId} onCreated={setDatasetId} /> : null}
       <VersionDialog open={versionOpen} onOpenChange={setVersionOpen} datasetId={datasetId || null} />
       <RunDialog open={runOpen} onOpenChange={setRunOpen} versionId={selectedVersion?.id ?? null} caseCount={selectedVersion?.case_count ?? 0} onQueued={() => { setAnnouncement('Evaluation queued'); toast.success('Evaluation queued'); }} />
+      <AutomationDialog open={automationOpen} onOpenChange={setAutomationOpen} datasetId={datasetId || null} caseCount={selectedVersion?.case_count ?? 0} policy={selectedPolicy} onSaved={() => { setAnnouncement('Evaluation automation saved'); toast.success('Evaluation automation saved'); }} />
       <RunDetailDialog runId={detailRunId} onOpenChange={(open) => { if (!open) setDetailRunId(null); }} />
     </>
   );

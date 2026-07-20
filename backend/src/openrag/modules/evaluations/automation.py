@@ -1,7 +1,9 @@
 """Pure scheduling contracts for bounded evaluation automation."""
 
+import hashlib
 import re
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from sqlalchemy import Select, select
 
@@ -25,6 +27,11 @@ def config_trigger_key(fingerprint: str) -> str:
     if _DIGEST.fullmatch(fingerprint) is None:
         raise ValueError("evaluation configuration fingerprint is invalid")
     return f"config:{fingerprint}"
+
+
+def workspace_model_fingerprint(model_id: UUID | None) -> str:
+    value = str(model_id) if model_id is not None else "none"
+    return hashlib.sha256(f"workspace-default-model:v1:{value}".encode()).hexdigest()
 
 
 def next_scheduled_at(now: datetime, *, interval_hours: int) -> datetime:

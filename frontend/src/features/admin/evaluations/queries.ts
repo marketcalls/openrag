@@ -5,6 +5,7 @@ import { problemDetail } from '@/api/problem';
 import type {
   EvaluationDatasetCreate,
   EvaluationDatasetVersionCreate,
+  EvaluationPolicyUpsert,
   EvaluationRunCreate,
 } from '@/api/types';
 
@@ -63,6 +64,34 @@ export function useCreateEvaluationVersion(datasetId: string | null) {
       return data;
     },
     onSuccess: () => void client.invalidateQueries({ queryKey: ['admin', 'evaluations', 'versions', datasetId] }),
+  });
+}
+
+export function useEvaluationPolicies(workspaceId: string | null) {
+  return useQuery({
+    queryKey: ['admin', 'evaluations', 'policies', workspaceId],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/admin/evaluations/policies', {
+        params: { query: { workspace_id: workspaceId } },
+      });
+      if (error) throw new Error(problemDetail(error, 'Failed to load evaluation automation'));
+      return data;
+    },
+    enabled: Boolean(workspaceId),
+  });
+}
+
+export function useUpsertEvaluationPolicy() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: EvaluationPolicyUpsert) => {
+      const { data, error } = await api.PUT('/api/v1/admin/evaluations/policies', { body });
+      if (error) throw new Error(problemDetail(error, 'Failed to save evaluation automation'));
+      return data;
+    },
+    onSuccess: () => void client.invalidateQueries({
+      queryKey: ['admin', 'evaluations', 'policies'],
+    }),
   });
 }
 

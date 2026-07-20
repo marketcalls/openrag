@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.core.errors import ConflictError, NotFoundError, WorkspaceAccessDenied
 from openrag.modules.audit.service import record_audit
 from openrag.modules.auth.models import User
+from openrag.modules.evaluations import service as evaluations_service
+from openrag.modules.evaluations.automation import workspace_model_fingerprint
 from openrag.modules.models import service as models_service
 from openrag.modules.tenancy.authorization import ensure_workspace_access
 from openrag.modules.tenancy.context import TenantContext
@@ -458,8 +460,24 @@ async def set_default_model(
     )
     if model_id is not None:
         await models_service.get_model(session, model_id)
+    if workspace.default_model_id == model_id:
+        return workspace
     workspace.default_model_id = model_id
-    await session.commit()
+    await record_audit(
+        session,
+        org_id=context.org_id,
+        actor_id=context.user_id,
+        action="workspace.default_model_changed",
+        target_type="workspace",
+        target_id=str(workspace.id),
+    )
+    await session.flush()
+    await evaluations_service.queue_config_change_runs(
+        session,
+        org_id=context.org_id,
+        workspace_id=workspace.id,
+        configuration_fingerprint=workspace_model_fingerprint(model_id),
+    )
     return workspace
 
 
