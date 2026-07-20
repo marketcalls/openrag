@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from openrag.core.config import get_settings
+from openrag.core.config import Settings, get_settings
 from openrag.core.db import naive_utc
 from openrag.core.errors import ConflictError, NotFoundError, WorkspaceAccessDenied
 from openrag.core.storage import ObjectStorage, build_storage
@@ -36,8 +36,12 @@ from openrag.modules.documents.models import (
     DocumentVersionDecisionRecord,
     IngestJob,
 )
-from openrag.modules.documents.profiles import active_ingestion_profiles
+from openrag.modules.documents.profiles import (
+    IngestionProfiles,
+    active_ingestion_profiles,
+)
 from openrag.modules.documents.uploads import QuarantinedUpload
+from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
 from openrag.modules.events.envelopes import (
     DocumentVersionIngestionRequestedV1,
     DocumentVersionLifecycleV1,
@@ -86,6 +90,7 @@ class PreparedUpload:
     chunking_profile_version: str
     embedding_profile_version: str
     index_profile_version: str
+    authority_generation_id: UUID
 
 
 @dataclass(frozen=True)
@@ -154,6 +159,7 @@ async def authorize_upload_scope(
     chunking_profile_version: str | None = None,
     embedding_profile_version: str | None = None,
     index_profile_version: str | None = None,
+    authority_generation_id: UUID | None = None,
 ) -> PreparedUpload:
     """Authorize and normalize an upload before any object-store call."""
 
@@ -264,6 +270,9 @@ async def authorize_upload_scope(
             chunking_profile_version=profiles[2],
             embedding_profile_version=profiles[3],
             index_profile_version=profiles[4],
+            authority_generation_id=(
+                authority_generation_id or get_settings().authority_generation_id
+            ),
         )
         await session.commit()
         return prepared
@@ -445,6 +454,38 @@ async def create_from_quarantined_upload(
     return document
 
 
+async def _active_ingestion_target(
+    session: AsyncSession,
+    settings: Settings,
+) -> tuple[IngestionProfiles, UUID]:
+    configured = active_ingestion_profiles(settings)
+    row = (
+        await session.execute(
+            select(EmbeddingDeployment, EmbeddingProfile)
+            .join(
+                EmbeddingProfile,
+                EmbeddingProfile.id == EmbeddingDeployment.profile_id,
+            )
+            .where(EmbeddingDeployment.status == "active")
+        )
+    ).one_or_none()
+    if row is None:
+        return configured, settings.authority_generation_id
+    deployment, profile = row
+    if not profile.enabled:
+        raise ConflictError("active embedding profile is unavailable")
+    return (
+        IngestionProfiles(
+            parser_profile_version=configured.parser_profile_version,
+            ocr_profile_version=configured.ocr_profile_version,
+            chunking_profile_version=configured.chunking_profile_version,
+            embedding_profile_version=f"embedding/v1/{profile.config_digest}",
+            index_profile_version=configured.index_profile_version,
+        ),
+        deployment.generation_id,
+    )
+
+
 async def create_version_from_quarantined_upload(
     session: AsyncSession,
     context: TenantContext,
@@ -456,7 +497,10 @@ async def create_version_from_quarantined_upload(
     """Create one controlled version using server-authoritative profile identities."""
 
     settings = get_settings()
-    profiles = active_ingestion_profiles(settings)
+    profiles, authority_generation_id = await _active_ingestion_target(
+        session,
+        settings,
+    )
     prepared = await authorize_upload_scope(
         session,
         context,
@@ -472,6 +516,7 @@ async def create_version_from_quarantined_upload(
         chunking_profile_version=profiles.chunking_profile_version,
         embedding_profile_version=profiles.embedding_profile_version,
         index_profile_version=profiles.index_profile_version,
+        authority_generation_id=authority_generation_id,
     )
 
     async def write_source(storage: ObjectStorage, key: str) -> None:
@@ -512,7 +557,11 @@ async def _persist_prepared_upload(
     try:
         document = await create_document_record(session, context, prepared)
         version = await create_version_record(session, context, prepared)
-        _persist_ingestion_request(session, version)
+        _persist_ingestion_request(
+            session,
+            version,
+            prepared.authority_generation_id,
+        )
         await record_audit(
             session,
             org_id=context.org_id,
@@ -822,14 +871,14 @@ def _persist_lifecycle_event(
 def _persist_ingestion_request(
     session: AsyncSession,
     version: DocumentVersion,
+    authority_generation_id: UUID,
 ) -> None:
-    settings = get_settings()
     add_registered_event(
         session,
         payload=DocumentVersionIngestionRequestedV1(
             document_id=version.document_id,
             attempt=version.lifecycle_revision,
-            authority_generation_id=settings.authority_generation_id,
+            authority_generation_id=authority_generation_id,
         ),
         org_id=version.org_id,
         workspace_id=version.workspace_id,
@@ -837,6 +886,41 @@ def _persist_ingestion_request(
         lifecycle_revision=version.lifecycle_revision,
         occurred_at=datetime.now(UTC),
     )
+
+
+async def _generation_for_version_profile(
+    session: AsyncSession,
+    version: DocumentVersion,
+) -> UUID:
+    settings = get_settings()
+    configured = active_ingestion_profiles(settings)
+    if version.embedding_profile_version in {
+        LEGACY_EMBEDDING_PROFILE_VERSION,
+        configured.embedding_profile_version,
+    }:
+        return settings.authority_generation_id
+    prefix = "embedding/v1/"
+    if not version.embedding_profile_version.startswith(prefix):
+        raise ConflictError("document embedding profile has no governed generation")
+    digest = version.embedding_profile_version.removeprefix(prefix)
+    deployment = await session.scalar(
+        select(EmbeddingDeployment)
+        .join(
+            EmbeddingProfile,
+            EmbeddingProfile.id == EmbeddingDeployment.profile_id,
+        )
+        .where(
+            EmbeddingProfile.config_digest == digest,
+            EmbeddingDeployment.status.in_(("active", "retired")),
+        )
+        .order_by(
+            (EmbeddingDeployment.status == "active").desc(),
+            EmbeddingDeployment.created_at.desc(),
+        )
+    )
+    if deployment is None:
+        raise ConflictError("document embedding profile has no governed generation")
+    return deployment.generation_id
 
 
 async def _record_lifecycle_audit(
@@ -1078,7 +1162,15 @@ async def retry_version(
             document.status = "processing"
             document.error = None
         _persist_lifecycle_event(session, candidate, previous, now)
-        _persist_ingestion_request(session, candidate)
+        authority_generation_id = await _generation_for_version_profile(
+            session,
+            candidate,
+        )
+        _persist_ingestion_request(
+            session,
+            candidate,
+            authority_generation_id,
+        )
         await _record_lifecycle_audit(session, context, candidate)
         await session.commit()
         return candidate
