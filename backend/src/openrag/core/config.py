@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     litellm_url: str = "http://localhost:54000"
     litellm_master_key: str = "sk-openrag-dev-master"  # noqa: S105
     chat_context_token_budget: int = 8000
+    chat_max_output_tokens: int = Field(default=2048, ge=1, le=32_768)
 
 
 @lru_cache

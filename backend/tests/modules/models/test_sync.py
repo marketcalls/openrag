@@ -240,6 +240,7 @@ def test_decryption_has_exactly_one_caller() -> None:
     allowed = {
         src_root / "modules" / "secrets" / "service.py",
         src_root / "modules" / "models" / "sync.py",
+        src_root / "modules" / "orchestration" / "model_gateway.py",
     }
     offenders = [
         str(path)

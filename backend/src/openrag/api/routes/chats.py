@@ -11,7 +11,7 @@ from openrag.core.config import Settings, get_settings
 from openrag.core.errors import ConflictError
 from openrag.modules.chat import service
 from openrag.modules.chat.events import SSEEvent
-from openrag.modules.chat.llm import LiteLLMStreamer, LLMStreamer
+from openrag.modules.chat.llm import LLMStreamer
 from openrag.modules.chat.models import Chat
 from openrag.modules.chat.schemas import (
     ChatCreate,
@@ -23,6 +23,7 @@ from openrag.modules.chat.schemas import (
 )
 from openrag.modules.models import service as models_service
 from openrag.modules.models.models import Model
+from openrag.modules.orchestration.runtime import create_model_streamer
 from openrag.modules.tenancy import service as tenancy_service
 from openrag.modules.tenancy.context import (
     TenantContext,
@@ -45,14 +46,16 @@ _SSE_HEADERS = {
 }
 
 
-def _streamer(request: Request, settings: Settings) -> LLMStreamer:
+async def _streamer(
+    request: Request,
+    settings: Settings,
+    session: AsyncSession,
+    model: Model,
+) -> LLMStreamer:
     injected: LLMStreamer | None = request.app.state.llm_streamer
     if injected is not None:
         return injected
-    return LiteLLMStreamer(
-        base_url=settings.litellm_url,
-        master_key=settings.litellm_master_key,
-    )
+    return await create_model_streamer(session, model, settings)
 
 
 async def _encoded(
@@ -126,6 +129,7 @@ async def send_message(
         body.parent_message_id,
         explicit="parent_message_id" in body.model_fields_set,
     )
+    streamer = await _streamer(request, settings, session, model)
     user_message = await service.add_message(
         session,
         context,
@@ -141,7 +145,7 @@ async def send_message(
             chat=chat,
             user_message=user_message,
             model=model,
-            streamer=_streamer(request, settings),
+            streamer=streamer,
             retriever=request.app.state.retriever,
             settings=settings,
         )
@@ -177,6 +181,7 @@ async def regenerate(
     user_message = next(
         item for item in messages if item.id == message.parent_message_id
     )
+    streamer = await _streamer(request, settings, session, model)
     return _sse(
         service.stream_reply(
             session,
@@ -184,7 +189,7 @@ async def regenerate(
             chat=chat,
             user_message=user_message,
             model=model,
-            streamer=_streamer(request, settings),
+            streamer=streamer,
             retriever=request.app.state.retriever,
             settings=settings,
         )

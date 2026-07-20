@@ -26,6 +26,8 @@ dependencies = [
     "structlog>=24.1",
     "torch>=2.2",
     "torchvision>=0.17",
+    "agno==2.7.4",
+    "litellm==1.93.0",
 ]
 
 [dependency-groups]
