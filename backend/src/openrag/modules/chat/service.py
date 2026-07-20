@@ -518,32 +518,29 @@ def path_to_root(messages: list[Message], leaf: Message) -> list[Message]:
 
 async def _previous_citation_identities(
     session: AsyncSession,
-    messages: list[Message],
-    user_message: Message,
+    assistant_message_id: UUID | None,
 ) -> list[CitationEvidenceIdentity]:
     """Return citations from only the nearest assistant on this exact branch."""
 
-    for ancestor in reversed(path_to_root(messages, user_message)):
-        if ancestor.role != ROLE_ASSISTANT:
-            continue
-        citations = (
-            await session.execute(
-                select(Citation)
-                .where(Citation.message_id == ancestor.id)
-                .order_by(Citation.marker)
-            )
-        ).scalars()
-        return [
-            CitationEvidenceIdentity(
-                document_id=citation.document_id,
-                document_version_id=citation.document_version_id,
-                evidence_span_id=citation.evidence_span_id,
-                chunk_ref=citation.chunk_ref,
-                content_hash=citation.content_hash,
-            )
-            for citation in citations
-        ]
-    return []
+    if assistant_message_id is None:
+        return []
+    citations = (
+        await session.execute(
+            select(Citation)
+            .where(Citation.message_id == assistant_message_id)
+            .order_by(Citation.marker)
+        )
+    ).scalars()
+    return [
+        CitationEvidenceIdentity(
+            document_id=citation.document_id,
+            document_version_id=citation.document_version_id,
+            evidence_span_id=citation.evidence_span_id,
+            chunk_ref=citation.chunk_ref,
+            content_hash=citation.content_hash,
+        )
+        for citation in citations
+    ]
 
 
 def _merge_retrieval_with_backfill(
@@ -1180,15 +1177,25 @@ async def stream_reply(
     model_id = model.id
     user_message_id = user_message.id
     user_query = user_message.content
-    all_messages = await list_messages(session, chat.id)
+    chat_id = chat.id
+    workspace_id = chat.workspace_id
+    all_messages = await list_messages(session, chat_id)
     branch_history = path_to_root(all_messages, user_message)
     full_history = [(message.role, message.content) for message in branch_history]
+    previous_assistant_id = next(
+        (
+            message.id
+            for message in reversed(branch_history)
+            if message.role == ROLE_ASSISTANT
+        ),
+        None,
+    )
     prompt_history = full_history
     prompt_summary: PromptSummary | None = None
     selected_memories = await select_memories(
         session,
         context,
-        chat.workspace_id,
+        workspace_id,
         query=user_query,
     )
     prompt_memories = [
@@ -1320,7 +1327,7 @@ async def stream_reply(
     result = await retriever(
         session,
         context,
-        chat.workspace_id,
+        workspace_id,
         decision.retrieval_query,
         retrieval_top_k,
     )
@@ -1363,14 +1370,13 @@ async def stream_reply(
     if result.no_answer or len(result.chunks) < retrieval_top_k:
         identities = await _previous_citation_identities(
             session,
-            all_messages,
-            user_message,
+            previous_assistant_id,
         )
         if identities:
             backfill = await citation_backfiller(
                 session,
                 context,
-                chat.workspace_id,
+                workspace_id,
                 identities,
                 retrieval_top_k,
             )
@@ -1386,11 +1392,16 @@ async def stream_reply(
     if result.no_answer:
         await record_context(decision.route.value, (), retrieval_texts)
         yield token_event(NO_ANSWER_TEXT)
+        current_chat, current_parent = await get_message(
+            session,
+            context,
+            user_message_id,
+        )
         message = await _persist_assistant(
             session,
             context,
-            chat,
-            parent=user_message,
+            current_chat,
+            parent=current_parent,
             content=NO_ANSWER_TEXT,
             model_id=None,
             usage=None,

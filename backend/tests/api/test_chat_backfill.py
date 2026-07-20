@@ -31,6 +31,7 @@ class SequenceRetriever:
         query: str,
         top_k: int = 8,
     ) -> RetrievalResult:
+        await session.rollback()
         return self.results.pop(0)
 
 
