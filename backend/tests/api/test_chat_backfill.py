@@ -151,6 +151,11 @@ async def test_weak_table_format_followup_backfills_nearest_grounded_citations(
 
     assert response.status_code == 200
     events = parse_sse(response.text)
+    followup_prompt = streamer.calls[1]["messages"]
+    assert isinstance(followup_prompt, list)
+    assert "Earlier user question: summarize the invoice tax details" in str(
+        followup_prompt[-1]["content"]
+    )
     assert len(backfiller.calls) == 1
     assert backfiller.calls[0][0].chunk_ref == f"{document.id}:1:0"
     assert next(data for event, data in events if event == "done")["no_answer"] is False

@@ -1229,6 +1229,12 @@ async def stream_reply(
         )
 
     decision = decide_route(user_query, history=full_history)
+    grounded_question = (
+        decision.retrieval_query
+        if decision.reason_code == "referential_followup"
+        and decision.retrieval_query is not None
+        else user_query
+    )
     yield route_selected_event(decision.route.value, decision.reason_code)
 
     if decision.route not in {QueryRoute.DIRECT, QueryRoute.CLARIFY}:
@@ -1435,7 +1441,7 @@ async def stream_reply(
             for source in sources
         ],
         history=prompt_history,
-        user_query=user_query,
+        user_query=grounded_question,
         budget=settings.chat_context_token_budget,
         memories=prompt_memories,
         summary=prompt_summary,
@@ -1468,7 +1474,7 @@ async def stream_reply(
         streamer=streamer,
         model_name=model_name,
         prompt=prompt,
-        question=user_query,
+        question=grounded_question,
         initial_parts=parts,
         initial_usage=usage,
         sources=sources,
