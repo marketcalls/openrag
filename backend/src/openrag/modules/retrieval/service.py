@@ -9,7 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import get_settings
+from openrag.modules.documents.authority_storage import AuthorityCollectionSpec
 from openrag.modules.documents.models import DocumentVersion
+from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
+from openrag.modules.embeddings.runtime import build_profile_runtime
 from openrag.modules.retrieval.client import COLLECTION, get_qdrant
 from openrag.modules.retrieval.embeddings import embed_sparse, get_dense_embedder
 from openrag.modules.tenancy.context import TenantContext
@@ -38,6 +41,7 @@ def _tenant_filter(
     document_id: UUID | None = None,
     document_version_id: UUID | None = None,
     document_ids: list[UUID] | None = None,
+    current_approved: bool | None = None,
 ) -> models.Filter:
     must: list[models.Condition] = [
         models.FieldCondition(
@@ -71,6 +75,13 @@ def _tenant_filter(
             models.FieldCondition(
                 key="document_id",
                 match=models.MatchAny(any=[str(value) for value in document_ids]),
+            )
+        )
+    if current_approved is not None:
+        must.append(
+            models.FieldCondition(
+                key="is_current_approved",
+                match=models.MatchValue(value=current_approved),
             )
         )
     return models.Filter(must=must)
@@ -129,17 +140,39 @@ async def retrieve(
     )
     if not approved_document_ids:
         return RetrievalResult(chunks=[], no_answer=True)
-    await ensure_collection(workspace.embedding_model)
-    dense_vector = (await get_dense_embedder().embed([query]))[0]
+    deployment = await session.scalar(
+        select(EmbeddingDeployment).where(
+            EmbeddingDeployment.status == "active"
+        )
+    )
+    current_approved: bool | None = None
+    if deployment is None:
+        collection = await ensure_collection(workspace.embedding_model)
+        dense_embedder = get_dense_embedder()
+        filtered_document_ids: list[UUID] | None = approved_document_ids
+    else:
+        profile = await session.get(EmbeddingProfile, deployment.profile_id)
+        if profile is None or not profile.enabled:
+            return RetrievalResult(chunks=[], no_answer=True)
+        runtime = build_profile_runtime(profile, get_settings())
+        collection = AuthorityCollectionSpec(
+            generation_id=deployment.generation_id,
+            dense_dimension=runtime.dimension,
+        ).physical_collection
+        dense_embedder = runtime.embedder
+        filtered_document_ids = None
+        current_approved = True
+    dense_vector = (await dense_embedder.embed([query]))[0]
     sparse_vector = (await asyncio.to_thread(embed_sparse, [query]))[0]
     tenant_filter = _tenant_filter(
         org_id=context.org_id,
         workspace_id=workspace_id,
-        document_ids=approved_document_ids,
+        document_ids=filtered_document_ids,
+        current_approved=current_approved,
     )
     client = get_qdrant()
     fused = await client.query_points(
-        COLLECTION,
+        collection,
         prefetch=[
             models.Prefetch(
                 query=dense_vector,
@@ -162,11 +195,14 @@ async def retrieve(
     chunks = []
     for point in fused.points:
         payload = point.payload or {}
+        page_value = payload.get("page")
+        if page_value is None:
+            page_value = payload["page_number"]
         chunks.append(
             RetrievedChunk(
                 document_id=UUID(str(payload["document_id"])),
-                page=int(payload["page"]),
-                chunk_index=int(payload["chunk_index"]),
+                page=int(page_value),
+                chunk_index=int(payload.get("chunk_index", 0)),
                 text=str(payload["text"]),
                 score=float(point.score),
             )
@@ -175,7 +211,7 @@ async def retrieve(
         return RetrievalResult(chunks=[], no_answer=True)
 
     top_dense = await client.query_points(
-        COLLECTION,
+        collection,
         query=dense_vector,
         using="dense",
         query_filter=tenant_filter,

@@ -451,9 +451,11 @@ async def authority_upsert_external(
                 "document_id": str(plan.document_id),
                 "document_version_id": str(plan.source.document_version_id),
                 "evidence_span_id": str(row.id),
-                "is_current_approved": False,
+                "is_current_approved": claim.pipeline_kind == "reindex",
                 "projection_revision": plan.projection_revision,
                 "page_number": row.page_number,
+                "page": row.page_number,
+                "chunk_index": row.ordinal,
                 "document_name": plan.document_name,
                 "version_label": plan.version_label,
                 "revision_date": (

@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from openrag.core.db import naive_utc
 from openrag.modules.documents.models import (
     DocumentVersion,
-    DocumentVersionProjection,
     IngestStageAttempt,
 )
 from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
@@ -129,22 +128,12 @@ async def revalidate_document_start(
             if deployment is not None
             else None
         )
-        projection = await session.scalar(
-            select(DocumentVersionProjection).where(
-                DocumentVersionProjection.org_id == envelope.org_id,
-                DocumentVersionProjection.workspace_id == envelope.workspace_id,
-                DocumentVersionProjection.document_version_id
-                == envelope.aggregate_id,
-                DocumentVersionProjection.is_current_eligible.is_(True),
-            )
-        )
         reindex_authorized = (
             deployment is not None
             and profile is not None
             and profile.enabled
             and payload.embedding_profile_version
             == f"embedding/v1/{profile.config_digest}"
-            and projection is not None
         )
     valid_state = (
         version is not None
@@ -166,6 +155,7 @@ async def revalidate_document_start(
             or (
                 pipeline_kind == "reindex"
                 and version.state == "approved"
+                and version.superseded_by_id is None
                 and version.provenance_state == "ready"
                 and reindex_authorized
             )

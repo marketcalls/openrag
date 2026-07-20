@@ -12,7 +12,6 @@ from openrag.core.errors import ConflictError, NotFoundError
 from openrag.modules.audit.service import record_audit
 from openrag.modules.documents.models import (
     DocumentVersion,
-    DocumentVersionProjection,
     IngestStageAttempt,
 )
 from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
@@ -236,23 +235,9 @@ async def activate_deployment(
         current_versions = await session.scalar(
             select(func.count())
             .select_from(DocumentVersion)
-            .join(
-                DocumentVersionProjection,
-                (
-                    DocumentVersionProjection.org_id == DocumentVersion.org_id
-                )
-                & (
-                    DocumentVersionProjection.workspace_id
-                    == DocumentVersion.workspace_id
-                )
-                & (
-                    DocumentVersionProjection.document_version_id
-                    == DocumentVersion.id
-                ),
-            )
             .where(
-                DocumentVersionProjection.is_current_eligible.is_(True),
                 DocumentVersion.state == "approved",
+                DocumentVersion.superseded_by_id.is_(None),
                 DocumentVersion.provenance_state == "ready",
                 DocumentVersion.source_deleted_at.is_(None),
                 DocumentVersion.source_storage_key.is_not(None),

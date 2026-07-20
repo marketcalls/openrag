@@ -16,7 +16,6 @@ from openrag.modules.documents.authority_storage import (
 )
 from openrag.modules.documents.models import (
     DocumentVersion,
-    DocumentVersionProjection,
 )
 from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
 from openrag.modules.events.envelopes import DocumentVersionReindexRequestedV1
@@ -138,23 +137,9 @@ async def scan_claimed_deployment_page(
 
         versions_query = (
             select(DocumentVersion)
-            .join(
-                DocumentVersionProjection,
-                (
-                    DocumentVersionProjection.org_id == DocumentVersion.org_id
-                )
-                & (
-                    DocumentVersionProjection.workspace_id
-                    == DocumentVersion.workspace_id
-                )
-                & (
-                    DocumentVersionProjection.document_version_id
-                    == DocumentVersion.id
-                ),
-            )
             .where(
-                DocumentVersionProjection.is_current_eligible.is_(True),
                 DocumentVersion.state == "approved",
+                DocumentVersion.superseded_by_id.is_(None),
                 DocumentVersion.provenance_state == "ready",
                 DocumentVersion.source_deleted_at.is_(None),
                 DocumentVersion.source_storage_key.is_not(None),
