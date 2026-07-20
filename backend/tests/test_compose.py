@@ -52,6 +52,7 @@ def test_compose_contains_complete_application_stack() -> None:
         "event-redis",
         "event-scheduler",
         "event-worker",
+        "run-worker",
         "worker",
         "web",
     }
@@ -82,6 +83,7 @@ def test_backend_services_use_the_prebuilt_virtualenv_at_runtime() -> None:
     assert services["api"]["command"][0] == "/app/.venv/bin/uvicorn"
     assert services["worker"]["command"][0] == "/app/.venv/bin/celery"
     assert services["event-worker"]["command"][0] == "/app/.venv/bin/celery"
+    assert services["run-worker"]["command"][0] == "/app/.venv/bin/celery"
     assert services["event-scheduler"]["command"][0] == "/app/.venv/bin/celery"
     assert services["api"]["healthcheck"]["test"][1] == "/app/.venv/bin/python"
     assert services["worker"]["mem_limit"] == "4294967296"
@@ -93,19 +95,21 @@ def test_authority_generation_is_provisioned_before_writes() -> None:
     services = render_compose()["services"]
     generation = services["api"]["environment"]["OPENRAG_AUTHORITY_GENERATION_ID"]
 
-    assert generation == services["ingestion-worker"]["environment"][
-        "OPENRAG_AUTHORITY_GENERATION_ID"
-    ]
-    assert services["authority-provisioner"]["environment"][
-        "OPENRAG_AUTHORITY_GENERATION_ID"
-    ] == generation
+    assert (
+        generation == services["ingestion-worker"]["environment"]["OPENRAG_AUTHORITY_GENERATION_ID"]
+    )
+    assert (
+        services["authority-provisioner"]["environment"]["OPENRAG_AUTHORITY_GENERATION_ID"]
+        == generation
+    )
     assert services["authority-provisioner"]["restart"] == "no"
     assert services["authority-provisioner"]["depends_on"]["qdrant"]["condition"] == (
         "service_healthy"
     )
-    assert services["ingestion-worker"]["depends_on"]["authority-provisioner"][
-        "condition"
-    ] == "service_completed_successfully"
+    assert (
+        services["ingestion-worker"]["depends_on"]["authority-provisioner"]["condition"]
+        == "service_completed_successfully"
+    )
 
 
 def test_event_transport_is_private_durable_and_failure_isolated() -> None:
@@ -114,8 +118,7 @@ def test_event_transport_is_private_durable_and_failure_isolated() -> None:
     event_redis = services["event-redis"]
 
     assert event_redis["image"] == (
-        "redis:7.4.9-alpine@sha256:"
-        "6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"
+        "redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"
     )
     assert "ports" not in event_redis
     event_redis_command = " ".join(event_redis["command"])
@@ -127,21 +130,25 @@ def test_event_transport_is_private_durable_and_failure_isolated() -> None:
     assert "eventredisdata" in config["volumes"]
     assert "event_redis_password" in config["secrets"]
 
-    assert "event-redis" not in services["api"].get("depends_on", {})
+    assert services["api"]["depends_on"]["event-redis"]["condition"] == ("service_healthy")
     assert "event-redis" not in services["worker"].get("depends_on", {})
-    api_secrets = {
-        secret["source"] for secret in services["api"].get("secrets", [])
-    }
-    worker_secrets = {
-        secret["source"]
-        for secret in services["worker"].get("secrets", [])
-    }
-    assert "event_redis_password" not in api_secrets
+    api_secrets = {secret["source"] for secret in services["api"].get("secrets", [])}
+    worker_secrets = {secret["source"] for secret in services["worker"].get("secrets", [])}
+    assert "event_redis_password" in api_secrets
     assert "event_redis_password" not in worker_secrets
     assert services["worker"]["command"][5] == "interactive,default"
     assert services["event-worker"]["command"][5] == "events"
+    assert services["run-worker"]["command"][5] == "runs"
     assert set(services["event-redis"]["networks"]) == {"event-network"}
     assert set(services["event-worker"]["networks"]) == {
         "default",
         "event-network",
+    }
+    assert set(services["api"]["networks"]) == {"default", "event-network"}
+    assert set(services["run-worker"]["networks"]) == {
+        "default",
+        "event-network",
+    }
+    assert {secret["source"] for secret in services["run-worker"]["secrets"]} == {
+        "event_redis_password"
     }

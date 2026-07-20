@@ -24,6 +24,7 @@ def test_celery_config() -> None:
         "events",
         "ingestion",
         "interactive",
+        "runs",
     }
     dispatch_schedule = celery_app.conf.beat_schedule["dispatch-outbox"]
     assert dispatch_schedule["task"] == "events.dispatch_outbox"
@@ -33,18 +34,18 @@ def test_celery_config() -> None:
     assert starts_schedule["task"] == "events.consume_document_starts"
     assert starts_schedule["options"]["queue"] == "events"
     assert starts_schedule["options"]["expires"] <= 10
-    lifecycle_schedule = celery_app.conf.beat_schedule[
-        "consume-document-lifecycle"
-    ]
+    lifecycle_schedule = celery_app.conf.beat_schedule["consume-document-lifecycle"]
     assert lifecycle_schedule["task"] == "events.consume_document_lifecycle"
     assert lifecycle_schedule["options"]["queue"] == "events"
     assert lifecycle_schedule["options"]["expires"] <= 10
-    run_commands_schedule = celery_app.conf.beat_schedule[
-        "consume-run-commands"
-    ]
+    run_commands_schedule = celery_app.conf.beat_schedule["consume-run-commands"]
     assert run_commands_schedule["task"] == "events.consume_run_commands"
     assert run_commands_schedule["options"]["queue"] == "events"
     assert run_commands_schedule["options"]["expires"] <= 10
+    run_schedule = celery_app.conf.beat_schedule["execute-agent-run"]
+    assert run_schedule["task"] == "runs.execute_next"
+    assert run_schedule["options"]["queue"] == "runs"
+    assert run_schedule["options"]["expires"] <= 2
     stage_schedule = celery_app.conf.beat_schedule["run-durable-document-stage"]
     assert stage_schedule["task"] == "documents.run_durable_stage"
     assert stage_schedule["options"]["queue"] == "ingestion"
@@ -73,6 +74,8 @@ def test_event_tasks_are_isolated_to_the_events_queue() -> None:
     assert "events.consume_run_commands" in celery_app.tasks
     assert "documents.run_durable_stage" in celery_app.tasks
     assert "documents.sync_vector_eligibility" in celery_app.tasks
+    assert celery_app.conf.task_routes["runs.*"] == {"queue": "runs"}
+    assert "runs.execute_next" in celery_app.tasks
 
 
 def test_queue_selection_by_size() -> None:
@@ -101,10 +104,7 @@ def test_legacy_ingest_chain_structure() -> None:
         "documents.chunk",
         "documents.embed_upsert",
     ]
-    assert all(
-        task.options.get("queue") == "interactive"
-        for task in signature.tasks
-    )
+    assert all(task.options.get("queue") == "interactive" for task in signature.tasks)
     assert all(task.args == ("doc-id-123",) for task in signature.tasks)
 
 
@@ -140,9 +140,7 @@ def test_revision_one_dispatch_uses_legacy_envelope_before_cutover(
             ingest_revision_protocol_v2_enabled=False,
         ),
     )
-    monkeypatch.setattr(
-        tasks, "build_legacy_ingest_chain", lambda *_args: Signature()
-    )
+    monkeypatch.setattr(tasks, "build_legacy_ingest_chain", lambda *_args: Signature())
     enqueue_ingest(UUID("12345678-1234-5678-1234-567812345678"), 10, 1)
     assert applied == [True]
 

@@ -20,6 +20,7 @@ from openrag.worker.event_runtime import (
     consume_document_starts_once,
     consume_run_commands_once,
     dispatch_outbox_once,
+    execute_run_once,
 )
 
 _MAX_RETRIES = 3
@@ -80,6 +81,18 @@ def consume_run_commands_task(task: Task) -> dict[str, int]:
     hostname = str(getattr(task.request, "hostname", None) or "event-worker")
     consumer = f"run-commands:{hostname}"[:120]
     return asyncio.run(consume_run_commands_once(consumer=consumer))
+
+
+@celery_app.task(
+    name="runs.execute_next",
+    ignore_result=True,
+    soft_time_limit=150,
+    time_limit=180,
+)
+def execute_run_task() -> str:
+    """Execute at most one claimed run on the isolated async runs queue."""
+
+    return asyncio.run(execute_run_once())
 
 
 @celery_app.task(
@@ -264,9 +277,7 @@ def enqueue_ingest(
 ) -> None:
     queue = select_queue(size_bytes)
     if get_settings().ingest_revision_protocol_v2_enabled:
-        workflow = build_ingest_chain(
-            str(document_id), queue, expected_revision
-        )
+        workflow = build_ingest_chain(str(document_id), queue, expected_revision)
     elif expected_revision == 1:
         workflow = build_legacy_ingest_chain(str(document_id), queue)
     else:

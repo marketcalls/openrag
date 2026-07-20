@@ -16,6 +16,7 @@ from openrag.modules.documents.start_events import (
     DocumentStartRedis,
     consume_document_start_batch,
 )
+from openrag.modules.events.bus import RedisEventBus, as_event_bus_redis
 from openrag.modules.events.dispatcher import (
     EventRedis,
     claim_outbox,
@@ -32,6 +33,7 @@ from openrag.modules.runs.commands import (
     RunCommandRedis,
     consume_run_command_batch,
 )
+from openrag.modules.runs.runner import RunnerTickResult, execute_queued_run_once
 
 
 async def dispatch_outbox_once(
@@ -161,6 +163,32 @@ async def consume_run_commands_once(
         await engine.dispose()
 
 
+async def execute_run_once(
+    settings: Settings | None = None,
+) -> RunnerTickResult:
+    """Claim one queued run and execute it on the isolated runs worker."""
+
+    resolved = settings or get_settings()
+    engine = build_engine(resolved.database_url)
+    session_factory = build_session_factory(engine)
+    redis = build_event_redis(resolved)
+    try:
+        async with redis.client() as connection:
+            bus = RedisEventBus(
+                as_event_bus_redis(connection),
+                max_events=resolved.run_event_max_events,
+                retention_seconds=resolved.run_event_retention_seconds,
+            )
+            return await execute_queued_run_once(
+                session_factory,
+                bus,
+                resolved,
+            )
+    finally:
+        await redis.aclose()
+        await engine.dispose()
+
+
 async def event_runtime_readiness(
     settings: Settings | None = None,
 ) -> EventTransportStatus:
@@ -174,9 +202,7 @@ async def event_runtime_readiness(
             await connection.execute(select(1))
         async with redis.client() as connection:
             await ensure_streams(cast(StreamAdminRedis, connection))
-            return await check_event_transport(
-                cast(ReadinessRedis, connection)
-            )
+            return await check_event_transport(cast(ReadinessRedis, connection))
     finally:
         await redis.aclose()
         await engine.dispose()

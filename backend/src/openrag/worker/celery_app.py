@@ -21,14 +21,17 @@ def build_celery() -> Celery:
             Queue("interactive"),
             Queue("events"),
             Queue("ingestion"),
+            Queue("runs"),
         ),
-        task_routes={"events.*": {"queue": "events"}},
+        task_routes={
+            "events.*": {"queue": "events"},
+            "runs.*": {"queue": "runs"},
+        },
         task_annotations={
             "documents.parse": {
                 "soft_time_limit": settings.parser_timeout_seconds + 5,
                 "time_limit": (
-                    settings.parser_timeout_seconds
-                    + settings.parser_hard_timeout_grace_seconds
+                    settings.parser_timeout_seconds + settings.parser_hard_timeout_grace_seconds
                 ),
             },
             "documents.run_durable_stage": {
@@ -61,6 +64,11 @@ def build_celery() -> Celery:
                 "task": "events.consume_run_commands",
                 "schedule": 1.0,
                 "options": {"queue": "events", "expires": 5},
+            },
+            "execute-agent-run": {
+                "task": "runs.execute_next",
+                "schedule": 0.25,
+                "options": {"queue": "runs", "expires": 2},
             },
             "run-durable-document-stage": {
                 "task": "documents.run_durable_stage",
