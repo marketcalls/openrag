@@ -42,6 +42,20 @@ class Settings(BaseSettings):
         max_length=100,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,99}$",
     )
+    otel_endpoint: str | None = None
+    otel_service_name: str = Field(
+        default="openrag",
+        min_length=1,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$",
+    )
+    otel_insecure: bool = True
+    otel_trace_sample_ratio: float = Field(default=0.1, ge=0, le=1)
+    otel_export_timeout_ms: int = Field(default=5000, ge=100, le=30_000)
+    otel_batch_delay_ms: int = Field(default=5000, ge=100, le=60_000)
+    otel_batch_queue_size: int = Field(default=2048, ge=128, le=65_536)
+    otel_batch_size: int = Field(default=512, ge=1, le=8192)
+    otel_metric_interval_ms: int = Field(default=60_000, ge=1000, le=300_000)
     kek_file: str = "./data/openrag_kek"
     access_token_ttl_seconds: int = 900
     refresh_token_ttl_seconds: int = 1_209_600

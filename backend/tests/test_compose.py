@@ -7,7 +7,10 @@ import tempfile
 from pathlib import Path
 
 
-def render_compose(*extra_args: str) -> dict:  # type: ignore[type-arg]
+def render_compose(
+    *extra_args: str,
+    environment_overrides: dict[str, str] | None = None,
+) -> dict:  # type: ignore[type-arg]
     compose = Path(__file__).parents[2] / "deploy" / "compose.yaml"
     docker = shutil.which("docker")
     assert docker is not None
@@ -17,6 +20,7 @@ def render_compose(*extra_args: str) -> dict:  # type: ignore[type-arg]
         secret_file.flush()
         environment = os.environ.copy()
         environment["OPENRAG_EVENT_REDIS_SECRET_FILE"] = secret_file.name
+        environment.update(environment_overrides or {})
         rendered = subprocess.run(  # noqa: S603 - fixed executable and arguments
             [
                 docker,
@@ -149,11 +153,17 @@ def test_event_transport_is_private_durable_and_failure_isolated() -> None:
     assert set(services["event-worker"]["networks"]) == {
         "default",
         "event-network",
+        "observability-network",
     }
-    assert set(services["api"]["networks"]) == {"default", "event-network"}
+    assert set(services["api"]["networks"]) == {
+        "default",
+        "event-network",
+        "observability-network",
+    }
     assert set(services["run-worker"]["networks"]) == {
         "default",
         "event-network",
+        "observability-network",
     }
     assert {secret["source"] for secret in services["run-worker"]["secrets"]} == {
         "event_redis_password"
@@ -161,3 +171,56 @@ def test_event_transport_is_private_durable_and_failure_isolated() -> None:
     assert "secrets" not in services["summary-worker"]
     assert "secrets" not in services["evaluation-worker"]
     assert services["evaluation-worker"]["security_opt"] == ["no-new-privileges:true"]
+
+
+def test_observability_stores_are_private_and_grafana_is_loopback_only() -> None:
+    config = render_compose("--profile", "observability")
+    services = config["services"]
+
+    for name in ("otel-collector", "prometheus", "loki", "tempo"):
+        assert "ports" not in services[name]
+        assert services[name]["security_opt"] == ["no-new-privileges:true"]
+
+    assert services["grafana"]["ports"] == [
+        {
+            "mode": "ingress",
+            "target": 3000,
+            "published": "53000",
+            "protocol": "tcp",
+            "host_ip": "127.0.0.1",
+        }
+    ]
+    assert services["grafana"]["environment"]["GF_AUTH_ANONYMOUS_ENABLED"] == "false"
+    assert services["grafana"]["environment"]["GF_SECURITY_ADMIN_PASSWORD__FILE"] == (
+        "/run/secrets/grafana_admin_password"  # noqa: S105 - secret file path
+    )
+    assert config["networks"]["observability-network"]["internal"] is True
+    assert set(services["otel-collector"]["networks"]) == {"observability-network"}
+    assert set(services["prometheus"]["networks"]) == {"observability-network"}
+    assert set(services["loki"]["networks"]) == {"observability-network"}
+    assert set(services["tempo"]["networks"]) == {"observability-network"}
+    assert set(services["grafana"]["networks"]) == {"observability-network"}
+
+
+def test_openrag_runtimes_export_only_over_the_private_observability_network() -> None:
+    services = render_compose(
+        "--profile",
+        "observability",
+        environment_overrides={"OPENRAG_OTEL_ENDPOINT": "http://otel-collector:4317"},
+    )["services"]
+    exporters = (
+        "api",
+        "worker",
+        "ingestion-worker",
+        "event-worker",
+        "run-worker",
+        "summary-worker",
+        "evaluation-worker",
+        "event-scheduler",
+    )
+
+    for name in exporters:
+        assert services[name]["environment"]["OPENRAG_OTEL_ENDPOINT"] == (
+            "http://otel-collector:4317"
+        )
+        assert "observability-network" in services[name]["networks"]

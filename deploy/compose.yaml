@@ -5,6 +5,10 @@ x-openrag-environment: &openrag-environment
   OPENRAG_REDIS_URL: redis://redis:6379/0
   OPENRAG_ENVIRONMENT: ${OPENRAG_ENVIRONMENT:-dev}
   OPENRAG_RELEASE: ${OPENRAG_RELEASE:-dev}
+  OPENRAG_OTEL_ENDPOINT: ${OPENRAG_OTEL_ENDPOINT:-}
+  OPENRAG_OTEL_SERVICE_NAME: openrag
+  OPENRAG_OTEL_INSECURE: ${OPENRAG_OTEL_INSECURE:-true}
+  OPENRAG_OTEL_TRACE_SAMPLE_RATIO: ${OPENRAG_OTEL_TRACE_SAMPLE_RATIO:-0.1}
   OPENRAG_QDRANT_URL: http://qdrant:6333
   OPENRAG_MINIO_ENDPOINT: http://minio:9000
   OPENRAG_MINIO_ACCESS_KEY: openrag
@@ -41,6 +45,9 @@ x-openrag-backend: &openrag-backend
   environment: *openrag-environment
   volumes:
     - kekdata:/data
+  networks:
+    - default
+    - observability-network
 
 services:
   postgres:
@@ -220,6 +227,7 @@ services:
     networks:
       - default
       - event-network
+      - observability-network
     ports: ["127.0.0.1:${OPENRAG_API_PORT:-8000}:8000"]
     depends_on:
       bootstrap:
@@ -327,6 +335,11 @@ services:
     environment:
       OPENRAG_REDIS_URL: redis://redis:6379/0
       OPENRAG_ENVIRONMENT: ${OPENRAG_ENVIRONMENT:-dev}
+      OPENRAG_OTEL_ENDPOINT: ${OPENRAG_OTEL_ENDPOINT:-}
+      OPENRAG_OTEL_SERVICE_NAME: openrag-event-scheduler
+    networks:
+      - default
+      - observability-network
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -359,11 +372,15 @@ services:
       OPENRAG_EVENT_REDIS_URL: redis://openrag@event-redis:6379/0
       OPENRAG_EVENT_REDIS_PASSWORD_FILE: /run/secrets/event_redis_password
       OPENRAG_ENVIRONMENT: ${OPENRAG_ENVIRONMENT:-dev}
+      OPENRAG_RELEASE: ${OPENRAG_RELEASE:-dev}
+      OPENRAG_OTEL_ENDPOINT: ${OPENRAG_OTEL_ENDPOINT:-}
+      OPENRAG_OTEL_SERVICE_NAME: openrag-event-worker
     secrets:
       - event_redis_password
     networks:
       - default
       - event-network
+      - observability-network
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -411,6 +428,7 @@ services:
     networks:
       - default
       - event-network
+      - observability-network
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -510,6 +528,97 @@ services:
     ports: ["127.0.0.1:${OPENRAG_OLLAMA_PORT:-11434}:11434"]
     volumes: [ollamadata:/root/.ollama]
 
+  otel-collector:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.153.0@sha256:93aad750175cbf1a973ae1c5886c3371f4d800f61be25cdd26870b8441ffe9fa
+    profiles: ["observability"]
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    networks: [observability-network]
+    mem_limit: 512m
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.12.0@sha256:69f5241418838263316593f7274a304b095c40bcf22e57272865da91bd60a8ac
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${OPENRAG_METRICS_RETENTION:-30d}
+      - --storage.tsdb.retention.size=${OPENRAG_METRICS_RETENTION_SIZE:-20GB}
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./observability/alerts.yaml:/etc/prometheus/alerts.yaml:ro
+      - prometheusdata:/prometheus
+    networks: [observability-network]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.7.2@sha256:191d4fdfb7264f16989f0a57f320872620a5a7c2ceeec6229212c4190ec49b86
+    profiles: ["observability"]
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/config.yaml:ro
+      - lokidata:/loki
+    networks: [observability-network]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.10.5@sha256:ee21727732c7a7199cb71c3eee9153bbf23f9b0b87619f0555a0cf21a67f1a33
+    profiles: ["observability"]
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo/config.yaml:ro
+      - tempodata:/var/tempo
+    networks: [observability-network]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.1.0@sha256:121a7a9ece6dc10b969f1f96eed64b4f07dfac0d0b8abc070f7cb83bbde86f63
+    profiles: ["observability"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_BASIC_ENABLED: "true"
+      GF_SECURITY_ADMIN_USER: ${OPENRAG_GRAFANA_ADMIN_USER:-openrag-admin}
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ENFORCE_DOMAIN: "true"
+      GF_SECURITY_COOKIE_SECURE: ${OPENRAG_GRAFANA_COOKIE_SECURE:-false}
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      GF_LOG_MODE: console
+    secrets: [grafana_admin_password]
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    networks: [observability-network]
+    ports:
+      - "127.0.0.1:${OPENRAG_GRAFANA_PORT:-53000}:3000"
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   pgdata:
   qdrantdata:
@@ -518,11 +627,19 @@ volumes:
   kekdata:
   ollamadata:
   eventredisdata:
+  prometheusdata:
+  lokidata:
+  tempodata:
+  grafanadata:
 
 networks:
   event-network:
+    internal: true
+  observability-network:
     internal: true
 
 secrets:
   event_redis_password:
     file: ${OPENRAG_EVENT_REDIS_SECRET_FILE:-../data/event_redis_password}
+  grafana_admin_password:
+    file: ${OPENRAG_GRAFANA_PASSWORD_FILE:-../data/grafana_admin_password}

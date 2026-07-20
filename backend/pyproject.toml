@@ -28,6 +28,10 @@ dependencies = [
     "torchvision>=0.17",
     "agno==2.7.4",
     "litellm==1.93.0",
+    "opentelemetry-sdk==1.44.0",
+    "opentelemetry-exporter-otlp-proto-grpc==1.44.0",
+    "opentelemetry-instrumentation-logging==0.65b0",
+    "opentelemetry-instrumentation-structlog==0.65b0",
 ]
 
 [dependency-groups]
@@ -40,6 +44,7 @@ dev = [
     "mypy>=1.10",
     "import-linter>=2.0",
     "psycopg2-binary>=2.9",
+    "pyyaml==6.0.3",
 ]
 
 [build-system]

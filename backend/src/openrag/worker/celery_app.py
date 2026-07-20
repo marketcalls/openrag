@@ -1,7 +1,40 @@
 from celery import Celery
+from celery.signals import beat_init, worker_process_init, worker_process_shutdown
 from kombu import Queue
 
 from openrag.core.config import get_settings
+from openrag.core.logging import configure_logging
+from openrag.core.telemetry import (
+    TelemetryRuntime,
+    activate_telemetry,
+    build_telemetry,
+    deactivate_telemetry,
+)
+
+_telemetry_runtime: TelemetryRuntime | None = None
+
+
+def initialize_worker_telemetry(**_kwargs: object) -> None:
+    global _telemetry_runtime
+    if _telemetry_runtime is not None:
+        return
+    _telemetry_runtime = build_telemetry(get_settings())
+    activate_telemetry(_telemetry_runtime)
+    configure_logging(_telemetry_runtime.logger_provider)
+
+
+def shutdown_worker_telemetry(**_kwargs: object) -> None:
+    global _telemetry_runtime
+    if _telemetry_runtime is None:
+        return
+    deactivate_telemetry(_telemetry_runtime)
+    _telemetry_runtime.shutdown()
+    _telemetry_runtime = None
+
+
+worker_process_init.connect(initialize_worker_telemetry, weak=False)
+worker_process_shutdown.connect(shutdown_worker_telemetry, weak=False)
+beat_init.connect(initialize_worker_telemetry, weak=False)
 
 
 def build_celery() -> Celery:

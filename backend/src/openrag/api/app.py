@@ -34,7 +34,7 @@ from openrag.core.config import get_settings
 from openrag.core.db import build_engine, build_session_factory
 from openrag.core.errors import OpenRAGError
 from openrag.core.logging import configure_logging
-from openrag.core.telemetry import current_trace_id
+from openrag.core.telemetry import build_telemetry, current_trace_id
 from openrag.modules.chat.llm import LLMStreamer
 from openrag.modules.chat.service import Retriever
 from openrag.modules.events.redis_runtime import build_event_redis
@@ -52,8 +52,9 @@ def create_app(
     retriever: Retriever | None = None,
     llm_streamer: LLMStreamer | None = None,
 ) -> FastAPI:
-    configure_logging()
     settings = get_settings()
+    telemetry = build_telemetry(settings)
+    configure_logging(telemetry.logger_provider)
     owned_engine: AsyncEngine | None = None
     if session_factory is None:
         owned_engine = build_engine(settings.database_url)
@@ -94,6 +95,7 @@ def create_app(
                 await runtime_app.state.redis.aclose()
             if owned_engine is not None:
                 await owned_engine.dispose()
+            telemetry.shutdown()
 
     production = settings.environment.lower() in {"prod", "production"}
     app = FastAPI(
@@ -109,13 +111,14 @@ def create_app(
             settings.max_upload_mb * 1024 * 1024 + settings.upload_multipart_overhead_kb * 1024
         ),
     )
-    app.add_middleware(TraceCorrelationMiddleware)
+    app.add_middleware(TraceCorrelationMiddleware, telemetry=telemetry)
     app.state.session_factory = session_factory
     app.state.redis = redis_client
     app.state.event_redis = event_redis_client
     app.state.litellm_transport = litellm_transport
     app.state.retriever = retriever if retriever is not None else retrieve
     app.state.llm_streamer = llm_streamer
+    app.state.telemetry = telemetry
 
     def problem(status: int, title: str, detail: str) -> JSONResponse:
         return JSONResponse(

@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import Insert, insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import Select
 
+from openrag.core.telemetry import record_active_rag_run
 from openrag.modules.chat.models import Citation, Message
 from openrag.modules.operations.models import RagRunFact
 from openrag.modules.operations.schemas import (
@@ -317,6 +318,27 @@ async def record_run_fact(
             release=release,
         )
         await session.execute(build_run_fact_insert(fact))
+
+    error_category = "none"
+    if fact.error_code:
+        candidate = fact.error_code.split(".", maxsplit=1)[0]
+        error_category = candidate if candidate in {
+            "provider", "retrieval", "persistence", "internal", "cancelled"
+        } else "other"
+    record_active_rag_run(
+        route=fact.route,
+        outcome=fact.outcome,
+        error_category=error_category,
+        latency_ms=fact.latency_ms,
+        ttft_ms=fact.ttft_ms,
+        retrieval_pass_ratio=1.0 if fact.outcome == "grounded" else 0.0,
+        citation_coverage_ratio=(
+            min(1.0, fact.citation_count / fact.retrieval_count)
+            if fact.retrieval_count > 0
+            else 0.0
+        ),
+        estimated_cost_microusd=fact.estimated_cost_microusd,
+    )
 
 
 async def reconcile_run_fact_once(

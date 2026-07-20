@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from openrag.core.config import Settings
 from openrag.core.db import naive_utc
+from openrag.core.telemetry import record_active_evaluation
 from openrag.modules.auth.models import User
 from openrag.modules.chat.llm import LLMStreamer
 from openrag.modules.evaluations.executor import ProductionEvaluationExecutor
@@ -213,6 +214,11 @@ async def _finish_run(
     run.error_code = "evaluation_case_failures" if run.failed_cases else None
     run.finished_at = naive_utc()
     _clear_lease(run)
+    record_active_evaluation(
+        groundedness=run.groundedness,
+        answer_relevance=run.answer_relevance,
+        correct_refusal=run.correct_refusal,
+    )
 
 
 async def _persist_score(

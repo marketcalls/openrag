@@ -399,7 +399,7 @@ Commit: `feat: add rag evaluation and regression ui`
 - Produces opt-in Compose profile `observability` with OTLP collector, Prometheus, Loki, Tempo, and Grafana.
 - Services export OTLP over the private Compose network; only Grafana binds to loopback.
 
-- [ ] **Step 1: Write failing no-export and Compose isolation tests**
+- [x] **Step 1: Write failing no-export and Compose isolation tests**
 
 ```python
 def test_telemetry_is_noop_without_endpoint(monkeypatch) -> None:
@@ -415,19 +415,19 @@ def test_observability_stores_are_not_host_exposed() -> None:
     assert services["grafana"]["ports"][0]["host_ip"] == "127.0.0.1"
 ```
 
-- [ ] **Step 2: Pin OpenTelemetry dependencies and configure batch exporters**
+- [x] **Step 2: Pin OpenTelemetry dependencies and configure batch exporters**
 
 When `OPENRAG_OTEL_ENDPOINT` is absent, providers are no-op. When present, export traces, metrics, and logs with bounded queues, batch timeouts, resource attributes, and recursive redaction before export.
 
-- [ ] **Step 3: Add pinned observability services and private storage**
+- [x] **Step 3: Add pinned observability services and private storage**
 
 Collector receives OTLP, applies memory limiting/batching/attribute filtering, and exports to the three stores. Prometheus, Loki, and Tempo have no host ports. Grafana binds to `127.0.0.1:${OPENRAG_GRAFANA_PORT:-53000}:3000`, uses provisioned datasources, and has authentication enabled.
 
-- [ ] **Step 4: Add actionable alerts and dashboards**
+- [x] **Step 4: Add actionable alerts and dashboards**
 
 Provision p95 latency, TTFT, error/no-answer rate, provider failure, run/ingest queue age, event-loop lag, DB pool saturation, retrieval pass rate, citation coverage, and evaluation regression panels. Alert rules use low-cardinality labels only.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `cd backend && uv run pytest -q tests/core/test_telemetry_export.py tests/test_compose.py && uv run ruff check src tests && uv run mypy && cd .. && docker compose -f deploy/compose.yaml --profile observability config --quiet`
 

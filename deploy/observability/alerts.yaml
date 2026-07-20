@@ -1,0 +1,74 @@
+groups:
+  - name: openrag-runtime
+    interval: 30s
+    rules:
+      - alert: OpenRAGHighP95Latency
+        expr: histogram_quantile(0.95, sum by (le) (rate(openrag_http_server_duration_ms_bucket[5m]))) > 5000
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: OpenRAG p95 response latency exceeds five seconds
+          runbook: docs/runbooks/observability.md#high-response-latency
+      - alert: OpenRAGHighErrorRate
+        expr: sum(rate(openrag_http_server_requests_total{status_class="5xx"}[5m])) / clamp_min(sum(rate(openrag_http_server_requests_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels: {severity: critical}
+        annotations:
+          summary: More than five percent of OpenRAG requests are failing
+          runbook: docs/runbooks/observability.md#high-error-rate
+      - alert: OpenRAGHighNoAnswerRate
+        expr: sum(rate(openrag_rag_runs_total{outcome="no_answer"}[15m])) / clamp_min(sum(rate(openrag_rag_runs_total[15m])), 0.001) > 0.2
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: Safe no-answer rate exceeds twenty percent
+          runbook: docs/runbooks/observability.md#high-no-answer-rate
+      - alert: OpenRAGProviderFailures
+        expr: sum(rate(openrag_rag_runs_total{error_category="provider"}[5m])) > 0.1
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: Model provider failures are sustained
+          runbook: docs/runbooks/observability.md#provider-failures
+      - alert: OpenRAGQueueAgeHigh
+        expr: max(openrag_queue_oldest_job_age_seconds) > 120
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: An OpenRAG work queue is delayed by more than two minutes
+          runbook: docs/runbooks/observability.md#queue-age
+      - alert: OpenRAGEventLoopLagHigh
+        expr: max(openrag_event_loop_lag_seconds) > 0.25
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: API event-loop lag is sustained
+          runbook: docs/runbooks/observability.md#event-loop-lag
+      - alert: OpenRAGDatabasePoolSaturated
+        expr: max(openrag_db_pool_utilization_ratio) > 0.85
+        for: 10m
+        labels: {severity: critical}
+        annotations:
+          summary: Database connection pool utilization exceeds 85 percent
+          runbook: docs/runbooks/observability.md#database-pool-saturation
+      - alert: OpenRAGRetrievalPassRateLow
+        expr: avg_over_time(openrag_retrieval_pass_ratio{route="rag"}[30m]) < 0.9
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: Retrieval pass rate dropped below 90 percent
+          runbook: docs/runbooks/observability.md#retrieval-quality
+      - alert: OpenRAGCitationCoverageLow
+        expr: avg_over_time(openrag_citation_coverage_ratio{route="rag"}[30m]) < 0.9
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: Citation coverage dropped below 90 percent
+          runbook: docs/runbooks/observability.md#citation-quality
+      - alert: OpenRAGEvaluationRegression
+        expr: openrag_evaluation_groundedness_ratio < 0.9
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: Latest governed evaluation failed the groundedness gate
+          runbook: docs/runbooks/observability.md#evaluation-regression
