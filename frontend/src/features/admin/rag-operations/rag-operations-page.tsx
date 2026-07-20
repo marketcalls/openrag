@@ -9,9 +9,11 @@ import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/select';
 
 import { ErrorPanel } from './error-panel';
+import { EnrichmentPanel } from './enrichment-panel';
 import { MetricCard } from './metric-card';
 import {
   useAnswerQualityOverview,
+  useEnrichmentOperationsOverview,
   useRagOperationsErrors,
   useRagOperationsOverview,
   useRagOperationsRuns,
@@ -83,10 +85,11 @@ export function RagOperationsPage() {
 
   const overview = useRagOperationsOverview(filters);
   const quality = useAnswerQualityOverview(qualityFilters);
+  const enrichment = useEnrichmentOperationsOverview(qualityFilters);
   const series = useRagOperationsSeries(filters, range === '24h' ? 'hour' : 'day');
   const runs = useRagOperationsRuns(filters);
   const errors = useRagOperationsErrors(filters);
-  const queries = [overview, quality, series, runs, errors];
+  const queries = [overview, quality, enrichment, series, runs, errors];
   const isRefreshing = queries.some((query) => query.isFetching);
   const firstError = queries.find((query) => query.isError)?.error;
 
@@ -196,6 +199,7 @@ export function RagOperationsPage() {
               </section>
 
               {quality.data ? <QualityPanel quality={quality.data} /> : null}
+              {enrichment.data ? <EnrichmentPanel enrichment={enrichment.data} /> : null}
 
               <section className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(330px,0.8fr)]">
                 <article className="rounded-xl border border-line bg-bg p-4 shadow-sm">

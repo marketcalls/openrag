@@ -14,6 +14,7 @@ from openrag.modules.operations import queries
 from openrag.modules.operations.schemas import (
     AnswerQualityFilter,
     AnswerQualityOverview,
+    EnrichmentOperationsOverview,
     RagOperationsErrorDetail,
     RagOperationsErrorPage,
     RagOperationsFilter,
@@ -111,6 +112,16 @@ async def answer_quality(
 ) -> AnswerQualityOverview:
     del context
     return await queries.get_answer_quality_overview(session, filters)
+
+
+@router.get("/enrichment", response_model=EnrichmentOperationsOverview)
+async def enrichment_overview(
+    session: SessionDep,
+    context: SuperadminDep,
+    filters: QualityFiltersDep,
+) -> EnrichmentOperationsOverview:
+    del context
+    return await queries.get_enrichment_overview(session, filters)
 
 
 @router.get("/series", response_model=list[RagOperationsSeriesPoint])

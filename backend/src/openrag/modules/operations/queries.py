@@ -8,6 +8,7 @@ from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.selectable import Subquery
@@ -15,10 +16,12 @@ from sqlalchemy.sql.selectable import Subquery
 from openrag.core.errors import NotFoundError
 from openrag.modules.chat.models import Message
 from openrag.modules.chat.quality_models import AnswerQualityAudit
+from openrag.modules.documents.models import DocumentEnrichmentJob
 from openrag.modules.operations.models import ErrorIssue, ErrorOccurrence, RagRunFact
 from openrag.modules.operations.schemas import (
     AnswerQualityFilter,
     AnswerQualityOverview,
+    EnrichmentOperationsOverview,
     ErrorIssueOut,
     ErrorOccurrenceOut,
     RagOperationsErrorDetail,
@@ -165,6 +168,78 @@ def build_answer_quality_overview_query(
         )
         .where(*_answer_quality_conditions(filters))
     )
+
+
+def _enrichment_conditions(
+    filters: AnswerQualityFilter,
+) -> list[ColumnElement[bool]]:
+    conditions = [
+        DocumentEnrichmentJob.created_at >= _database_time(filters.from_at),
+        DocumentEnrichmentJob.created_at < _database_time(filters.to_at),
+    ]
+    for column, value in (
+        (DocumentEnrichmentJob.org_id, filters.org_id),
+        (DocumentEnrichmentJob.workspace_id, filters.workspace_id),
+        (DocumentEnrichmentJob.model_id, filters.model_id),
+    ):
+        if value is not None:
+            conditions.append(column == value)
+    return conditions
+
+
+def build_enrichment_overview_query(
+    filters: AnswerQualityFilter,
+) -> Select[tuple[object, ...]]:
+    current_jobs = aliased(DocumentEnrichmentJob, name="current_enrichment_jobs")
+    current_conditions: list[ColumnElement[bool]] = [
+        current_jobs.status.in_(("queued", "running"))
+    ]
+    for column, value in (
+        (current_jobs.org_id, filters.org_id),
+        (current_jobs.workspace_id, filters.workspace_id),
+        (current_jobs.model_id, filters.model_id),
+    ):
+        if value is not None:
+            current_conditions.append(column == value)
+    current_pending_count = (
+        select(func.count())
+        .select_from(current_jobs)
+        .where(*current_conditions)
+        .scalar_subquery()
+    )
+    oldest_pending = (
+        select(func.min(current_jobs.created_at))
+        .where(*current_conditions)
+        .scalar_subquery()
+    )
+    return select(
+        func.count().label("scheduled_count"),
+        func.count()
+        .filter(DocumentEnrichmentJob.status == "completed")
+        .label("completed_count"),
+        current_pending_count.label("pending_count"),
+        func.count()
+        .filter(DocumentEnrichmentJob.status == "failed")
+        .label("failed_count"),
+        func.count()
+        .filter(DocumentEnrichmentJob.status == "skipped")
+        .label("skipped_count"),
+        func.coalesce(func.sum(DocumentEnrichmentJob.generated_evidence), 0).label(
+            "generated_evidence"
+        ),
+        func.coalesce(func.sum(DocumentEnrichmentJob.invalid_evidence), 0).label(
+            "invalid_evidence"
+        ),
+        func.coalesce(func.sum(DocumentEnrichmentJob.prompt_tokens), 0).label(
+            "prompt_tokens"
+        ),
+        func.coalesce(func.sum(DocumentEnrichmentJob.completion_tokens), 0).label(
+            "completion_tokens"
+        ),
+        func.extract("epoch", func.now() - oldest_pending).label(
+            "oldest_pending_age_seconds"
+        ),
+    ).where(*_enrichment_conditions(filters))
 
 
 def build_series_query(
@@ -401,6 +476,40 @@ async def get_answer_quality_overview(
         average_completeness_score=(
             float(row.average_completeness_score)
             if row.average_completeness_score is not None
+            else None
+        ),
+    )
+
+
+async def get_enrichment_overview(
+    session: AsyncSession,
+    filters: AnswerQualityFilter,
+) -> EnrichmentOperationsOverview:
+    row = (await session.execute(build_enrichment_overview_query(filters))).one()
+    scheduled_count = int(row.scheduled_count or 0)
+    completed_count = int(row.completed_count or 0)
+    generated_evidence = int(row.generated_evidence or 0)
+    invalid_evidence = int(row.invalid_evidence or 0)
+    processed_evidence = generated_evidence + invalid_evidence
+    return EnrichmentOperationsOverview(
+        scheduled_count=scheduled_count,
+        completed_count=completed_count,
+        pending_count=int(row.pending_count or 0),
+        failed_count=int(row.failed_count or 0),
+        skipped_count=int(row.skipped_count or 0),
+        completion_rate=(
+            completed_count / scheduled_count if scheduled_count else 0.0
+        ),
+        generated_evidence=generated_evidence,
+        invalid_evidence=invalid_evidence,
+        evidence_success_rate=(
+            generated_evidence / processed_evidence if processed_evidence else 0.0
+        ),
+        prompt_tokens=int(row.prompt_tokens or 0),
+        completion_tokens=int(row.completion_tokens or 0),
+        oldest_pending_age_seconds=(
+            max(0.0, float(row.oldest_pending_age_seconds))
+            if row.oldest_pending_age_seconds is not None
             else None
         ),
     )

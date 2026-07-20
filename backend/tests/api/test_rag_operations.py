@@ -70,6 +70,7 @@ async def test_superadmin_reads_empty_bounded_overview(
     "path",
     [
         "/api/v1/admin/rag-operations/quality",
+        "/api/v1/admin/rag-operations/enrichment",
         "/api/v1/admin/rag-operations/series",
         "/api/v1/admin/rag-operations/runs",
         "/api/v1/admin/rag-operations/runs/00000000-0000-0000-0000-000000000001",
@@ -120,6 +121,36 @@ async def test_superadmin_reads_empty_content_free_quality_overview(
         "pass_rate": 0.0,
         "average_grounding_score": None,
         "average_completeness_score": None,
+    }
+
+
+async def test_superadmin_reads_empty_content_free_enrichment_overview(
+    client: httpx.AsyncClient,
+    seeded_superadmin: User,
+) -> None:
+    headers = await auth(client, seeded_superadmin.email)
+    now = datetime.now(UTC)
+
+    response = await client.get(
+        "/api/v1/admin/rag-operations/enrichment",
+        params={"from": (now - timedelta(days=1)).isoformat(), "to": now.isoformat()},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "scheduled_count": 0,
+        "completed_count": 0,
+        "pending_count": 0,
+        "failed_count": 0,
+        "skipped_count": 0,
+        "completion_rate": 0.0,
+        "generated_evidence": 0,
+        "invalid_evidence": 0,
+        "evidence_success_rate": 0.0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "oldest_pending_age_seconds": None,
     }
 
 

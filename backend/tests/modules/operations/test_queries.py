@@ -8,6 +8,7 @@ from sqlalchemy.dialects import postgresql
 from openrag.modules.operations.models import ErrorIssue
 from openrag.modules.operations.queries import (
     build_answer_quality_overview_query,
+    build_enrichment_overview_query,
     build_error_issue_detail_query,
     build_error_list_query,
     build_error_occurrence_detail_query,
@@ -93,6 +94,34 @@ def test_answer_quality_query_is_content_free_aggregated_and_scope_filtered() ->
     assert "messages.model_id" in sql
     assert "message.content" not in sql
     assert "messages.content" not in sql
+
+
+def test_enrichment_query_is_content_free_aggregated_and_scope_filtered() -> None:
+    filters = AnswerQualityFilter(
+        from_at=datetime(2026, 7, 19, tzinfo=UTC),
+        to_at=datetime(2026, 7, 20, tzinfo=UTC),
+        org_id=uuid4(),
+        workspace_id=uuid4(),
+        model_id=uuid4(),
+    )
+
+    sql = str(
+        build_enrichment_overview_query(filters).compile(
+            dialect=postgresql.dialect(),  # type: ignore[no-untyped-call]
+            compile_kwargs={"literal_binds": False},
+        )
+    )
+
+    assert "document_enrichment_jobs" in sql
+    assert "FILTER (WHERE document_enrichment_jobs.status" in sql
+    assert "document_enrichment_jobs.org_id" in sql
+    assert "document_enrichment_jobs.workspace_id" in sql
+    assert "document_enrichment_jobs.model_id" in sql
+    assert "current_enrichment_jobs" in sql
+    assert "current_enrichment_jobs.created_at >=" not in sql
+    assert sql.count("document_enrichment_jobs.created_at >=") == 1
+    assert "document_chunks" not in sql
+    assert "document_evidence_spans" not in sql
 
 
 def test_operations_filter_accepts_at_most_ninety_days() -> None:

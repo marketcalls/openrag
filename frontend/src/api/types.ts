@@ -30,6 +30,7 @@ export type EmbeddingDeploymentCreate = components['schemas']['EmbeddingDeployme
 export type EmbeddingDeploymentOut = components['schemas']['EmbeddingDeploymentOut'];
 export type RagOperationsOverview = components['schemas']['RagOperationsOverview'];
 export type AnswerQualityOverview = components['schemas']['AnswerQualityOverview'];
+export type EnrichmentOperationsOverview = components['schemas']['EnrichmentOperationsOverview'];
 export type RagOperationsSeriesPoint = components['schemas']['RagOperationsSeriesPoint'];
 export type RagOperationsRunOut = components['schemas']['RagOperationsRunOut'];
 export type RagOperationsRunPage = components['schemas']['RagOperationsRunPage'];

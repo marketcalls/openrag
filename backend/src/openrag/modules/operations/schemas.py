@@ -241,6 +241,25 @@ class AnswerQualityOverview(BaseModel):
     average_completeness_score: float | None = Field(default=None, ge=0, le=1)
 
 
+class EnrichmentOperationsOverview(BaseModel):
+    """Content-free health and usage facts for asynchronous enrichment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scheduled_count: int = Field(ge=0)
+    completed_count: int = Field(ge=0)
+    pending_count: int = Field(ge=0)
+    failed_count: int = Field(ge=0)
+    skipped_count: int = Field(ge=0)
+    completion_rate: float = Field(ge=0, le=1)
+    generated_evidence: int = Field(ge=0)
+    invalid_evidence: int = Field(ge=0)
+    evidence_success_rate: float = Field(ge=0, le=1)
+    prompt_tokens: int = Field(ge=0)
+    completion_tokens: int = Field(ge=0)
+    oldest_pending_age_seconds: float | None = Field(default=None, ge=0)
+
+
 RagSeriesInterval = Literal["hour", "day"]
 
 

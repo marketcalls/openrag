@@ -39,6 +39,21 @@ const quality = {
   average_completeness_score: 0.932,
 };
 
+const enrichment = {
+  scheduled_count: 100,
+  completed_count: 82,
+  pending_count: 12,
+  failed_count: 2,
+  skipped_count: 4,
+  completion_rate: 0.82,
+  generated_evidence: 640,
+  invalid_evidence: 16,
+  evidence_success_rate: 0.9756,
+  prompt_tokens: 20_000,
+  completion_tokens: 5_000,
+  oldest_pending_age_seconds: 95,
+};
+
 const run = {
   id: '550e8400-e29b-41d4-a716-446655440011',
   org_id: '550e8400-e29b-41d4-a716-446655440001',
@@ -113,6 +128,7 @@ function responseFor(request: Request) {
   }
   if (url.pathname.endsWith('/overview')) return overview;
   if (url.pathname.endsWith('/quality')) return quality;
+  if (url.pathname.endsWith('/enrichment')) return enrichment;
   if (url.pathname.endsWith('/series')) {
     return [
       { bucket: '2026-07-20T09:00:00Z', query_count: 540, grounded_count: 460, no_answer_count: 51, failed_count: 22, p95_latency_ms: 2300 },
@@ -156,6 +172,10 @@ test('coordinates filters across the operations overview, chart, runs, and error
   expect(screen.getByRole('heading', { name: 'Active error groups' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Grounded answer quality' })).toBeVisible();
   expect(screen.getByText('96.2%')).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Document enrichment' })).toBeVisible();
+  expect(screen.getByText('82.0%')).toBeVisible();
+  expect(screen.getByText('12 pending')).toBeVisible();
+  expect(screen.getByText('97.6%')).toBeVisible();
 
   await user.selectOptions(screen.getByLabelText('Route'), 'rag');
   await waitFor(() => {
@@ -163,8 +183,11 @@ test('coordinates filters across the operations overview, chart, runs, and error
     expect(overviewRequests.at(-1)?.url).toContain('route=rag');
   });
   const qualityRequest = requests.find((request) => request.url.includes('/quality?'));
+  const enrichmentRequest = requests.find((request) => request.url.includes('/enrichment?'));
   expect(qualityRequest?.url).toContain(`org_id=${run.org_id}`);
   expect(qualityRequest?.url).toContain(`workspace_id=${run.workspace_id}`);
+  expect(enrichmentRequest?.url).toContain(`org_id=${run.org_id}`);
+  expect(enrichmentRequest?.url).toContain(`workspace_id=${run.workspace_id}`);
 });
 
 test('opens safe, content-free run and error drilldowns', async () => {

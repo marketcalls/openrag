@@ -48,6 +48,20 @@ export function useAnswerQualityOverview(filters: AnswerQualityFilters) {
   });
 }
 
+export function useEnrichmentOperationsOverview(filters: AnswerQualityFilters) {
+  return useQuery({
+    queryKey: ['admin', 'rag-operations', 'enrichment', filters],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/admin/rag-operations/enrichment', {
+        params: { query: filters },
+      });
+      if (error) throw new Error(problemDetail(error, 'Failed to load document enrichment'));
+      return data;
+    },
+    ...queryOptions(),
+  });
+}
+
 export function useRagOperationsSeries(filters: RagOperationsFilters, interval: 'hour' | 'day') {
   return useQuery({
     queryKey: ['admin', 'rag-operations', 'series', interval, filters],

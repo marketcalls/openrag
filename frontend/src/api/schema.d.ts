@@ -753,6 +753,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/rag-operations/enrichment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Enrichment Overview */
+        get: operations["enrichment_overview_api_v1_admin_rag_operations_enrichment_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/rag-operations/series": {
         parameters: {
             query?: never;
@@ -1509,6 +1526,36 @@ export interface components {
             enabled?: boolean | null;
             /** Api Key */
             api_key?: string | null;
+        };
+        /**
+         * EnrichmentOperationsOverview
+         * @description Content-free health and usage facts for asynchronous enrichment.
+         */
+        EnrichmentOperationsOverview: {
+            /** Scheduled Count */
+            scheduled_count: number;
+            /** Completed Count */
+            completed_count: number;
+            /** Pending Count */
+            pending_count: number;
+            /** Failed Count */
+            failed_count: number;
+            /** Skipped Count */
+            skipped_count: number;
+            /** Completion Rate */
+            completion_rate: number;
+            /** Generated Evidence */
+            generated_evidence: number;
+            /** Invalid Evidence */
+            invalid_evidence: number;
+            /** Evidence Success Rate */
+            evidence_success_rate: number;
+            /** Prompt Tokens */
+            prompt_tokens: number;
+            /** Completion Tokens */
+            completion_tokens: number;
+            /** Oldest Pending Age Seconds */
+            oldest_pending_age_seconds?: number | null;
         };
         /** ErrorIssueOut */
         ErrorIssueOut: {
@@ -4997,6 +5044,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AnswerQualityOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enrichment_overview_api_v1_admin_rag_operations_enrichment_get: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                org_id?: string | null;
+                workspace_id?: string | null;
+                model_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrichmentOperationsOverview"];
                 };
             };
             /** @description Validation Error */
