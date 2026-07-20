@@ -2,7 +2,7 @@
 
 import asyncio
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import UUID
@@ -104,6 +104,21 @@ class RetrievalResult:
     no_answer: bool
     evidence: tuple[RetrievedEvidence, ...] = ()
     decision: EvidenceDecision | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CitationEvidenceIdentity:
+    """Bounded historic citation identity; never carries trusted source text."""
+
+    document_id: UUID
+    document_version_id: UUID
+    evidence_span_id: UUID | None
+    chunk_ref: str
+    content_hash: str | None
+
+    def __post_init__(self) -> None:
+        if not 1 <= len(self.chunk_ref) <= 500:
+            raise ValueError("citation_chunk_ref_invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -601,6 +616,186 @@ async def finalize_retrieval(
         evidence=final_evidence,
         decision=decision,
     )
+
+
+def _parse_legacy_chunk_ref(value: str) -> tuple[UUID, int, int] | None:
+    parts = value.split(":")
+    if len(parts) != 3:
+        return None
+    try:
+        document_id = UUID(parts[0])
+        page = int(parts[1])
+        chunk_index = int(parts[2])
+    except ValueError:
+        return None
+    if page <= 0 or chunk_index < 0:
+        return None
+    return document_id, page, chunk_index
+
+
+async def _backfill_legacy_citations(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+    identities: Sequence[CitationEvidenceIdentity],
+    *,
+    top_k: int,
+) -> list[RetrievedChunk]:
+    parsed: list[tuple[UUID, int, int]] = []
+    seen: set[tuple[UUID, int, int]] = set()
+    for identity in identities:
+        key = _parse_legacy_chunk_ref(identity.chunk_ref)
+        if key is None or key[0] != identity.document_id or key in seen:
+            continue
+        seen.add(key)
+        parsed.append(key)
+    if not parsed or not await get_qdrant().collection_exists(COLLECTION):
+        return []
+
+    eligible_document_ids = set(
+        (
+            await session.execute(
+                select(DocumentVersion.document_id).where(
+                    *_document_eligibility(
+                        context=context,
+                        workspace_id=workspace_id,
+                        authority_mode=False,
+                        now=datetime.now(UTC),
+                    ),
+                    DocumentVersion.document_id.in_([key[0] for key in parsed]),
+                )
+            )
+        ).scalars()
+    )
+    wanted_by_document: dict[UUID, set[tuple[int, int]]] = {}
+    for document_id, page, chunk_index in parsed:
+        if document_id in eligible_document_ids:
+            wanted_by_document.setdefault(document_id, set()).add((page, chunk_index))
+
+    found: dict[tuple[UUID, int, int], RetrievedChunk] = {}
+    client = get_qdrant()
+    for document_id, wanted in wanted_by_document.items():
+        offset: models.ExtendedPointId | None = None
+        for _ in range(40):
+            points, offset = await client.scroll(
+                COLLECTION,
+                scroll_filter=_tenant_filter(
+                    org_id=context.org_id,
+                    workspace_id=workspace_id,
+                    document_id=document_id,
+                ),
+                limit=256,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            for point in points:
+                payload = point.payload or {}
+                try:
+                    payload_document_id = UUID(str(payload["document_id"]))
+                    page_value = payload.get("page", payload.get("page_number"))
+                    page = int(page_value)  # type: ignore[arg-type]
+                    chunk_index = int(payload.get("chunk_index", 0))
+                    text = str(payload["text"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                key = (payload_document_id, page, chunk_index)
+                if key in seen:
+                    found[key] = RetrievedChunk(
+                        document_id=payload_document_id,
+                        page=page,
+                        chunk_index=chunk_index,
+                        text=text,
+                        score=0.0,
+                    )
+            if offset is None or {
+                (page, chunk_index)
+                for found_document, page, chunk_index in found
+                if found_document == document_id
+            } >= wanted:
+                break
+    return [found[key] for key in parsed if key in found][:top_k]
+
+
+async def backfill_citation_evidence(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+    identities: Sequence[CitationEvidenceIdentity],
+    top_k: int = 8,
+) -> RetrievalResult:
+    """Rehydrate historic citation identities through current tenant gates."""
+
+    if not 1 <= top_k <= 32:
+        raise ValueError("top_k must be between 1 and 32")
+    if len(identities) > 32:
+        raise ValueError("citation_identity_limit_exceeded")
+    await get_workspace_checked(session, context, workspace_id)
+
+    candidates: list[CandidateIdentity] = []
+    expected_documents: dict[UUID, UUID] = {}
+    for identity in identities:
+        if identity.evidence_span_id is None or identity.content_hash is None:
+            continue
+        try:
+            candidate = CandidateIdentity(
+                document_version_id=identity.document_version_id,
+                evidence_span_id=identity.evidence_span_id,
+                content_hash=identity.content_hash,
+                fused_score=0.0,
+            )
+        except ValueError:
+            continue
+        candidates.append(candidate)
+        expected_documents.setdefault(candidate.evidence_span_id, identity.document_id)
+    if candidates:
+        authorized = await revalidate_candidates(
+            session,
+            context,
+            workspace_id,
+            candidates,
+            now=datetime.now(UTC),
+        )
+        evidence = [
+            replace(
+                _retrieved_evidence(item),
+                dense_score=None,
+                sparse_score=None,
+                fused_score=0.0,
+            )
+            for item in authorized
+            if expected_documents.get(item.evidence_span_id) == item.document_id
+        ]
+        selected = select_final_evidence(
+            evidence,
+            top_k=top_k,
+            max_per_document=min(4, top_k),
+            max_per_section=min(2, top_k),
+        )
+        if selected:
+            return RetrievalResult(
+                chunks=[
+                    RetrievedChunk(
+                        document_id=item.document_id,
+                        page=item.page_number,
+                        chunk_index=item.chunk_index,
+                        text=item.text,
+                        score=0.0,
+                    )
+                    for item in selected
+                ],
+                no_answer=False,
+                evidence=selected,
+            )
+
+    chunks = await _backfill_legacy_citations(
+        session,
+        context,
+        workspace_id,
+        identities,
+        top_k=top_k,
+    )
+    return RetrievalResult(chunks=chunks, no_answer=not chunks)
 
 
 async def retrieve(
