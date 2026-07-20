@@ -10,6 +10,10 @@ from sqlalchemy import select
 
 from openrag.core.config import Settings, get_settings
 from openrag.core.db import build_engine, build_session_factory
+from openrag.modules.documents.lifecycle_projection import (
+    DocumentLifecycleRedis,
+    consume_document_lifecycle_batch,
+)
 from openrag.modules.documents.start_events import (
     DocumentStartRedis,
     consume_document_start_batch,
@@ -121,6 +125,35 @@ async def consume_document_starts_once(
             return await consume_document_start_batch(
                 session_factory,
                 cast(DocumentStartRedis, connection),
+                consumer=consumer,
+                batch_size=resolved.event_dispatch_batch_size,
+                reclaim_idle_ms=max(
+                    30_000,
+                    resolved.event_dispatch_lease_seconds * 1_000,
+                ),
+            )
+    finally:
+        await redis.aclose()
+        await engine.dispose()
+
+
+async def consume_document_lifecycle_once(
+    *,
+    consumer: str,
+    settings: Settings | None = None,
+) -> dict[str, int]:
+    """Provision topology and process one lifecycle projection batch."""
+
+    resolved = settings or get_settings()
+    engine = build_engine(resolved.database_url)
+    session_factory = build_session_factory(engine)
+    redis = _build_event_redis(resolved)
+    try:
+        async with redis.client() as connection:
+            await ensure_streams(cast(StreamAdminRedis, connection))
+            return await consume_document_lifecycle_batch(
+                session_factory,
+                cast(DocumentLifecycleRedis, connection),
                 consumer=consumer,
                 batch_size=resolved.event_dispatch_batch_size,
                 reclaim_idle_ms=max(

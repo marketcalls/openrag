@@ -13,6 +13,7 @@ from openrag.modules.documents.stage_runtime import run_durable_stage_once
 from openrag.modules.embeddings.deployment_runtime import run_deployment_scan_once
 from openrag.worker.celery_app import celery_app
 from openrag.worker.event_runtime import (
+    consume_document_lifecycle_once,
     consume_document_starts_once,
     dispatch_outbox_once,
 )
@@ -45,6 +46,21 @@ def consume_document_starts_task(task: Task) -> dict[str, int]:
     hostname = str(getattr(task.request, "hostname", None) or "event-worker")
     consumer = f"document-start:{hostname}"[:120]
     return asyncio.run(consume_document_starts_once(consumer=consumer))
+
+
+@celery_app.task(
+    bind=True,
+    name="events.consume_document_lifecycle",
+    ignore_result=True,
+    soft_time_limit=20,
+    time_limit=25,
+)
+def consume_document_lifecycle_task(task: Task) -> dict[str, int]:
+    """Run one bounded lifecycle-projector tick on a stable identity."""
+
+    hostname = str(getattr(task.request, "hostname", None) or "event-worker")
+    consumer = f"document-lifecycle:{hostname}"[:120]
+    return asyncio.run(consume_document_lifecycle_once(consumer=consumer))
 
 
 @celery_app.task(

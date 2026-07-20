@@ -52,6 +52,11 @@ def build_celery() -> Celery:
                 "schedule": 1.0,
                 "options": {"queue": "events", "expires": 5},
             },
+            "consume-document-lifecycle": {
+                "task": "events.consume_document_lifecycle",
+                "schedule": 1.0,
+                "options": {"queue": "events", "expires": 5},
+            },
             "run-durable-document-stage": {
                 "task": "documents.run_durable_stage",
                 "schedule": 1.0,

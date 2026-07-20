@@ -33,6 +33,12 @@ def test_celery_config() -> None:
     assert starts_schedule["task"] == "events.consume_document_starts"
     assert starts_schedule["options"]["queue"] == "events"
     assert starts_schedule["options"]["expires"] <= 10
+    lifecycle_schedule = celery_app.conf.beat_schedule[
+        "consume-document-lifecycle"
+    ]
+    assert lifecycle_schedule["task"] == "events.consume_document_lifecycle"
+    assert lifecycle_schedule["options"]["queue"] == "events"
+    assert lifecycle_schedule["options"]["expires"] <= 10
     stage_schedule = celery_app.conf.beat_schedule["run-durable-document-stage"]
     assert stage_schedule["task"] == "documents.run_durable_stage"
     assert stage_schedule["options"]["queue"] == "ingestion"
@@ -53,6 +59,7 @@ def test_event_tasks_are_isolated_to_the_events_queue() -> None:
     assert route == {"queue": "events"}
     assert "events.dispatch_outbox" in celery_app.tasks
     assert "events.consume_document_starts" in celery_app.tasks
+    assert "events.consume_document_lifecycle" in celery_app.tasks
     assert "documents.run_durable_stage" in celery_app.tasks
 
 
