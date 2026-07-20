@@ -83,6 +83,14 @@ def test_operations_constraints_are_named_and_tenant_bound() -> None:
     assert "ck_error_occurrences_run_scope" in occurrence_constraints
 
 
+def test_operations_have_composite_scope_time_indexes_for_bounded_reads() -> None:
+    fact_indexes = {index.name for index in RagRunFact.__table__.indexes}
+    occurrence_indexes = {index.name for index in ErrorOccurrence.__table__.indexes}
+
+    assert "ix_rag_run_facts_org_workspace_time" in fact_indexes
+    assert "ix_error_occurrences_org_workspace_time" in occurrence_indexes
+
+
 def test_operations_migration_generates_postgresql_upgrade_and_downgrade_sql(
     monkeypatch,
 ) -> None:  # type: ignore[no-untyped-def]
@@ -112,3 +120,32 @@ def test_operations_migration_generates_postgresql_upgrade_and_downgrade_sql(
     assert "DROP TABLE error_occurrences" in downgrade_sql
     assert "DROP TABLE error_issues" in downgrade_sql
     assert "DROP TABLE rag_run_facts" in downgrade_sql
+
+
+def test_scope_index_migration_is_online_and_reversible(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    migration = importlib.import_module(
+        "migrations.versions.e2a4c6d8f0b1_scope_operations_indexes"
+    )
+    assert migration.down_revision == "d9f1b4c6e8a0"
+
+    upgrade_buffer = StringIO()
+    upgrade_context = MigrationContext.configure(
+        dialect_name="postgresql",
+        opts={"as_sql": True, "output_buffer": upgrade_buffer},
+    )
+    monkeypatch.setattr(migration, "op", Operations(upgrade_context))
+    migration.upgrade()
+    upgrade_sql = upgrade_buffer.getvalue()
+    assert "CREATE INDEX CONCURRENTLY ix_rag_run_facts_org_workspace_time" in upgrade_sql
+    assert "CREATE INDEX CONCURRENTLY ix_error_occurrences_org_workspace_time" in upgrade_sql
+
+    downgrade_buffer = StringIO()
+    downgrade_context = MigrationContext.configure(
+        dialect_name="postgresql",
+        opts={"as_sql": True, "output_buffer": downgrade_buffer},
+    )
+    monkeypatch.setattr(migration, "op", Operations(downgrade_context))
+    migration.downgrade()
+    downgrade_sql = downgrade_buffer.getvalue()
+    assert "DROP INDEX CONCURRENTLY ix_error_occurrences_org_workspace_time" in downgrade_sql
+    assert "DROP INDEX CONCURRENTLY ix_rag_run_facts_org_workspace_time" in downgrade_sql

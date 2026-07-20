@@ -2,8 +2,11 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.modules.auth.models import User
+from openrag.modules.operations.models import ErrorIssue, ErrorOccurrence
+from openrag.modules.tenancy.models import Workspace
 
 
 async def auth(client: httpx.AsyncClient, email: str) -> dict[str, str]:
@@ -88,3 +91,76 @@ async def test_all_operations_routes_are_platform_superadmin_only(
     )
 
     assert response.status_code == 403
+
+
+async def test_superadmin_error_scope_does_not_mix_tenant_counts_or_occurrences(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    seeded_user: User,
+    seeded_superadmin: User,
+) -> None:
+    now = datetime.now(UTC).replace(tzinfo=None)
+    selected_workspace = Workspace(org_id=seeded_user.org_id, name="Selected tenant")
+    foreign_workspace = Workspace(org_id=seeded_superadmin.org_id, name="Foreign tenant")
+    session.add_all([selected_workspace, foreign_workspace])
+    await session.flush()
+    issue = ErrorIssue(
+        fingerprint="a" * 64,
+        category="retrieval",
+        code="retrieval.timeout",
+        service="api",
+        environment="test",
+        exception_type="TimeoutError",
+        occurrence_count=2,
+        first_seen_at=now - timedelta(minutes=5),
+        last_seen_at=now - timedelta(minutes=1),
+    )
+    session.add(issue)
+    await session.flush()
+    session.add_all(
+        [
+            ErrorOccurrence(
+                issue_id=issue.id,
+                org_id=seeded_user.org_id,
+                workspace_id=selected_workspace.id,
+                code=issue.code,
+                exception_type=issue.exception_type,
+                occurred_at=now - timedelta(minutes=5),
+            ),
+            ErrorOccurrence(
+                issue_id=issue.id,
+                org_id=seeded_superadmin.org_id,
+                workspace_id=foreign_workspace.id,
+                code=issue.code,
+                exception_type=issue.exception_type,
+                occurred_at=now - timedelta(minutes=1),
+            ),
+        ]
+    )
+    await session.commit()
+    headers = await auth(client, seeded_superadmin.email)
+    params = {
+        "from": (now.replace(tzinfo=UTC) - timedelta(hours=1)).isoformat(),
+        "to": (now.replace(tzinfo=UTC) + timedelta(minutes=1)).isoformat(),
+        "org_id": str(seeded_user.org_id),
+        "workspace_id": str(selected_workspace.id),
+    }
+
+    listing = await client.get(
+        "/api/v1/admin/rag-operations/errors",
+        params=params,
+        headers=headers,
+    )
+    detail = await client.get(
+        f"/api/v1/admin/rag-operations/errors/{issue.id}",
+        params=params,
+        headers=headers,
+    )
+
+    assert listing.status_code == 200, listing.text
+    assert listing.json()["items"][0]["occurrence_count"] == 1
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["issue"]["occurrence_count"] == 1
+    assert [item["org_id"] for item in detail.json()["occurrences"]] == [
+        str(seeded_user.org_id)
+    ]

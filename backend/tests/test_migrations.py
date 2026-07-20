@@ -31,6 +31,9 @@ EMBEDDING_PROFILE_REVISION = "b3e5f7a9c1d2"
 EMBEDDING_DEPLOYMENT_REVISION = "c4f6a8b0d2e3"
 REINDEX_STAGE_REVISION = "d5a7c9e1f3b4"
 EMBEDDING_LEASE_REVISION = "e6b8d0f2a4c5"
+RAG_OPERATIONS_REVISION = "c8e0a3b5d7f9"
+RAG_EVALUATIONS_REVISION = "d9f1b4c6e8a0"
+OPERATIONS_INDEX_REVISION = "e2a4c6d8f0b1"
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -765,12 +768,12 @@ def authority_db(
         get_settings.cache_clear()
 
 
-def test_embedding_profile_revision_is_the_single_head(
+def test_migration_graph_has_one_current_head(
     authority_db: tuple[Config, Engine, object],
 ) -> None:
     config, _engine, _ids = authority_db
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [EMBEDDING_LEASE_REVISION]
+    assert script.get_heads() == [OPERATIONS_INDEX_REVISION]
     assert script.get_revision(AUTHORITY_REVISION).down_revision == RBAC_REVISION
     assert script.get_revision(DELETION_REVISION).down_revision == AUTHORITY_REVISION
     assert script.get_revision(STAGE_REVISION).down_revision == OUTBOX_REVISION
@@ -789,6 +792,8 @@ def test_embedding_profile_revision_is_the_single_head(
         script.get_revision(EMBEDDING_LEASE_REVISION).down_revision
         == REINDEX_STAGE_REVISION
     )
+    assert script.get_revision(RAG_EVALUATIONS_REVISION).down_revision == RAG_OPERATIONS_REVISION
+    assert script.get_revision(OPERATIONS_INDEX_REVISION).down_revision == RAG_EVALUATIONS_REVISION
 
 
 def test_deletion_upgrade_adds_bounded_restartable_markers_and_closes_processing_delete(

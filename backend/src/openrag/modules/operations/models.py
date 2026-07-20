@@ -61,6 +61,13 @@ class RagRunFact(UUIDPk, Base):
         Index("ix_rag_run_facts_time", "accepted_at", "id"),
         Index("ix_rag_run_facts_org_time", "org_id", "accepted_at", "id"),
         Index(
+            "ix_rag_run_facts_org_workspace_time",
+            "org_id",
+            "workspace_id",
+            "accepted_at",
+            "id",
+        ),
+        Index(
             "ix_rag_run_facts_workspace_time",
             "workspace_id",
             "accepted_at",
@@ -183,6 +190,14 @@ class ErrorOccurrence(UUIDPk, Base):
         ),
         Index("ix_error_occurrences_issue_time", "issue_id", "occurred_at", "id"),
         Index("ix_error_occurrences_org_time", "org_id", "occurred_at", "id"),
+        Index(
+            "ix_error_occurrences_org_workspace_time",
+            "org_id",
+            "workspace_id",
+            "occurred_at",
+            "issue_id",
+            "id",
+        ),
         Index("ix_error_occurrences_run_time", "run_id", "occurred_at", "id"),
     )
 

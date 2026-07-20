@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 
+from openrag.modules.operations.models import ErrorIssue
 from openrag.modules.operations.queries import (
     build_error_issue_detail_query,
     build_error_list_query,
@@ -15,6 +16,7 @@ from openrag.modules.operations.queries import (
     build_series_query,
     decode_operations_cursor,
     encode_operations_cursor,
+    scoped_error_issue_out,
 )
 from openrag.modules.operations.schemas import RagOperationsFilter
 
@@ -106,7 +108,7 @@ def test_run_list_query_is_keyset_paginated_and_bounded() -> None:
     assert "LIMIT 101" in sql
 
 
-def test_error_list_query_uses_occurrence_scope_without_loading_occurrences() -> None:
+def test_error_list_query_aggregates_only_occurrences_in_active_scope() -> None:
     sql = str(
         build_error_list_query(
             _window(org_id=uuid4(), workspace_id=uuid4()),
@@ -118,9 +120,13 @@ def test_error_list_query_uses_occurrence_scope_without_loading_occurrences() ->
         )
     )
 
-    assert "EXISTS" in sql
+    assert "JOIN" in sql
+    assert "count(error_occurrences.id)" in sql
+    assert "min(error_occurrences.occurred_at)" in sql
+    assert "max(error_occurrences.occurred_at)" in sql
     assert "error_occurrences.org_id" in sql
     assert "error_occurrences.workspace_id" in sql
+    assert "GROUP BY error_occurrences.issue_id" in sql
     assert "LIMIT" in sql
 
 
@@ -155,13 +161,44 @@ def test_error_detail_queries_cannot_mix_occurrences_across_tenant_scope() -> No
         )
     )
 
-    assert "EXISTS" in issue_sql
+    assert "JOIN" in issue_sql
+    assert "count(error_occurrences.id)" in issue_sql
     assert "error_occurrences.org_id" in issue_sql
     assert "error_occurrences.workspace_id" in issue_sql
     assert "error_occurrences.org_id" in occurrence_sql
     assert "error_occurrences.workspace_id" in occurrence_sql
     assert "error_occurrences.occurred_at" in occurrence_sql
     assert "LIMIT 100" in occurrence_sql
+
+
+def test_scoped_error_output_replaces_global_count_and_timestamps() -> None:
+    issue = ErrorIssue(
+        id=uuid4(),
+        fingerprint="a" * 64,
+        category="retrieval",
+        code="retrieval.timeout",
+        service="api",
+        environment="prod",
+        exception_type="TimeoutError",
+        status="open",
+        alert_state="none",
+        occurrence_count=500,
+        first_seen_at=datetime(2026, 1, 1),
+        last_seen_at=datetime(2026, 7, 20),
+    )
+    scoped_first = datetime(2026, 7, 19, 10)
+    scoped_last = datetime(2026, 7, 19, 12)
+
+    output = scoped_error_issue_out(
+        issue,
+        occurrence_count=2,
+        first_seen_at=scoped_first,
+        last_seen_at=scoped_last,
+    )
+
+    assert output.occurrence_count == 2
+    assert output.first_seen_at == scoped_first
+    assert output.last_seen_at == scoped_last
 
 
 def test_operations_cursor_round_trips_and_rejects_malformed_input() -> None:

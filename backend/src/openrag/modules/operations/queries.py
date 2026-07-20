@@ -6,10 +6,11 @@ import json
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.selectable import Subquery
 
 from openrag.core.errors import NotFoundError
 from openrag.modules.operations.models import ErrorIssue, ErrorOccurrence, RagRunFact
@@ -158,71 +159,8 @@ def build_run_detail_query(
     )
 
 
-def _error_issue_conditions(filters: RagOperationsFilter) -> list[ColumnElement[bool]]:
+def _error_occurrence_conditions(filters: RagOperationsFilter) -> list[ColumnElement[bool]]:
     conditions = [
-        ErrorIssue.last_seen_at >= _database_time(filters.from_at),
-        ErrorIssue.last_seen_at < _database_time(filters.to_at),
-    ]
-    if filters.environment is not None:
-        conditions.append(ErrorIssue.environment == filters.environment)
-    if filters.release is not None:
-        conditions.append(ErrorIssue.last_release == filters.release)
-    if filters.org_id is not None:
-        occurrence_scope = [
-            ErrorOccurrence.issue_id == ErrorIssue.id,
-            ErrorOccurrence.org_id == filters.org_id,
-        ]
-        if filters.workspace_id is not None:
-            occurrence_scope.append(ErrorOccurrence.workspace_id == filters.workspace_id)
-        conditions.append(exists(select(ErrorOccurrence.id).where(*occurrence_scope)))
-    return conditions
-
-
-def build_error_list_query(
-    filters: RagOperationsFilter,
-    *,
-    cursor: tuple[datetime, UUID] | None,
-    limit: int,
-) -> Select[tuple[ErrorIssue]]:
-    if not 1 <= limit <= 100:
-        raise ValueError("operations_limit_invalid")
-    conditions = _error_issue_conditions(filters)
-    if cursor is not None:
-        cursor_at, cursor_id = cursor
-        database_cursor = _database_time(cursor_at)
-        conditions.append(
-            or_(
-                ErrorIssue.last_seen_at < database_cursor,
-                and_(
-                    ErrorIssue.last_seen_at == database_cursor,
-                    ErrorIssue.id < cursor_id,
-                ),
-            )
-        )
-    return (
-        select(ErrorIssue)
-        .where(*conditions)
-        .order_by(ErrorIssue.last_seen_at.desc(), ErrorIssue.id.desc())
-        .limit(limit + 1)
-    )
-
-
-def build_error_issue_detail_query(
-    issue_id: UUID,
-    filters: RagOperationsFilter,
-) -> Select[tuple[ErrorIssue]]:
-    return select(ErrorIssue).where(
-        ErrorIssue.id == issue_id,
-        *_error_issue_conditions(filters),
-    )
-
-
-def build_error_occurrence_detail_query(
-    issue_id: UUID,
-    filters: RagOperationsFilter,
-) -> Select[tuple[ErrorOccurrence]]:
-    conditions = [
-        ErrorOccurrence.issue_id == issue_id,
         ErrorOccurrence.occurred_at >= _database_time(filters.from_at),
         ErrorOccurrence.occurred_at < _database_time(filters.to_at),
     ]
@@ -232,12 +170,111 @@ def build_error_occurrence_detail_query(
         conditions.append(ErrorOccurrence.workspace_id == filters.workspace_id)
     if filters.release is not None:
         conditions.append(ErrorOccurrence.release == filters.release)
+    return conditions
+
+
+def _scoped_error_occurrences(filters: RagOperationsFilter) -> Subquery:
+    return (
+        select(
+            ErrorOccurrence.issue_id.label("issue_id"),
+            func.count(ErrorOccurrence.id).label("occurrence_count"),
+            func.min(ErrorOccurrence.occurred_at).label("first_seen_at"),
+            func.max(ErrorOccurrence.occurred_at).label("last_seen_at"),
+        )
+        .where(*_error_occurrence_conditions(filters))
+        .group_by(ErrorOccurrence.issue_id)
+        .subquery("scoped_error_occurrences")
+    )
+
+
+def build_error_list_query(
+    filters: RagOperationsFilter,
+    *,
+    cursor: tuple[datetime, UUID] | None,
+    limit: int,
+) -> Select[tuple[ErrorIssue, int, datetime, datetime]]:
+    if not 1 <= limit <= 100:
+        raise ValueError("operations_limit_invalid")
+    scope = _scoped_error_occurrences(filters)
+    conditions: list[ColumnElement[bool]] = []
+    if filters.environment is not None:
+        conditions.append(ErrorIssue.environment == filters.environment)
+    if cursor is not None:
+        cursor_at, cursor_id = cursor
+        database_cursor = _database_time(cursor_at)
+        conditions.append(
+            or_(
+                scope.c.last_seen_at < database_cursor,
+                and_(
+                    scope.c.last_seen_at == database_cursor,
+                    ErrorIssue.id < cursor_id,
+                ),
+            )
+        )
+    return (
+        select(
+            ErrorIssue,
+            scope.c.occurrence_count,
+            scope.c.first_seen_at,
+            scope.c.last_seen_at,
+        )
+        .join(scope, scope.c.issue_id == ErrorIssue.id)
+        .where(*conditions)
+        .order_by(scope.c.last_seen_at.desc(), ErrorIssue.id.desc())
+        .limit(limit + 1)
+    )
+
+
+def build_error_issue_detail_query(
+    issue_id: UUID,
+    filters: RagOperationsFilter,
+) -> Select[tuple[ErrorIssue, int, datetime, datetime]]:
+    scope = _scoped_error_occurrences(filters)
+    conditions = [ErrorIssue.id == issue_id]
+    if filters.environment is not None:
+        conditions.append(ErrorIssue.environment == filters.environment)
+    return (
+        select(
+            ErrorIssue,
+            scope.c.occurrence_count,
+            scope.c.first_seen_at,
+            scope.c.last_seen_at,
+        )
+        .join(scope, scope.c.issue_id == ErrorIssue.id)
+        .where(*conditions)
+    )
+
+
+def build_error_occurrence_detail_query(
+    issue_id: UUID,
+    filters: RagOperationsFilter,
+) -> Select[tuple[ErrorOccurrence]]:
+    conditions = [
+        ErrorOccurrence.issue_id == issue_id,
+        *_error_occurrence_conditions(filters),
+    ]
     return (
         select(ErrorOccurrence)
         .where(*conditions)
         .order_by(ErrorOccurrence.occurred_at.desc(), ErrorOccurrence.id.desc())
         .limit(100)
     )
+
+
+def scoped_error_issue_out(
+    issue: ErrorIssue,
+    *,
+    occurrence_count: int,
+    first_seen_at: datetime,
+    last_seen_at: datetime,
+) -> ErrorIssueOut:
+    values = ErrorIssueOut.model_validate(issue).model_dump()
+    values.update(
+        occurrence_count=occurrence_count,
+        first_seen_at=first_seen_at,
+        last_seen_at=last_seen_at,
+    )
+    return ErrorIssueOut.model_validate(values)
 
 
 async def get_overview(
@@ -327,18 +364,25 @@ async def list_errors(
     limit: int,
 ) -> RagOperationsErrorPage:
     rows = list(
-        (
-            await session.execute(build_error_list_query(filters, cursor=cursor, limit=limit))
-        ).scalars()
+        (await session.execute(build_error_list_query(filters, cursor=cursor, limit=limit))).all()
     )
-    items = rows[:limit]
+    scoped_rows = rows[:limit]
+    items = [
+        scoped_error_issue_out(
+            issue,
+            occurrence_count=int(occurrence_count),
+            first_seen_at=first_seen_at,
+            last_seen_at=last_seen_at,
+        )
+        for issue, occurrence_count, first_seen_at, last_seen_at in scoped_rows
+    ]
     next_cursor = (
         encode_operations_cursor(items[-1].last_seen_at, items[-1].id)
         if len(rows) > limit and items
         else None
     )
     return RagOperationsErrorPage(
-        items=[ErrorIssueOut.model_validate(item) for item in items],
+        items=items,
         next_cursor=next_cursor,
     )
 
@@ -348,9 +392,12 @@ async def get_error(
     issue_id: UUID,
     filters: RagOperationsFilter,
 ) -> RagOperationsErrorDetail:
-    issue = await session.scalar(build_error_issue_detail_query(issue_id, filters))
-    if issue is None:
+    scoped_issue = (
+        await session.execute(build_error_issue_detail_query(issue_id, filters))
+    ).one_or_none()
+    if scoped_issue is None:
         raise NotFoundError("RAG error issue not found")
+    issue, occurrence_count, first_seen_at, last_seen_at = scoped_issue
     occurrences = list(
         (
             await session.execute(
@@ -359,6 +406,11 @@ async def get_error(
         ).scalars()
     )
     return RagOperationsErrorDetail(
-        issue=ErrorIssueOut.model_validate(issue),
+        issue=scoped_error_issue_out(
+            issue,
+            occurrence_count=int(occurrence_count),
+            first_seen_at=first_seen_at,
+            last_seen_at=last_seen_at,
+        ),
         occurrences=[ErrorOccurrenceOut.model_validate(item) for item in occurrences],
     )
