@@ -42,6 +42,7 @@ from openrag.modules.chat.prompting import (
     parse_citation_markers,
 )
 from openrag.modules.chat.schemas import ChatTreeOut, CitationOut, MessageNode
+from openrag.modules.chat.summaries import schedule_branch_summary
 from openrag.modules.documents import service as documents_service
 from openrag.modules.documents.lifecycle import (
     LEGACY_CITATION_CONTENT_HASH,
@@ -684,6 +685,11 @@ async def _persist_assistant(
             message.answer_status = "refused"
             message.refusal_reason = refusal_reason
         await session.flush()
+        schedule_branch_summary(
+            session,
+            chat=chat,
+            assistant_message=message,
+        )
 
         for citation, document, version in legacy_sources:
             session.add(
@@ -784,6 +790,12 @@ async def _persist_conversational_assistant(
         )
         message.answer_status = None
         message.refusal_reason = None
+        await session.flush()
+        schedule_branch_summary(
+            session,
+            chat=chat,
+            assistant_message=message,
+        )
         await session.commit()
         return message
     except Exception:

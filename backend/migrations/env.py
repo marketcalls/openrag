@@ -10,6 +10,7 @@ import openrag.core.app_settings  # noqa: F401
 import openrag.modules.audit.models  # noqa: F401
 import openrag.modules.auth.models  # noqa: F401
 import openrag.modules.chat.models  # noqa: F401
+import openrag.modules.chat.summary_models  # noqa: F401
 import openrag.modules.documents.models  # noqa: F401
 import openrag.modules.embeddings.models  # noqa: F401
 import openrag.modules.events.models  # noqa: F401

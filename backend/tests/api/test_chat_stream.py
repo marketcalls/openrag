@@ -15,6 +15,7 @@ from openrag.core.db import build_session_factory
 from openrag.modules.auth.models import User
 from openrag.modules.chat.models import Citation, Message
 from openrag.modules.chat.service import NO_ANSWER_TEXT
+from openrag.modules.chat.summary_models import ConversationSummaryJob
 from openrag.modules.memory.models import MemoryRecord
 from tests.conftest import (
     FakeRetriever,
@@ -167,6 +168,11 @@ async def test_full_event_sequence_and_persistence(
     assert citations[0].chunk_ref == (
         f"{chat_env['document'].id}:3:0"
     )
+    summary_job = (
+        await session.execute(select(ConversationSummaryJob))
+    ).scalar_one()
+    assert summary_job.branch_head_message_id == assistant.id
+    assert summary_job.status == "queued"
 
     sent_messages = fake_streamer.calls[0]["messages"]
     final_user = sent_messages[-1]["content"]
