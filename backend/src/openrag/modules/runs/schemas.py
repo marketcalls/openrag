@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from openrag.modules.models.reasoning import ReasoningEffort
+
 RunStatus = Literal[
     "accepted",
     "queued",
@@ -23,6 +25,7 @@ class RunCreate(BaseModel):
     client_request_id: UUID
     parent_message_id: UUID | None = None
     model_id: UUID | None = None
+    reasoning_effort: ReasoningEffort | None = None
 
 
 class RunRegenerate(BaseModel):
@@ -30,6 +33,7 @@ class RunRegenerate(BaseModel):
 
     client_request_id: UUID
     model_id: UUID | None = None
+    reasoning_effort: ReasoningEffort | None = None
 
 
 class RunAccepted(BaseModel):

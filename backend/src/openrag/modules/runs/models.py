@@ -36,6 +36,10 @@ class AgentRun(UUIDPk, Base):
             name="ck_agent_runs_attempts",
         ),
         CheckConstraint(
+            "reasoning_effort IN ('off','low','medium','high')",
+            name="ck_agent_runs_reasoning_effort",
+        ),
+        CheckConstraint(
             "(lease_owner IS NULL AND lease_token IS NULL AND lease_expires_at IS NULL) "
             "OR (lease_owner IS NOT NULL AND lease_token IS NOT NULL "
             "AND lease_expires_at IS NOT NULL)",
@@ -71,6 +75,7 @@ class AgentRun(UUIDPk, Base):
         ForeignKey("models.id"),
         default=None,
     )
+    reasoning_effort: Mapped[str] = mapped_column(String(16), default="off")
     client_request_id: Mapped[UUID]
     status: Mapped[str] = mapped_column(default="accepted", index=True)
     route: Mapped[str | None] = mapped_column(default=None)

@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.db import naive_utc
-from openrag.core.errors import ConflictError, NotFoundError
+from openrag.core.errors import ConflictError, InvalidRequestError, NotFoundError
 from openrag.core.telemetry import current_trace_id
 from openrag.modules.chat import service as chat_service
 from openrag.modules.chat.models import Chat, Message
@@ -19,6 +19,7 @@ from openrag.modules.events.envelopes import (
 )
 from openrag.modules.events.outbox import add_registered_event
 from openrag.modules.models import service as models_service
+from openrag.modules.models.reasoning import ReasoningEffort, resolve_reasoning_effort
 from openrag.modules.runs.models import AgentRun
 from openrag.modules.runs.schemas import RunCreate, RunRegenerate
 from openrag.modules.tenancy import service as tenancy_service
@@ -31,6 +32,29 @@ _TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 class AcceptedRun:
     run: AgentRun
     created: bool
+
+
+async def _resolve_run_configuration(
+    session: AsyncSession,
+    *,
+    requested_model_id: UUID | None,
+    default_model_id: UUID | None,
+    requested_effort: ReasoningEffort | None,
+) -> tuple[UUID | None, ReasoningEffort]:
+    if requested_model_id is None and default_model_id is None:
+        if requested_effort not in (None, "off"):
+            raise InvalidRequestError("reasoning effort requires a configured model")
+        return None, "off"
+    model = await models_service.resolve_model(
+        session,
+        requested_model_id=requested_model_id,
+        default_model_id=default_model_id,
+    )
+    return model.id, resolve_reasoning_effort(
+        supports_reasoning=model.supports_reasoning,
+        default_effort=model.default_reasoning_effort,
+        requested_effort=requested_effort,
+    )
 
 
 async def _existing_request(
@@ -97,14 +121,12 @@ async def accept_run(
         chat.workspace_id,
         "chat.use",
     )
-    resolved_model_id = command.model_id
-    if resolved_model_id is not None:
-        model = await models_service.resolve_model(
-            session,
-            requested_model_id=resolved_model_id,
-            default_model_id=workspace.default_model_id,
-        )
-        resolved_model_id = model.id
+    resolved_model_id, reasoning_effort = await _resolve_run_configuration(
+        session,
+        requested_model_id=command.model_id,
+        default_model_id=workspace.default_model_id,
+        requested_effort=command.reasoning_effort,
+    )
 
     messages = await chat_service.list_messages(session, chat.id)
     if not messages and chat.title == "New chat":
@@ -131,6 +153,7 @@ async def accept_run(
         chat_id=chat.id,
         input_message_id=user_message.id,
         model_id=resolved_model_id,
+        reasoning_effort=reasoning_effort,
         client_request_id=command.client_request_id,
         trace_id=current_trace_id(),
     )
@@ -222,14 +245,12 @@ async def accept_regeneration(
     chat_id = chat.id
     user_message_id = user_message.id
 
-    resolved_model_id = command.model_id
-    if resolved_model_id is not None:
-        model = await models_service.resolve_model(
-            session,
-            requested_model_id=resolved_model_id,
-            default_model_id=workspace.default_model_id,
-        )
-        resolved_model_id = model.id
+    resolved_model_id, reasoning_effort = await _resolve_run_configuration(
+        session,
+        requested_model_id=command.model_id or assistant.model_id,
+        default_model_id=workspace.default_model_id,
+        requested_effort=command.reasoning_effort,
+    )
     run = AgentRun(
         org_id=context.org_id,
         workspace_id=chat.workspace_id,
@@ -237,6 +258,7 @@ async def accept_regeneration(
         chat_id=chat_id,
         input_message_id=user_message_id,
         model_id=resolved_model_id,
+        reasoning_effort=reasoning_effort,
         client_request_id=command.client_request_id,
         trace_id=current_trace_id(),
     )

@@ -24,6 +24,9 @@ AgentFactory = Callable[[ModelRuntime], AgentRunner]
 
 
 def _default_agent(runtime: ModelRuntime) -> AgentRunner:
+    request_params: dict[str, object] = {"timeout": 120.0}
+    if runtime.reasoning_effort != "off":
+        request_params["reasoning_effort"] = runtime.reasoning_effort
     model = LiteLLM(
         id=runtime.litellm_model,
         api_key=runtime.api_key,
@@ -31,7 +34,7 @@ def _default_agent(runtime: ModelRuntime) -> AgentRunner:
         max_tokens=runtime.max_output_tokens,
         temperature=0.1,
         retries=0,
-        request_params={"timeout": 120.0},
+        request_params=request_params,
     )
     return cast(
         AgentRunner,

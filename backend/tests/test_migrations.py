@@ -34,6 +34,7 @@ EMBEDDING_LEASE_REVISION = "e6b8d0f2a4c5"
 RAG_OPERATIONS_REVISION = "c8e0a3b5d7f9"
 RAG_EVALUATIONS_REVISION = "d9f1b4c6e8a0"
 OPERATIONS_INDEX_REVISION = "e2a4c6d8f0b1"
+REASONING_EFFORT_REVISION = "f3b5d7e9a1c2"
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -773,7 +774,7 @@ def test_migration_graph_has_one_current_head(
 ) -> None:
     config, _engine, _ids = authority_db
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [OPERATIONS_INDEX_REVISION]
+    assert script.get_heads() == [REASONING_EFFORT_REVISION]
     assert script.get_revision(AUTHORITY_REVISION).down_revision == RBAC_REVISION
     assert script.get_revision(DELETION_REVISION).down_revision == AUTHORITY_REVISION
     assert script.get_revision(STAGE_REVISION).down_revision == OUTBOX_REVISION
@@ -794,6 +795,7 @@ def test_migration_graph_has_one_current_head(
     )
     assert script.get_revision(RAG_EVALUATIONS_REVISION).down_revision == RAG_OPERATIONS_REVISION
     assert script.get_revision(OPERATIONS_INDEX_REVISION).down_revision == RAG_EVALUATIONS_REVISION
+    assert script.get_revision(REASONING_EFFORT_REVISION).down_revision == OPERATIONS_INDEX_REVISION
 
 
 def test_deletion_upgrade_adds_bounded_restartable_markers_and_closes_processing_delete(

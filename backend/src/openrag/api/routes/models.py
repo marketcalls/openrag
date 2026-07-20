@@ -70,6 +70,8 @@ async def create_model(
         base_url=body.base_url,
         api_key=body.api_key,
         settings=settings,
+        supports_reasoning=body.supports_reasoning,
+        default_reasoning_effort=body.default_reasoning_effort,
     )
     await _sync(request, session, settings)
     return (await service.to_model_out(session, [model]))[0]
@@ -93,6 +95,8 @@ async def patch_model(
         enabled=body.enabled,
         api_key=body.api_key,
         settings=settings,
+        supports_reasoning=body.supports_reasoning,
+        default_reasoning_effort=body.default_reasoning_effort,
     )
     await _sync(request, session, settings)
     return (await service.to_model_out(session, [model]))[0]

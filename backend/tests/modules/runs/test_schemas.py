@@ -18,6 +18,32 @@ def test_run_create_requires_bounded_content_and_idempotency_key() -> None:
         RunCreate(content="x" * 32_001, client_request_id=request_id)
 
 
+def test_run_commands_accept_only_public_reasoning_efforts() -> None:
+    request_id = uuid4()
+
+    assert (
+        RunCreate(
+            content="compare the evidence",
+            client_request_id=request_id,
+            reasoning_effort="high",
+        ).reasoning_effort
+        == "high"
+    )
+    assert (
+        RunRegenerate(
+            client_request_id=request_id,
+            reasoning_effort="low",
+        ).reasoning_effort
+        == "low"
+    )
+    with pytest.raises(ValidationError):
+        RunCreate(
+            content="hello",
+            client_request_id=request_id,
+            reasoning_effort="maximum",
+        )
+
+
 def test_run_status_contains_only_safe_operational_fields() -> None:
     values = {
         "run_id": uuid4(),

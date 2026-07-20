@@ -5,9 +5,10 @@ from sqlalchemy import select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import Settings
-from openrag.core.errors import ConflictError, NotFoundError
+from openrag.core.errors import ConflictError, InvalidRequestError, NotFoundError
 from openrag.modules.audit.service import record_audit
 from openrag.modules.models.models import Model
+from openrag.modules.models.reasoning import ReasoningEffort
 from openrag.modules.models.schemas import ModelOut, ProviderKind, SyncStatus
 from openrag.modules.secrets import service as secrets_service
 from openrag.modules.tenancy.context import TenantContext
@@ -91,6 +92,11 @@ async def to_model_out(
             enabled=model.enabled,
             key_fingerprint=fingerprints.get(f"model:{model.id}"),
             sync_status=cast(SyncStatus, model.sync_status),
+            supports_reasoning=model.supports_reasoning,
+            default_reasoning_effort=cast(
+                ReasoningEffort,
+                model.default_reasoning_effort,
+            ),
         )
         for model in models
     ]
@@ -106,13 +112,21 @@ async def create_model(
     base_url: str | None,
     api_key: str | None,
     settings: Settings,
+    supports_reasoning: bool = False,
+    default_reasoning_effort: ReasoningEffort = "off",
 ) -> Model:
+    if default_reasoning_effort != "off" and not supports_reasoning:
+        raise InvalidRequestError(
+            "default reasoning effort requires reasoning support"
+        )
     try:
         model = Model(
             litellm_model_name=litellm_model_name,
             display_name=display_name,
             provider_kind=provider_kind,
             base_url=base_url,
+            supports_reasoning=supports_reasoning,
+            default_reasoning_effort=default_reasoning_effort,
         )
         session.add(model)
         await session.flush()
@@ -150,6 +164,8 @@ async def update_model(
     enabled: bool | None,
     api_key: str | None,
     settings: Settings,
+    supports_reasoning: bool | None = None,
+    default_reasoning_effort: ReasoningEffort | None = None,
 ) -> Model:
     try:
         model = await get_model(session, model_id)
@@ -159,6 +175,22 @@ async def update_model(
             model.base_url = base_url
         if enabled is not None:
             model.enabled = enabled
+        next_supports_reasoning = (
+            model.supports_reasoning
+            if supports_reasoning is None
+            else supports_reasoning
+        )
+        next_default_effort = (
+            model.default_reasoning_effort
+            if default_reasoning_effort is None
+            else default_reasoning_effort
+        )
+        if next_default_effort != "off" and not next_supports_reasoning:
+            raise InvalidRequestError(
+                "default reasoning effort requires reasoning support"
+            )
+        model.supports_reasoning = next_supports_reasoning
+        model.default_reasoning_effort = next_default_effort
         await record_audit(
             session,
             org_id=None,

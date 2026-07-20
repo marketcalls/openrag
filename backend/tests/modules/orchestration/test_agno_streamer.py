@@ -7,7 +7,10 @@ import pytest
 
 from openrag.core.errors import UpstreamError
 from openrag.modules.chat.llm import LLMDelta, LLMUsage
-from openrag.modules.orchestration.agno_litellm import AgnoLiteLLMStreamer
+from openrag.modules.orchestration.agno_litellm import (
+    AgnoLiteLLMStreamer,
+    _default_agent,
+)
 from openrag.modules.orchestration.model_gateway import ModelRuntime
 
 
@@ -32,7 +35,27 @@ def runtime() -> ModelRuntime:
         api_key="sk-secret",
         api_base=None,
         max_output_tokens=2_048,
+        reasoning_effort="off",
     )
+
+
+def test_reasoning_effort_is_forwarded_only_when_enabled() -> None:
+    off_agent = _default_agent(runtime())
+    assert off_agent.model.request_params == {"timeout": 120.0}
+
+    high_agent = _default_agent(
+        ModelRuntime(
+            litellm_model="openai/gpt-5-mini",
+            api_key="sk-secret",
+            api_base=None,
+            max_output_tokens=2_048,
+            reasoning_effort="high",
+        )
+    )
+    assert high_agent.model.request_params == {
+        "timeout": 120.0,
+        "reasoning_effort": "high",
+    }
 
 
 async def collect(streamer: AgnoLiteLLMStreamer) -> list[LLMDelta | LLMUsage]:

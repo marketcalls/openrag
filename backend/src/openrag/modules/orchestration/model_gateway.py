@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.core.config import Settings
 from openrag.core.errors import ConflictError
 from openrag.modules.models.models import Model
+from openrag.modules.models.reasoning import REASONING_EFFORTS, ReasoningEffort
 from openrag.modules.secrets import service as secrets_service
 from openrag.modules.secrets.models import Secret
 
@@ -19,12 +20,15 @@ class ModelRuntime:
     api_key: str | None = field(repr=False, compare=False)
     api_base: str | None
     max_output_tokens: int
+    reasoning_effort: ReasoningEffort = "off"
 
     def __post_init__(self) -> None:
         if not 1 <= len(self.litellm_model) <= 200:
             raise ValueError("litellm_model must contain between 1 and 200 characters")
         if not 1 <= self.max_output_tokens <= 32_768:
             raise ValueError("max_output_tokens must be between 1 and 32768")
+        if self.reasoning_effort not in REASONING_EFFORTS:
+            raise ValueError("reasoning_effort is invalid")
 
 
 def _validated_base_url(value: str, *, environment: str) -> str:
@@ -64,6 +68,7 @@ def build_model_runtime(
     api_key: str | None,
     environment: str,
     max_output_tokens: int,
+    reasoning_effort: ReasoningEffort = "off",
 ) -> ModelRuntime:
     """Build immutable provider arguments without mutating process globals."""
 
@@ -86,6 +91,7 @@ def build_model_runtime(
         api_key=api_key,
         api_base=api_base,
         max_output_tokens=max_output_tokens,
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -93,6 +99,8 @@ async def resolve_model_runtime(
     session: AsyncSession,
     model: Model,
     settings: Settings,
+    *,
+    reasoning_effort: ReasoningEffort = "off",
 ) -> ModelRuntime:
     """Resolve the optional encrypted key only for this model invocation."""
 
@@ -112,4 +120,5 @@ async def resolve_model_runtime(
         api_key=api_key,
         environment=settings.environment,
         max_output_tokens=settings.chat_max_output_tokens,
+        reasoning_effort=reasoning_effort,
     )

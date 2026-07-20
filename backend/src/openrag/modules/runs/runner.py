@@ -15,6 +15,7 @@ from openrag.modules.auth.models import User
 from openrag.modules.chat import service as chat_service
 from openrag.modules.chat.models import Message
 from openrag.modules.models import service as models_service
+from openrag.modules.models.reasoning import ReasoningEffort
 from openrag.modules.operations.errors import record_error, top_application_frame
 from openrag.modules.operations.facts import (
     RunObservation,
@@ -209,7 +210,12 @@ async def _execute_started_run(
             requested_model_id=run.model_id,
             default_model_id=workspace.default_model_id,
         )
-        streamer = await create_model_streamer(session, model, settings)
+        streamer = await create_model_streamer(
+            session,
+            model,
+            settings,
+            reasoning_effort=cast(ReasoningEffort, run.reasoning_effort),
+        )
         bridge = DurableReplyBridge(
             lifecycle,
             bus,
