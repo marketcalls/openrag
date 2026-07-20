@@ -350,7 +350,7 @@ Commit: `feat: evaluate rag with versioned golden datasets`
 - Consumes: Task 6 dataset and run endpoints.
 - Produces: `/admin/evaluations`, dataset import/editor, budget confirmation, run progress, metric matrix, case failures, and two-run regression comparison.
 
-- [ ] **Step 1: Write failing accessibility and workflow tests**
+- [x] **Step 1: Write failing accessibility and workflow tests**
 
 ```tsx
 it('requires a budget confirmation and compares regressions accessibly', async () => {
@@ -363,13 +363,13 @@ it('requires a budget confirmation and compares regressions accessibly', async (
 });
 ```
 
-- [ ] **Step 2: Implement dataset/case management with immutable-version messaging**
+- [x] **Step 2: Implement dataset/case management with immutable-version messaging**
 
-- [ ] **Step 3: Implement budget-confirmed run creation and progress polling**
+- [x] **Step 3: Implement budget-confirmed run creation and progress polling**
 
-- [ ] **Step 4: Implement regression comparison with metric deltas and non-color indicators**
+- [x] **Step 4: Implement regression comparison with metric deltas and non-color indicators**
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `cd frontend && pnpm generate:api && pnpm test -- evaluations && pnpm typecheck && pnpm lint && pnpm build`
 

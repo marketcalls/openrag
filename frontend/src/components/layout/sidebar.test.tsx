@@ -88,6 +88,7 @@ test('a platform superadmin sees platform and organization administration links'
   expect(await screen.findByText('Users')).toBeInTheDocument();
   expect(screen.getByText('Models')).toBeInTheDocument();
   expect(screen.getByText('Embeddings')).toBeInTheDocument();
+  expect(screen.getByText('Evaluations')).toBeInTheDocument();
   expect(screen.getByText('Roles')).toBeInTheDocument();
 });
 

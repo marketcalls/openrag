@@ -1,6 +1,6 @@
-import { Activity, BadgeCheck, CircleDollarSign, Clock3, RefreshCw, SearchX } from 'lucide-react';
+import { Activity, BadgeCheck, CircleDollarSign, Clock3, FlaskConical, RefreshCw, SearchX } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import type { RagOperationsFilters } from '@/api/types';
 import { TopBar } from '@/components/layout/top-bar';
@@ -133,6 +133,7 @@ export function RagOperationsPage() {
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2 sm:flex">
+                <Button asChild className="self-end"><Link to="/admin/evaluations"><FlaskConical className="h-3.5 w-3.5" aria-hidden />Evaluations</Link></Button>
                 <label className="space-y-1 text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
                   Window
                   <NativeSelect aria-label="Time window" value={range} onChange={(event) => updateFilter('range', event.target.value)} className="min-w-24 normal-case tracking-normal">

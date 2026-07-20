@@ -421,6 +421,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/evaluations/datasets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Datasets */
+        get: operations["list_datasets_api_v1_admin_evaluations_datasets_get"];
+        put?: never;
+        /** Create Dataset */
+        post: operations["create_dataset_api_v1_admin_evaluations_datasets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/evaluations/datasets/{dataset_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Dataset Versions */
+        get: operations["list_dataset_versions_api_v1_admin_evaluations_datasets__dataset_id__versions_get"];
+        put?: never;
+        /** Create Dataset Version */
+        post: operations["create_dataset_version_api_v1_admin_evaluations_datasets__dataset_id__versions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/evaluations/versions/{version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dataset Version */
+        get: operations["get_dataset_version_api_v1_admin_evaluations_versions__version_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/evaluations/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Runs */
+        get: operations["list_runs_api_v1_admin_evaluations_runs_get"];
+        put?: never;
+        /** Create Run */
+        post: operations["create_run_api_v1_admin_evaluations_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/evaluations/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run */
+        get: operations["get_run_api_v1_admin_evaluations_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -1427,6 +1515,477 @@ export interface components {
              * Format: date-time
              */
             occurred_at: string;
+        };
+        /** EvaluationCaseCreate */
+        EvaluationCaseCreate: {
+            /** Question */
+            question: string;
+            /**
+             * Should Refuse
+             * @default false
+             */
+            should_refuse: boolean;
+            /** Expected Evidence */
+            expected_evidence?: components["schemas"]["EvaluationEvidenceCreate"][];
+        };
+        /** EvaluationCaseOut */
+        EvaluationCaseOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Sequence */
+            sequence: number;
+            /** Question */
+            question: string;
+            /** Should Refuse */
+            should_refuse: boolean;
+            /** Expected Evidence */
+            expected_evidence: components["schemas"]["EvaluationEvidenceCreate"][];
+        };
+        /** EvaluationCaseResultOut */
+        EvaluationCaseResultOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            /** Sequence */
+            sequence: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "completed" | "failed" | "skipped";
+            /** Did Refuse */
+            did_refuse: boolean | null;
+            /** Retrieved Evidence Ids */
+            retrieved_evidence_ids: string[];
+            /** Cited Evidence Ids */
+            cited_evidence_ids: string[];
+            /** Recall */
+            recall: number | null;
+            /** Precision */
+            precision: number | null;
+            /** Mrr */
+            mrr: number | null;
+            /** Ndcg */
+            ndcg: number | null;
+            /** Citation Precision */
+            citation_precision: number | null;
+            /** Citation Recall */
+            citation_recall: number | null;
+            /** Groundedness */
+            groundedness: number | null;
+            /** Answer Relevance */
+            answer_relevance: number | null;
+            /** Correct Refusal */
+            correct_refusal: number | null;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Prompt Tokens */
+            prompt_tokens: number;
+            /** Completion Tokens */
+            completion_tokens: number;
+            /** Estimated Cost Microusd */
+            estimated_cost_microusd: number;
+            /** Answer Digest */
+            answer_digest: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** EvaluationDatasetCreate */
+        EvaluationDatasetCreate: {
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+        };
+        /** EvaluationDatasetOut */
+        EvaluationDatasetOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Org Id
+             * Format: uuid
+             */
+            org_id: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Archived */
+            archived: boolean;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** EvaluationDatasetVersionCreate */
+        EvaluationDatasetVersionCreate: {
+            /** Label */
+            label?: string | null;
+            /** Cases */
+            cases: components["schemas"]["EvaluationCaseCreate"][];
+        };
+        /** EvaluationDatasetVersionDetail */
+        EvaluationDatasetVersionDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Org Id
+             * Format: uuid
+             */
+            org_id: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            /**
+             * Dataset Id
+             * Format: uuid
+             */
+            dataset_id: string;
+            /** Version */
+            version: number;
+            /** Label */
+            label: string | null;
+            /**
+             * Status
+             * @constant
+             */
+            status: "sealed";
+            /** Case Count */
+            case_count: number;
+            /** Content Digest */
+            content_digest: string;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Sealed At
+             * Format: date-time
+             */
+            sealed_at: string;
+            /** Cases */
+            cases: components["schemas"]["EvaluationCaseOut"][];
+        };
+        /** EvaluationDatasetVersionOut */
+        EvaluationDatasetVersionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Org Id
+             * Format: uuid
+             */
+            org_id: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            /**
+             * Dataset Id
+             * Format: uuid
+             */
+            dataset_id: string;
+            /** Version */
+            version: number;
+            /** Label */
+            label: string | null;
+            /**
+             * Status
+             * @constant
+             */
+            status: "sealed";
+            /** Case Count */
+            case_count: number;
+            /** Content Digest */
+            content_digest: string;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Sealed At
+             * Format: date-time
+             */
+            sealed_at: string;
+        };
+        /** EvaluationEvidenceCreate */
+        EvaluationEvidenceCreate: {
+            /**
+             * Document Version Id
+             * Format: uuid
+             */
+            document_version_id: string;
+            /**
+             * Evidence Span Id
+             * Format: uuid
+             */
+            evidence_span_id: string;
+        };
+        /** EvaluationRunCreate */
+        EvaluationRunCreate: {
+            /**
+             * Dataset Version Id
+             * Format: uuid
+             */
+            dataset_version_id: string;
+            /**
+             * Model Id
+             * Format: uuid
+             */
+            model_id: string;
+            /** Evaluator Model Id */
+            evaluator_model_id?: string | null;
+            /**
+             * Use Llm Judge
+             * @default false
+             */
+            use_llm_judge: boolean;
+            /** Max Cases */
+            max_cases: number;
+            /** Max Tokens */
+            max_tokens: number;
+            /** Max Cost Microusd */
+            max_cost_microusd: number;
+            /** Client Request Id */
+            client_request_id?: string | null;
+        };
+        /** EvaluationRunDetail */
+        EvaluationRunDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Org Id
+             * Format: uuid
+             */
+            org_id: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            /**
+             * Dataset Version Id
+             * Format: uuid
+             */
+            dataset_version_id: string;
+            /**
+             * Model Id
+             * Format: uuid
+             */
+            model_id: string;
+            /** Evaluator Model Id */
+            evaluator_model_id: string | null;
+            /** Use Llm Judge */
+            use_llm_judge: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "completed" | "failed" | "cancelled";
+            /** Max Cases */
+            max_cases: number;
+            /** Max Tokens */
+            max_tokens: number;
+            /** Max Cost Microusd */
+            max_cost_microusd: number;
+            /** Total Cases */
+            total_cases: number;
+            /** Completed Cases */
+            completed_cases: number;
+            /** Failed Cases */
+            failed_cases: number;
+            /** Consumed Tokens */
+            consumed_tokens: number;
+            /** Consumed Cost Microusd */
+            consumed_cost_microusd: number;
+            /** Error Code */
+            error_code: string | null;
+            /** Recall */
+            recall: number | null;
+            /** Precision */
+            precision: number | null;
+            /** Mrr */
+            mrr: number | null;
+            /** Ndcg */
+            ndcg: number | null;
+            /** Citation Precision */
+            citation_precision: number | null;
+            /** Citation Recall */
+            citation_recall: number | null;
+            /** Groundedness */
+            groundedness: number | null;
+            /** Answer Relevance */
+            answer_relevance: number | null;
+            /** Correct Refusal */
+            correct_refusal: number | null;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Results */
+            results: components["schemas"]["EvaluationCaseResultOut"][];
+        };
+        /** EvaluationRunOut */
+        EvaluationRunOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Org Id
+             * Format: uuid
+             */
+            org_id: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            /**
+             * Dataset Version Id
+             * Format: uuid
+             */
+            dataset_version_id: string;
+            /**
+             * Model Id
+             * Format: uuid
+             */
+            model_id: string;
+            /** Evaluator Model Id */
+            evaluator_model_id: string | null;
+            /** Use Llm Judge */
+            use_llm_judge: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "completed" | "failed" | "cancelled";
+            /** Max Cases */
+            max_cases: number;
+            /** Max Tokens */
+            max_tokens: number;
+            /** Max Cost Microusd */
+            max_cost_microusd: number;
+            /** Total Cases */
+            total_cases: number;
+            /** Completed Cases */
+            completed_cases: number;
+            /** Failed Cases */
+            failed_cases: number;
+            /** Consumed Tokens */
+            consumed_tokens: number;
+            /** Consumed Cost Microusd */
+            consumed_cost_microusd: number;
+            /** Error Code */
+            error_code: string | null;
+            /** Recall */
+            recall: number | null;
+            /** Precision */
+            precision: number | null;
+            /** Mrr */
+            mrr: number | null;
+            /** Ndcg */
+            ndcg: number | null;
+            /** Citation Precision */
+            citation_precision: number | null;
+            /** Citation Recall */
+            citation_recall: number | null;
+            /** Groundedness */
+            groundedness: number | null;
+            /** Answer Relevance */
+            answer_relevance: number | null;
+            /** Correct Refusal */
+            correct_refusal: number | null;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -3252,6 +3811,262 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EmbeddingDeploymentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_datasets_api_v1_admin_evaluations_datasets_get: {
+        parameters: {
+            query?: {
+                workspace_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationDatasetOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_dataset_api_v1_admin_evaluations_datasets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluationDatasetCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationDatasetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_dataset_versions_api_v1_admin_evaluations_datasets__dataset_id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationDatasetVersionOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_dataset_version_api_v1_admin_evaluations_datasets__dataset_id__versions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluationDatasetVersionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationDatasetVersionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dataset_version_api_v1_admin_evaluations_versions__version_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationDatasetVersionDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runs_api_v1_admin_evaluations_runs_get: {
+        parameters: {
+            query?: {
+                dataset_version_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationRunOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_run_api_v1_admin_evaluations_runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluationRunCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_api_v1_admin_evaluations_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationRunDetail"];
                 };
             };
             /** @description Validation Error */

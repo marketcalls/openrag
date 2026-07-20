@@ -37,6 +37,10 @@ const RagOperationsPage = lazy(async () => {
   const module = await import('@/features/admin/rag-operations/rag-operations-page');
   return { default: module.RagOperationsPage };
 });
+const EvaluationsPage = lazy(async () => {
+  const module = await import('@/features/admin/evaluations/evaluations-page');
+  return { default: module.EvaluationsPage };
+});
 const RolesPage = lazy(async () => {
   const module = await import('@/features/admin/roles/roles-page');
   return { default: module.RolesPage };
@@ -140,6 +144,20 @@ function RagOperationsRoute() {
   );
 }
 
+function EvaluationsRoute() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-1 items-center justify-center">
+          <Spinner label="Loading RAG evaluations…" />
+        </div>
+      }
+    >
+      <EvaluationsPage />
+    </Suspense>
+  );
+}
+
 function RolesRoute() {
   return (
     <Suspense
@@ -188,6 +206,10 @@ export const router = createBrowserRouter(
                 {
                   path: '/admin/rag-operations',
                   element: <RagOperationsRoute />,
+                },
+                {
+                  path: '/admin/evaluations',
+                  element: <EvaluationsRoute />,
                 },
               ],
             },
