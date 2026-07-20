@@ -1,6 +1,7 @@
 """The single tenant-filtered Qdrant retrieval and deletion path."""
 
 import asyncio
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
@@ -16,6 +17,7 @@ from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProf
 from openrag.modules.embeddings.runtime import build_profile_runtime
 from openrag.modules.retrieval.authority import (
     MAX_CANDIDATES,
+    AuthorizedEvidence,
     candidate_from_payload,
     revalidate_candidates,
 )
@@ -34,10 +36,117 @@ class RetrievedChunk:
     score: float
 
 
+@dataclass(frozen=True, slots=True)
+class RetrievedEvidence:
+    document_id: UUID
+    document_version_id: UUID
+    evidence_span_id: UUID
+    document_name: str
+    version_label: str
+    section_path: tuple[str, ...]
+    locator_kind: str
+    locator_label: str
+    page_number: int
+    chunk_ref: str
+    content_hash: str
+    text: str
+    chunk_index: int
+    dense_score: float | None
+    sparse_score: float | None
+    fused_score: float
+    rerank_score: float | None = None
+
+    def __post_init__(self) -> None:
+        if not 1 <= len(self.document_name) <= 500:
+            raise ValueError("evidence_document_name_invalid")
+        if not 1 <= len(self.version_label) <= 200:
+            raise ValueError("evidence_version_label_invalid")
+        if not 1 <= len(self.section_path) <= 8 or any(
+            not 1 <= len(part) <= 200 for part in self.section_path
+        ):
+            raise ValueError("evidence_section_path_invalid")
+        if not 1 <= len(self.locator_kind) <= 32:
+            raise ValueError("evidence_locator_kind_invalid")
+        if not 1 <= len(self.locator_label) <= 200 or self.page_number <= 0:
+            raise ValueError("evidence_locator_invalid")
+        if (
+            len(self.content_hash) != 64
+            or any(character not in "0123456789abcdef" for character in self.content_hash)
+        ):
+            raise ValueError("evidence_content_hash_invalid")
+        if not self.text:
+            raise ValueError("evidence_text_invalid")
+        scores = (
+            self.dense_score,
+            self.sparse_score,
+            self.fused_score,
+            self.rerank_score,
+        )
+        if any(value is not None and not math.isfinite(value) for value in scores):
+            raise ValueError("evidence_score_invalid")
+
+
 @dataclass(frozen=True)
 class RetrievalResult:
     chunks: list[RetrievedChunk]
     no_answer: bool
+    evidence: tuple[RetrievedEvidence, ...] = ()
+
+
+def _retrieved_evidence(item: AuthorizedEvidence) -> RetrievedEvidence:
+    return RetrievedEvidence(
+        document_id=item.document_id,
+        document_version_id=item.document_version_id,
+        evidence_span_id=item.evidence_span_id,
+        document_name=item.document_name,
+        version_label=item.version_label,
+        section_path=item.section_path,
+        locator_kind=item.locator_kind,
+        locator_label=item.locator_label,
+        page_number=item.page_number,
+        chunk_ref=item.chunk_ref,
+        content_hash=item.content_hash,
+        text=item.text,
+        chunk_index=item.chunk_index,
+        dense_score=item.dense_score,
+        sparse_score=item.sparse_score,
+        fused_score=item.fused_score,
+    )
+
+
+def select_final_evidence(
+    evidence: list[RetrievedEvidence],
+    *,
+    top_k: int,
+    max_per_document: int = 4,
+    max_per_section: int = 2,
+) -> tuple[RetrievedEvidence, ...]:
+    if not 1 <= top_k <= 32:
+        raise ValueError("top_k must be between 1 and 32")
+    if not 1 <= max_per_document <= top_k:
+        raise ValueError("max_per_document must be between 1 and top_k")
+    if not 1 <= max_per_section <= max_per_document:
+        raise ValueError("max_per_section must be between 1 and max_per_document")
+
+    selected: list[RetrievedEvidence] = []
+    seen_hashes: set[str] = set()
+    per_document: dict[UUID, int] = {}
+    per_section: dict[tuple[UUID, tuple[str, ...]], int] = {}
+    for item in evidence:
+        section_key = (item.document_id, item.section_path)
+        if (
+            item.content_hash in seen_hashes
+            or per_document.get(item.document_id, 0) >= max_per_document
+            or per_section.get(section_key, 0) >= max_per_section
+        ):
+            continue
+        selected.append(item)
+        seen_hashes.add(item.content_hash)
+        per_document[item.document_id] = per_document.get(item.document_id, 0) + 1
+        per_section[section_key] = per_section.get(section_key, 0) + 1
+        if len(selected) == top_k:
+            break
+    return tuple(selected)
 
 
 def _tenant_filter(
@@ -228,6 +337,7 @@ async def retrieve(
         with_payload=True,
     )
     chunks: list[RetrievedChunk] = []
+    final_evidence: tuple[RetrievedEvidence, ...] = ()
     if deployment is None:
         for point in fused.points:
             payload = point.payload or {}
@@ -262,6 +372,12 @@ async def retrieve(
             fused_candidates,
             now=now,
         )
+        final_evidence = select_final_evidence(
+            [_retrieved_evidence(item) for item in authorized],
+            top_k=top_k,
+            max_per_document=min(4, top_k),
+            max_per_section=min(2, top_k),
+        )
         chunks = [
             RetrievedChunk(
                 document_id=evidence.document_id,
@@ -270,7 +386,7 @@ async def retrieve(
                 text=evidence.text,
                 score=evidence.fused_score,
             )
-            for evidence in authorized[:top_k]
+            for evidence in final_evidence
         ]
     if not chunks:
         return RetrievalResult(chunks=[], no_answer=True)
@@ -316,6 +432,7 @@ async def retrieve(
     return RetrievalResult(
         chunks=chunks,
         no_answer=best_cosine < workspace.min_score,
+        evidence=final_evidence,
     )
 
 
