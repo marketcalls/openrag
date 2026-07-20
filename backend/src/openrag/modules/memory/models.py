@@ -11,6 +11,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -95,6 +96,15 @@ class MemoryRecord(UUIDPk, Base):
             "user_id",
             "status",
             "updated_at",
+        ),
+        Index(
+            "uq_memory_records_active_key",
+            "org_id",
+            "workspace_id",
+            "user_id",
+            "canonical_key",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
         ),
     )
 

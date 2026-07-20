@@ -57,6 +57,14 @@ async def test_memory_lifecycle_is_idempotent_and_suppressed_after_forget(
     retry = await create_memory(session, context, workspace.id, body)
     assert retry.id == memory.id
 
+    with pytest.raises(ConflictError, match="active memory"):
+        await create_memory(
+            session,
+            context,
+            workspace.id,
+            body.model_copy(update={"client_request_id": uuid4()}),
+        )
+
     updated = await update_memory(
         session,
         context,

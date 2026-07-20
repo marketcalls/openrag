@@ -15,6 +15,7 @@ from openrag.core.db import build_session_factory
 from openrag.modules.auth.models import User
 from openrag.modules.chat.models import Citation, Message
 from openrag.modules.chat.service import NO_ANSWER_TEXT
+from openrag.modules.memory.models import MemoryRecord
 from tests.conftest import (
     FakeRetriever,
     FakeStreamer,
@@ -232,6 +233,69 @@ async def test_greeting_streams_directly_without_document_retrieval(
     assert assistant is not None
     assert assistant.content == "Hello! How can I help?"
     assert assistant.answer_status is None
+
+
+async def test_explicit_memory_is_selected_without_becoming_document_evidence(
+    engine: AsyncEngine,
+    redis_client: Redis,
+    test_settings: Settings,
+    chat_env: dict[str, Any],
+    session: AsyncSession,
+    seeded_user: User,
+    seeded_superadmin: User,
+) -> None:
+    streamer = FakeStreamer(["Hello!"])
+    app = create_app(
+        session_factory=build_session_factory(engine),
+        redis_client=redis_client,
+        litellm_transport=httpx.MockTransport(stub_litellm_handler),
+        retriever=FakeRetriever(chat_env["document"].id),
+        llm_streamer=streamer,
+    )
+    app.dependency_overrides[get_settings] = lambda: test_settings
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        headers = await auth(client, seeded_user.email)
+        chat_id = await make_model_and_chat(
+            client,
+            chat_env,
+            seeded_superadmin,
+            headers,
+        )
+        session.add(
+            MemoryRecord(
+                org_id=seeded_user.org_id,
+                workspace_id=chat_env["workspace"].id,
+                user_id=seeded_user.id,
+                client_request_id=uuid4(),
+                canonical_key="response.style",
+                content="Prefer short answers.",
+                memory_type="semantic",
+                scope="user_workspace",
+                status="active",
+                confidence=1,
+                importance=0.9,
+                sensitivity="internal",
+                policy_version="explicit-user-memory-v1",
+                source_trust="explicit_user",
+                content_hash="a" * 64,
+                suppression_fingerprint="b" * 64,
+            )
+        )
+        await session.commit()
+        response = await client.post(
+            f"/api/v1/chats/{chat_id}/messages",
+            json={"content": "hi"},
+            headers=headers,
+        )
+
+    assert response.status_code == 200
+    sent = streamer.calls[0]["messages"]
+    assert len(sent) == 3
+    assert "Prefer short answers." in sent[1]["content"]
+    assert "never document evidence" in sent[1]["content"]
 
 
 async def test_no_answer_path_is_honest(

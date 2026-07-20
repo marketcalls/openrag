@@ -32,6 +32,7 @@ from openrag.modules.chat.events import (
 from openrag.modules.chat.llm import LLMDelta, LLMStreamer, LLMUsage
 from openrag.modules.chat.models import Chat, Citation, Message
 from openrag.modules.chat.prompting import (
+    PromptMemory,
     PromptSource,
     build_conversation_messages,
     build_direct_messages,
@@ -49,6 +50,7 @@ from openrag.modules.documents.lifecycle import (
 )
 from openrag.modules.documents.models import Document, DocumentVersion
 from openrag.modules.grounding.models import GroundingPolicy
+from openrag.modules.memory.selection import select_memories
 from openrag.modules.models.models import Model
 from openrag.modules.orchestration.routing import QueryRoute, decide_route
 from openrag.modules.retrieval.authority import (
@@ -798,6 +800,20 @@ async def stream_reply(
     history = [
         (message.role, message.content) for message in path_to_root(all_messages, user_message)
     ]
+    selected_memories = await select_memories(
+        session,
+        context,
+        chat.workspace_id,
+        query=user_message.content,
+    )
+    prompt_memories = [
+        PromptMemory(
+            canonical_key=memory.canonical_key,
+            memory_type=memory.memory_type,
+            content=memory.content,
+        )
+        for memory in selected_memories
+    ]
     decision = decide_route(user_message.content, history=history)
     yield route_selected_event(decision.route.value, decision.reason_code)
 
@@ -823,12 +839,13 @@ async def stream_reply(
 
     if decision.route in {QueryRoute.DIRECT, QueryRoute.CONVERSATION}:
         prompt = (
-            build_direct_messages(user_message.content)
+            build_direct_messages(user_message.content, memories=prompt_memories)
             if decision.route is QueryRoute.DIRECT
             else build_conversation_messages(
                 history=history,
                 user_query=user_message.content,
                 budget=settings.chat_context_token_budget,
+                memories=prompt_memories,
             )
         )
         await session.rollback()
@@ -921,6 +938,7 @@ async def stream_reply(
         history=history,
         user_query=user_message.content,
         budget=settings.chat_context_token_budget,
+        memories=prompt_memories,
     )
 
     parts: list[str] = []

@@ -215,6 +215,19 @@ async def create_memory(
         return existing
     if await _event_owner(session, context, body.client_request_id) is not None:
         raise ConflictError("client request ID was already used")
+    active_key = await session.scalar(
+        select(MemoryRecord.id)
+        .where(
+            MemoryRecord.org_id == context.org_id,
+            MemoryRecord.workspace_id == workspace_id,
+            MemoryRecord.user_id == context.user_id,
+            MemoryRecord.canonical_key == body.canonical_key,
+            MemoryRecord.status == "active",
+        )
+        .with_for_update()
+    )
+    if active_key is not None:
+        raise ConflictError("an active memory with this key already exists; edit it instead")
     suppressed = (
         await session.execute(
             select(MemorySuppression.id).where(
