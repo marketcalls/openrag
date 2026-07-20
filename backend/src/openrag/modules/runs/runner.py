@@ -25,7 +25,7 @@ from openrag.modules.operations.facts import (
 )
 from openrag.modules.operations.schemas import ErrorCategory, ErrorOccurrenceCreate
 from openrag.modules.orchestration.runtime import create_model_execution
-from openrag.modules.retrieval.service import retrieve
+from openrag.modules.retrieval.service import backfill_citation_evidence, retrieve
 from openrag.modules.runs.context import record_run_context
 from openrag.modules.runs.leases import (
     RunLeaseClaim,
@@ -240,6 +240,7 @@ async def _execute_started_run(
                 model=model,
                 streamer=execution.streamer,
                 retriever=retrieve,
+                citation_backfiller=backfill_citation_evidence,
                 settings=settings,
                 agent_gatherer_factory=execution.agent_gatherer_factory,
                 answer_validator=execution.answer_validator,

@@ -40,12 +40,12 @@ from openrag.core.logging import configure_logging
 from openrag.core.runtime_metrics import RuntimeMetricsSampler
 from openrag.core.telemetry import build_telemetry, current_trace_id
 from openrag.modules.chat.llm import LLMStreamer
-from openrag.modules.chat.service import Retriever
+from openrag.modules.chat.service import CitationBackfiller, Retriever
 from openrag.modules.events.redis_runtime import build_event_redis
 from openrag.modules.operations.errors import record_error, top_application_frame
 from openrag.modules.operations.queue_metrics import collect_queue_ages
 from openrag.modules.operations.schemas import ErrorOccurrenceCreate, HttpMethod
-from openrag.modules.retrieval.service import retrieve
+from openrag.modules.retrieval.service import backfill_citation_evidence, retrieve
 
 
 def create_app(
@@ -53,6 +53,7 @@ def create_app(
     redis_client: Redis | None = None,
     event_redis_client: Redis | None = None,
     retriever: Retriever | None = None,
+    citation_backfiller: CitationBackfiller | None = None,
     llm_streamer: LLMStreamer | None = None,
 ) -> FastAPI:
     settings = get_settings()
@@ -128,6 +129,11 @@ def create_app(
     app.state.redis = redis_client
     app.state.event_redis = event_redis_client
     app.state.retriever = retriever if retriever is not None else retrieve
+    app.state.citation_backfiller = (
+        citation_backfiller
+        if citation_backfiller is not None
+        else backfill_citation_evidence
+    )
     app.state.llm_streamer = llm_streamer
     app.state.telemetry = telemetry
     app.state.runtime_metrics = runtime_metrics

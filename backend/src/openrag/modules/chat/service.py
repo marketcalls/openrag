@@ -94,7 +94,12 @@ from openrag.modules.retrieval.authority import (
     CandidateIdentity,
     revalidate_candidates,
 )
-from openrag.modules.retrieval.service import RetrievalResult
+from openrag.modules.retrieval.service import (
+    CitationEvidenceIdentity,
+    RetrievalResult,
+    RetrievedChunk,
+    select_final_evidence,
+)
 from openrag.modules.tenancy import service as tenancy_service
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Workspace
@@ -180,6 +185,17 @@ class Retriever(Protocol):
         context: TenantContext,
         workspace_id: UUID,
         query: str,
+        top_k: int = 8,
+    ) -> RetrievalResult: ...
+
+
+class CitationBackfiller(Protocol):
+    async def __call__(
+        self,
+        session: AsyncSession,
+        context: TenantContext,
+        workspace_id: UUID,
+        identities: Sequence[CitationEvidenceIdentity],
         top_k: int = 8,
     ) -> RetrievalResult: ...
 
@@ -498,6 +514,107 @@ def path_to_root(messages: list[Message], leaf: Message) -> list[Message]:
         parent_id = node.parent_message_id
     path.reverse()
     return path
+
+
+async def _previous_citation_identities(
+    session: AsyncSession,
+    messages: list[Message],
+    user_message: Message,
+) -> list[CitationEvidenceIdentity]:
+    """Return citations from only the nearest assistant on this exact branch."""
+
+    for ancestor in reversed(path_to_root(messages, user_message)):
+        if ancestor.role != ROLE_ASSISTANT:
+            continue
+        citations = (
+            await session.execute(
+                select(Citation)
+                .where(Citation.message_id == ancestor.id)
+                .order_by(Citation.marker)
+            )
+        ).scalars()
+        return [
+            CitationEvidenceIdentity(
+                document_id=citation.document_id,
+                document_version_id=citation.document_version_id,
+                evidence_span_id=citation.evidence_span_id,
+                chunk_ref=citation.chunk_ref,
+                content_hash=citation.content_hash,
+            )
+            for citation in citations
+        ]
+    return []
+
+
+def _merge_retrieval_with_backfill(
+    primary: RetrievalResult,
+    backfill: RetrievalResult,
+    *,
+    top_k: int,
+) -> RetrievalResult:
+    if not 1 <= top_k <= 32:
+        raise ValueError("top_k must be between 1 and 32")
+    if not backfill.chunks:
+        return primary
+
+    if primary.evidence or backfill.evidence:
+        ordered = (
+            (*backfill.evidence, *primary.evidence)
+            if primary.no_answer
+            else (*primary.evidence, *backfill.evidence)
+        )
+        selected = select_final_evidence(
+            list(ordered),
+            top_k=top_k,
+            max_per_document=min(4, top_k),
+            max_per_section=min(2, top_k),
+        )
+        backfilled_ids = {item.evidence_span_id for item in backfill.evidence}
+        survived = any(item.evidence_span_id in backfilled_ids for item in selected)
+        chunks = [
+            RetrievedChunk(
+                document_id=item.document_id,
+                page=item.page_number,
+                chunk_index=item.chunk_index,
+                text=item.text,
+                score=item.fused_score,
+            )
+            for item in selected
+        ]
+        return RetrievalResult(
+            chunks=chunks,
+            no_answer=primary.no_answer and not survived,
+            evidence=selected,
+            decision=(primary.decision if primary.no_answer and not survived else None),
+        )
+
+    ordered_chunks = (
+        [*backfill.chunks, *primary.chunks]
+        if primary.no_answer
+        else [*primary.chunks, *backfill.chunks]
+    )
+    selected_chunks: list[RetrievedChunk] = []
+    seen: set[tuple[UUID, int, int]] = set()
+    backfilled_keys = {
+        (item.document_id, item.page, item.chunk_index) for item in backfill.chunks
+    }
+    for chunk in ordered_chunks:
+        key = (chunk.document_id, chunk.page, chunk.chunk_index)
+        if key in seen:
+            continue
+        seen.add(key)
+        selected_chunks.append(chunk)
+        if len(selected_chunks) == top_k:
+            break
+    survived = any(
+        (item.document_id, item.page, item.chunk_index) in backfilled_keys
+        for item in selected_chunks
+    )
+    return RetrievalResult(
+        chunks=selected_chunks,
+        no_answer=primary.no_answer and not survived,
+        decision=(primary.decision if primary.no_answer and not survived else None),
+    )
 
 
 async def _source_refs(
@@ -1050,6 +1167,7 @@ async def stream_reply(
     model: Model,
     streamer: LLMStreamer,
     retriever: Retriever,
+    citation_backfiller: CitationBackfiller,
     settings: Settings,
     context_recorder: ContextRecorder | None = None,
     agent_gatherer_factory: AgentGathererFactory | None = None,
@@ -1204,6 +1322,7 @@ async def stream_reply(
         context,
         chat.workspace_id,
         decision.retrieval_query,
+        retrieval_top_k,
     )
     escalation = decide_escalation(
         EscalationContext(
@@ -1241,6 +1360,25 @@ async def stream_reply(
         except Exception:  # noqa: BLE001 - planner details remain private
             finish_reason = "planner_failed"
         yield agent_completed_event(finish_reason)
+    if result.no_answer or len(result.chunks) < retrieval_top_k:
+        identities = await _previous_citation_identities(
+            session,
+            all_messages,
+            user_message,
+        )
+        if identities:
+            backfill = await citation_backfiller(
+                session,
+                context,
+                chat.workspace_id,
+                identities,
+                retrieval_top_k,
+            )
+            result = _merge_retrieval_with_backfill(
+                result,
+                backfill,
+                top_k=retrieval_top_k,
+            )
     sources = await _source_refs(session, context, result)
     yield sources_event(sources)
     retrieval_texts = [chunk.text for chunk in result.chunks]

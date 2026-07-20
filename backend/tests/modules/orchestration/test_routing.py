@@ -45,6 +45,8 @@ def test_substantive_or_injection_shaped_text_never_uses_greeting_bypass(
     "query",
     [
         "What was my previous question?",
+        "what is my prev question?",
+        "what's my last question?",
         "repeat my last question",
         "summarize our conversation",
         "what did I ask before?",

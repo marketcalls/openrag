@@ -45,8 +45,8 @@ _OPENRAG_HELP = frozenset(
 _THREAD_META = tuple(
     re.compile(pattern)
     for pattern in (
-        r"what was my (?:previous|last) question",
-        r"what was your (?:previous|last) answer",
+        r"what(?: was| is|'s) my (?:previous|prev|last) question",
+        r"what(?: was| is|'s) your (?:previous|prev|last) answer",
         r"what did i ask (?:before|previously|last)",
         r"repeat my (?:previous|last) question",
         r"summarize (?:this|our) (?:chat|conversation)",
