@@ -42,6 +42,9 @@ async def test_superadmin_crud_and_key_never_returned(
     model_id = created["id"]
     assert created["key_fingerprint"].startswith("...-abc sha256:")
     assert "sync_status" not in created
+    assert created["supports_chat_completion"] is True
+    assert created["supports_structured_json"] is False
+    assert created["supports_verifier"] is False
 
     response = await client.patch(
         f"/api/v1/admin/models/{model_id}",

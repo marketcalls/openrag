@@ -2291,6 +2291,21 @@ export interface components {
             /** Api Key */
             api_key?: string | null;
             /**
+             * Supports Chat Completion
+             * @default true
+             */
+            supports_chat_completion: boolean;
+            /**
+             * Supports Structured Json
+             * @default false
+             */
+            supports_structured_json: boolean;
+            /**
+             * Supports Verifier
+             * @default false
+             */
+            supports_verifier: boolean;
+            /**
              * Supports Reasoning
              * @default false
              */
@@ -2324,6 +2339,12 @@ export interface components {
             enabled: boolean;
             /** Key Fingerprint */
             key_fingerprint: string | null;
+            /** Supports Chat Completion */
+            supports_chat_completion: boolean;
+            /** Supports Structured Json */
+            supports_structured_json: boolean;
+            /** Supports Verifier */
+            supports_verifier: boolean;
             /** Supports Reasoning */
             supports_reasoning: boolean;
             /**
@@ -2342,6 +2363,12 @@ export interface components {
             enabled?: boolean | null;
             /** Api Key */
             api_key?: string | null;
+            /** Supports Chat Completion */
+            supports_chat_completion?: boolean | null;
+            /** Supports Structured Json */
+            supports_structured_json?: boolean | null;
+            /** Supports Verifier */
+            supports_verifier?: boolean | null;
             /** Supports Reasoning */
             supports_reasoning?: boolean | null;
             /** Default Reasoning Effort */

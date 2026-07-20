@@ -11,6 +11,7 @@ const WORKSPACE_ID = '550e8400-e29b-41d4-a716-446655440001';
 const DATASET_ID = '550e8400-e29b-41d4-a716-446655440002';
 const VERSION_ID = '550e8400-e29b-41d4-a716-446655440003';
 const MODEL_ID = '550e8400-e29b-41d4-a716-446655440004';
+const JUDGE_MODEL_ID = '550e8400-e29b-41d4-a716-446655440005';
 
 const version = {
   id: VERSION_ID,
@@ -66,7 +67,10 @@ function responseFor(request: Request) {
     return [{ id: WORKSPACE_ID, name: 'Engineering', embedding_model: 'bge-m3', min_score: 0.35, default_model_id: MODEL_ID }];
   }
   if (url.pathname.endsWith('/admin/models')) {
-    return [{ id: MODEL_ID, display_name: 'Production model', model_name: 'openai/gpt-5', enabled: true }];
+    return [
+      { id: MODEL_ID, display_name: 'Production model', enabled: true, supports_chat_completion: true, supports_structured_json: false, supports_verifier: false },
+      { id: JUDGE_MODEL_ID, display_name: 'Verifier model', enabled: true, supports_chat_completion: true, supports_structured_json: true, supports_verifier: true },
+    ];
   }
   if (url.pathname.endsWith('/evaluations/datasets')) {
     return [{ id: DATASET_ID, org_id: version.org_id, workspace_id: WORKSPACE_ID, name: 'Policy grounding', description: 'Golden policy questions', archived: false, created_by: version.created_by, created_at: version.created_at, updated_at: version.created_at }];
@@ -108,6 +112,9 @@ test('requires budget confirmation and compares regressions accessibly', async (
   expect(await screen.findByRole('table', { name: 'Evaluation metric comparison' })).toBeVisible();
 
   await user.click(screen.getByRole('button', { name: 'Run evaluation' }));
+  expect(screen.getByLabelText('Use LLM judge')).not.toBeChecked();
+  await user.click(screen.getByLabelText('Use LLM judge'));
+  expect(screen.getByLabelText('Evaluator model')).toHaveValue(JUDGE_MODEL_ID);
   expect(screen.getByLabelText('Maximum evaluation tokens')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Queue evaluation' })).toBeDisabled();
 

@@ -34,7 +34,10 @@ async def list_models(session: AsyncSession) -> list[Model]:
 async def list_enabled_models(session: AsyncSession) -> list[Model]:
     statement = (
         select(Model)
-        .where(Model.enabled == true())
+        .where(
+            Model.enabled == true(),
+            Model.supports_chat_completion == true(),
+        )
         .order_by(Model.created_at)
     )
     return list((await session.execute(statement)).scalars())
@@ -49,6 +52,7 @@ async def _enabled_model(
             select(Model).where(
                 Model.id == model_id,
                 Model.enabled == true(),
+                Model.supports_chat_completion == true(),
             )
         )
     ).scalar_one_or_none()
@@ -91,6 +95,9 @@ async def to_model_out(
             base_url=model.base_url,
             enabled=model.enabled,
             key_fingerprint=fingerprints.get(f"model:{model.id}"),
+            supports_chat_completion=model.supports_chat_completion,
+            supports_structured_json=model.supports_structured_json,
+            supports_verifier=model.supports_verifier,
             supports_reasoning=model.supports_reasoning,
             default_reasoning_effort=cast(
                 ReasoningEffort,
@@ -111,9 +118,20 @@ async def create_model(
     base_url: str | None,
     api_key: str | None,
     settings: Settings,
+    supports_chat_completion: bool = True,
+    supports_structured_json: bool = False,
+    supports_verifier: bool = False,
     supports_reasoning: bool = False,
     default_reasoning_effort: ReasoningEffort = "off",
 ) -> Model:
+    if supports_structured_json and not supports_chat_completion:
+        raise InvalidRequestError(
+            "structured JSON capability requires chat capability"
+        )
+    if supports_verifier and not supports_structured_json:
+        raise InvalidRequestError(
+            "verifier capability requires structured JSON capability"
+        )
     if default_reasoning_effort != "off" and not supports_reasoning:
         raise InvalidRequestError(
             "default reasoning effort requires reasoning support"
@@ -124,6 +142,9 @@ async def create_model(
             display_name=display_name,
             provider_kind=provider_kind,
             base_url=base_url,
+            supports_chat_completion=supports_chat_completion,
+            supports_structured_json=supports_structured_json,
+            supports_verifier=supports_verifier,
             supports_reasoning=supports_reasoning,
             default_reasoning_effort=default_reasoning_effort,
         )
@@ -163,6 +184,9 @@ async def update_model(
     enabled: bool | None,
     api_key: str | None,
     settings: Settings,
+    supports_chat_completion: bool | None = None,
+    supports_structured_json: bool | None = None,
+    supports_verifier: bool | None = None,
     supports_reasoning: bool | None = None,
     default_reasoning_effort: ReasoningEffort | None = None,
 ) -> Model:
@@ -174,6 +198,32 @@ async def update_model(
             model.base_url = base_url
         if enabled is not None:
             model.enabled = enabled
+        next_supports_chat = (
+            model.supports_chat_completion
+            if supports_chat_completion is None
+            else supports_chat_completion
+        )
+        next_supports_json = (
+            model.supports_structured_json
+            if supports_structured_json is None
+            else supports_structured_json
+        )
+        next_supports_verifier = (
+            model.supports_verifier
+            if supports_verifier is None
+            else supports_verifier
+        )
+        if next_supports_json and not next_supports_chat:
+            raise InvalidRequestError(
+                "structured JSON capability requires chat capability"
+            )
+        if next_supports_verifier and not next_supports_json:
+            raise InvalidRequestError(
+                "verifier capability requires structured JSON capability"
+            )
+        model.supports_chat_completion = next_supports_chat
+        model.supports_structured_json = next_supports_json
+        model.supports_verifier = next_supports_verifier
         next_supports_reasoning = (
             model.supports_reasoning
             if supports_reasoning is None

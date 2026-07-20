@@ -8,6 +8,11 @@ class Model(UUIDPk, Base):
     __tablename__ = "models"
     __table_args__ = (
         CheckConstraint(
+            "(NOT supports_structured_json OR supports_chat_completion) "
+            "AND (NOT supports_verifier OR supports_structured_json)",
+            name="ck_models_capability_hierarchy",
+        ),
+        CheckConstraint(
             "default_reasoning_effort IN ('off','low','medium','high') "
             "AND (supports_reasoning OR default_reasoning_effort = 'off')",
             name="ck_models_default_reasoning_effort",
@@ -19,7 +24,7 @@ class Model(UUIDPk, Base):
     provider_kind: Mapped[str]
     base_url: Mapped[str | None] = mapped_column(default=None)
     enabled: Mapped[bool] = mapped_column(default=True)
-    supports_chat_completion: Mapped[bool] = mapped_column(default=False)
+    supports_chat_completion: Mapped[bool] = mapped_column(default=True)
     supports_structured_json: Mapped[bool] = mapped_column(default=False)
     supports_verifier: Mapped[bool] = mapped_column(default=False)
     supports_reasoning: Mapped[bool] = mapped_column(default=False)

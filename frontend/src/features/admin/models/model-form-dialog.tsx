@@ -31,6 +31,9 @@ export function ModelFormDialog({
   const [modelId, setModelId] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [supportsChatCompletion, setSupportsChatCompletion] = useState(true);
+  const [supportsStructuredJson, setSupportsStructuredJson] = useState(false);
+  const [supportsVerifier, setSupportsVerifier] = useState(false);
   const [supportsReasoning, setSupportsReasoning] = useState(false);
   const [defaultReasoningEffort, setDefaultReasoningEffort] =
     useState<ReasoningEffort>('off');
@@ -43,6 +46,9 @@ export function ModelFormDialog({
     setModelId(model?.litellm_model_name ?? '');
     setBaseUrl(model?.base_url ?? '');
     setApiKey('');
+    setSupportsChatCompletion(model?.supports_chat_completion ?? true);
+    setSupportsStructuredJson(model?.supports_structured_json ?? false);
+    setSupportsVerifier(model?.supports_verifier ?? false);
     setSupportsReasoning(model?.supports_reasoning ?? false);
     setDefaultReasoningEffort(model?.default_reasoning_effort ?? 'off');
   }, [model, open]);
@@ -54,6 +60,9 @@ export function ModelFormDialog({
       setModelId('');
       setBaseUrl('');
       setApiKey('');
+      setSupportsChatCompletion(true);
+      setSupportsStructuredJson(false);
+      setSupportsVerifier(false);
       setSupportsReasoning(false);
       setDefaultReasoningEffort('off');
       create.reset();
@@ -70,6 +79,9 @@ export function ModelFormDialog({
         display_name: displayName.trim(),
         ...(NEEDS_BASE_URL.includes(provider) ? { base_url: baseUrl.trim() } : {}),
         ...(NEEDS_KEY.includes(provider) && apiKey ? { api_key: apiKey } : {}),
+        supports_chat_completion: supportsChatCompletion,
+        supports_structured_json: supportsStructuredJson,
+        supports_verifier: supportsVerifier,
         supports_reasoning: supportsReasoning,
         default_reasoning_effort: supportsReasoning ? defaultReasoningEffort : 'off',
       };
@@ -93,6 +105,9 @@ export function ModelFormDialog({
         ? { base_url: baseUrl.trim() }
         : {}),
       ...(NEEDS_KEY.includes(provider) && apiKey ? { api_key: apiKey } : {}),
+      supports_chat_completion: supportsChatCompletion,
+      supports_structured_json: supportsStructuredJson,
+      supports_verifier: supportsVerifier,
       supports_reasoning: supportsReasoning,
       default_reasoning_effort: supportsReasoning ? defaultReasoningEffort : 'off',
     };
@@ -186,6 +201,59 @@ export function ModelFormDialog({
               ) : null}
             </div>
           ) : null}
+          <fieldset className="rounded-md border border-line bg-subtle/50 p-3">
+            <legend className="px-1 text-[12px] font-semibold text-ink">
+              Model capabilities
+            </legend>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <label className="flex items-center gap-2 text-[12px] text-ink">
+                <input
+                  type="checkbox"
+                  aria-label="Chat completion"
+                  checked={supportsChatCompletion}
+                  onChange={(event) => {
+                    setSupportsChatCompletion(event.target.checked);
+                    if (!event.target.checked) {
+                      setSupportsStructuredJson(false);
+                      setSupportsVerifier(false);
+                    }
+                  }}
+                />
+                Chat completion
+              </label>
+              <label className="flex items-center gap-2 text-[12px] text-ink">
+                <input
+                  type="checkbox"
+                  aria-label="Structured JSON"
+                  checked={supportsStructuredJson}
+                  onChange={(event) => {
+                    setSupportsStructuredJson(event.target.checked);
+                    if (event.target.checked) setSupportsChatCompletion(true);
+                    else setSupportsVerifier(false);
+                  }}
+                />
+                Structured JSON
+              </label>
+              <label className="flex items-center gap-2 text-[12px] text-ink">
+                <input
+                  type="checkbox"
+                  aria-label="Verifier / judge"
+                  checked={supportsVerifier}
+                  onChange={(event) => {
+                    setSupportsVerifier(event.target.checked);
+                    if (event.target.checked) {
+                      setSupportsChatCompletion(true);
+                      setSupportsStructuredJson(true);
+                    }
+                  }}
+                />
+                Verifier / judge
+              </label>
+            </div>
+            <p className="mt-2 text-[11px] text-muted">
+              Verifier models must support structured JSON; structured output requires chat completion.
+            </p>
+          </fieldset>
           <div className="rounded-md border border-line bg-subtle/50 p-3">
             <label className="flex items-center gap-2 text-[13px] font-medium text-ink">
               <input

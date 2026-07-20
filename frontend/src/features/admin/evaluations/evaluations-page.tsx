@@ -183,21 +183,33 @@ function RunDialog({ open, onOpenChange, versionId, caseCount, onQueued }: {
   const models = useAdminModels();
   const mutation = useCreateEvaluationRun();
   const enabledModels = useMemo(
-    () => (models.data ?? []).filter((model) => model.enabled),
+    () => (models.data ?? []).filter(
+      (model) => model.enabled && model.supports_chat_completion,
+    ),
     [models.data],
+  );
+  const evaluatorModels = useMemo(
+    () => enabledModels.filter(
+      (model) => model.supports_structured_json && model.supports_verifier,
+    ),
+    [enabledModels],
   );
   const [modelId, setModelId] = useState('');
   const [maxCases, setMaxCases] = useState(Math.max(caseCount, 1));
   const [maxTokens, setMaxTokens] = useState(50_000);
   const [maxCostUsd, setMaxCostUsd] = useState(5);
   const [confirmed, setConfirmed] = useState(false);
+  const [useLlmJudge, setUseLlmJudge] = useState(false);
+  const [evaluatorModelId, setEvaluatorModelId] = useState('');
 
   useEffect(() => {
     if (!open) return;
     setMaxCases(Math.max(caseCount, 1));
     setModelId((current) => current || enabledModels[0]?.id || '');
+    setEvaluatorModelId((current) => current || evaluatorModels[0]?.id || '');
+    setUseLlmJudge(false);
     setConfirmed(false);
-  }, [caseCount, enabledModels, open]);
+  }, [caseCount, enabledModels, evaluatorModels, open]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -205,8 +217,8 @@ function RunDialog({ open, onOpenChange, versionId, caseCount, onQueued }: {
     mutation.mutate({
       dataset_version_id: versionId,
       model_id: modelId,
-      evaluator_model_id: null,
-      use_llm_judge: false,
+      evaluator_model_id: useLlmJudge ? evaluatorModelId : null,
+      use_llm_judge: useLlmJudge,
       max_cases: maxCases,
       max_tokens: maxTokens,
       max_cost_microusd: Math.round(maxCostUsd * 1_000_000),
@@ -221,6 +233,17 @@ function RunDialog({ open, onOpenChange, versionId, caseCount, onQueued }: {
       <DialogContent title="Run evaluation" description="Set hard provider budgets before work enters the isolated evaluation queue.">
         <form className="space-y-4" onSubmit={submit}>
           <div><Label htmlFor="evaluation-model">Model</Label><NativeSelect id="evaluation-model" required value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">Select a model</option>{enabledModels.map((model) => <option key={model.id} value={model.id}>{model.display_name}</option>)}</NativeSelect></div>
+          <label className="flex items-center gap-2 text-[12px] font-medium text-ink">
+            <input
+              type="checkbox"
+              aria-label="Use LLM judge"
+              checked={useLlmJudge}
+              disabled={!evaluatorModels.length}
+              onChange={(event) => setUseLlmJudge(event.target.checked)}
+            />
+            Use a structured-output verifier for answer relevance
+          </label>
+          {useLlmJudge ? <div><Label htmlFor="evaluator-model">Evaluator model</Label><NativeSelect id="evaluator-model" required value={evaluatorModelId} onChange={(event) => setEvaluatorModelId(event.target.value)}><option value="">Select an evaluator</option>{evaluatorModels.map((model) => <option key={model.id} value={model.id}>{model.display_name}</option>)}</NativeSelect></div> : null}
           <div className="grid grid-cols-3 gap-3">
             <div><Label htmlFor="maximum-cases">Maximum cases</Label><Input id="maximum-cases" type="number" min={1} max={caseCount || 1} value={maxCases} onChange={(event) => setMaxCases(event.target.valueAsNumber)} /></div>
             <div><Label htmlFor="maximum-tokens">Maximum evaluation tokens</Label><Input id="maximum-tokens" type="number" min={1} value={maxTokens} onChange={(event) => setMaxTokens(event.target.valueAsNumber)} /></div>
@@ -229,7 +252,7 @@ function RunDialog({ open, onOpenChange, versionId, caseCount, onQueued }: {
           <div className="rounded-lg border border-line bg-raised p-3 text-[12px] text-secondary"><CircleDollarSign className="mr-2 inline h-4 w-4 text-warning" aria-hidden />The worker stops scheduling cases once either the token or cost ceiling is reached.</div>
           <label className="flex items-start gap-2 text-[12px] font-medium text-ink"><input aria-label="I confirm this evaluation budget" className="mt-0.5" type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />I confirm this evaluation budget and understand it may incur provider charges.</label>
           {mutation.isError ? <p role="alert" className="text-[12px] text-danger">{mutation.error.message}</p> : null}
-          <DialogFooter><Button onClick={() => onOpenChange(false)}>Cancel</Button><Button type="submit" variant="primary" disabled={!confirmed || !modelId || mutation.isPending}>{mutation.isPending ? 'Queuing…' : 'Queue evaluation'}</Button></DialogFooter>
+          <DialogFooter><Button onClick={() => onOpenChange(false)}>Cancel</Button><Button type="submit" variant="primary" disabled={!confirmed || !modelId || (useLlmJudge && !evaluatorModelId) || mutation.isPending}>{mutation.isPending ? 'Queuing…' : 'Queue evaluation'}</Button></DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

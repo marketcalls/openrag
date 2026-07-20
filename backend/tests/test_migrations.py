@@ -36,6 +36,7 @@ RAG_EVALUATIONS_REVISION = "d9f1b4c6e8a0"
 OPERATIONS_INDEX_REVISION = "e2a4c6d8f0b1"
 REASONING_EFFORT_REVISION = "f3b5d7e9a1c2"
 LITELLM_LIBRARY_REVISION = "a4c6e8f0b2d3"
+MODEL_CAPABILITY_REVISION = "b5d7f9a1c3e4"
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -775,7 +776,7 @@ def test_migration_graph_has_one_current_head(
 ) -> None:
     config, _engine, _ids = authority_db
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [LITELLM_LIBRARY_REVISION]
+    assert script.get_heads() == [MODEL_CAPABILITY_REVISION]
     assert script.get_revision(AUTHORITY_REVISION).down_revision == RBAC_REVISION
     assert script.get_revision(DELETION_REVISION).down_revision == AUTHORITY_REVISION
     assert script.get_revision(STAGE_REVISION).down_revision == OUTBOX_REVISION

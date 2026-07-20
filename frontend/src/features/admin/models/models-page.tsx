@@ -54,6 +54,7 @@ export function ModelsPage() {
                   <TH>Base URL</TH>
                   <TH>Key</TH>
                   <TH>Reasoning</TH>
+                  <TH>Capabilities</TH>
                   <TH>Enabled</TH>
                   <TH><span className="sr-only">Actions</span></TH>
                 </TR>
@@ -74,6 +75,13 @@ export function ModelsPage() {
                     </TD>
                     <TD className="capitalize text-secondary">
                       {model.supports_reasoning ? model.default_reasoning_effort : 'off'}
+                    </TD>
+                    <TD className="text-[11px] text-secondary">
+                      {[
+                        model.supports_chat_completion ? 'Chat' : null,
+                        model.supports_structured_json ? 'JSON' : null,
+                        model.supports_verifier ? 'Judge' : null,
+                      ].filter(Boolean).join(' · ') || '—'}
                     </TD>
                     <TD>
                       <input

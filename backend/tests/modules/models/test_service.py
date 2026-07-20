@@ -6,7 +6,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import Settings
-from openrag.core.errors import ConflictError, NotFoundError, SecretsError
+from openrag.core.errors import (
+    ConflictError,
+    InvalidRequestError,
+    NotFoundError,
+    SecretsError,
+)
 from openrag.modules.audit.models import AuditEvent
 from openrag.modules.auth.models import User
 from openrag.modules.models.service import (
@@ -70,6 +75,7 @@ async def test_create_stores_key_as_secret(
     ).scalar_one()
     assert b"sk-live-xyz" not in secret.ciphertext
     assert not hasattr(model, "sync_status")
+    assert model.supports_chat_completion is True
     actions = [
         event.action
         for event in (await session.execute(select(AuditEvent))).scalars()
@@ -80,6 +86,40 @@ async def test_create_stores_key_as_secret(
     [output] = await to_model_out(session, [model])
     assert output.key_fingerprint == secret.fingerprint
     assert not hasattr(output, "api_key")
+
+
+async def test_capability_updates_preserve_evaluator_hierarchy(
+    session: AsyncSession,
+    seeded_user: User,
+    settings: Settings,
+) -> None:
+    ctx = super_ctx(seeded_user)
+    model = await create_model(
+        session,
+        ctx,
+        litellm_model_name="gpt-5-mini",
+        display_name="Judge",
+        provider_kind="openai",
+        base_url=None,
+        api_key="sk-write-only",
+        settings=settings,
+        supports_chat_completion=True,
+        supports_structured_json=True,
+        supports_verifier=True,
+    )
+
+    with pytest.raises(InvalidRequestError, match="structured JSON"):
+        await update_model(
+            session,
+            ctx,
+            model.id,
+            display_name=None,
+            base_url=None,
+            enabled=None,
+            api_key=None,
+            settings=settings,
+            supports_chat_completion=False,
+        )
 
 
 async def test_missing_kek_does_not_leave_a_partial_model(

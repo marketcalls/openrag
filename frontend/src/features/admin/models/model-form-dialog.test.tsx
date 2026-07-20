@@ -14,6 +14,9 @@ const existingModel: ModelOut = {
   base_url: 'https://models.acme.test/v1',
   enabled: true,
   key_fingerprint: '...7890 sha256:abc123',
+  supports_chat_completion: true,
+  supports_structured_json: false,
+  supports_verifier: false,
   supports_reasoning: false,
   default_reasoning_effort: 'off',
 };
@@ -88,6 +91,9 @@ test('submits the assembled model payload', async () => {
         base_url: null,
         enabled: true,
         key_fingerprint: 'ab12…ef90',
+        supports_chat_completion: true,
+        supports_structured_json: false,
+        supports_verifier: false,
         supports_reasoning: false,
         default_reasoning_effort: 'off',
       }),
@@ -112,6 +118,37 @@ test('submits the assembled model payload', async () => {
     litellm_model_name: 'gpt-4o-mini',
     provider_kind: 'openai',
     api_key: 'sk-test-123',
+    supports_chat_completion: true,
+    supports_structured_json: false,
+    supports_verifier: false,
+  });
+});
+
+test('configures evaluator capabilities without allowing invalid combinations', async () => {
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    Response.json(existingModel, { status: 201 }),
+  );
+  const user = userEvent.setup();
+  renderDialog(fetchMock);
+
+  expect(screen.getByLabelText('Chat completion')).toBeChecked();
+  expect(screen.getByLabelText('Structured JSON')).not.toBeChecked();
+  expect(screen.getByLabelText('Verifier / judge')).not.toBeChecked();
+  await user.click(screen.getByLabelText('Verifier / judge'));
+  expect(screen.getByLabelText('Structured JSON')).toBeChecked();
+  expect(screen.getByLabelText('Chat completion')).toBeChecked();
+  await user.type(screen.getByLabelText('Display name'), 'Judge');
+  await user.type(screen.getByLabelText('Model id'), 'gpt-5-mini');
+  await user.type(screen.getByLabelText('API key'), 'sk-test');
+  await user.click(screen.getByRole('button', { name: 'Add model' }));
+
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  const request = fetchMock.mock.calls[0]?.[0];
+  if (!(request instanceof Request)) throw new Error('Expected API client Request');
+  expect(await request.clone().json()).toMatchObject({
+    supports_chat_completion: true,
+    supports_structured_json: true,
+    supports_verifier: true,
   });
 });
 
@@ -172,6 +209,9 @@ test('edits model metadata without resending the stored api key', async () => {
   expect(body).toEqual({
     display_name: 'Private gateway v2',
     base_url: 'https://models.acme.test/v1',
+    supports_chat_completion: true,
+    supports_structured_json: false,
+    supports_verifier: false,
     supports_reasoning: false,
     default_reasoning_effort: 'off',
   });

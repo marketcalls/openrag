@@ -56,6 +56,9 @@ async def create_model(
         base_url=body.base_url,
         api_key=body.api_key,
         settings=settings,
+        supports_chat_completion=body.supports_chat_completion,
+        supports_structured_json=body.supports_structured_json,
+        supports_verifier=body.supports_verifier,
         supports_reasoning=body.supports_reasoning,
         default_reasoning_effort=body.default_reasoning_effort,
     )
@@ -79,6 +82,9 @@ async def patch_model(
         enabled=body.enabled,
         api_key=body.api_key,
         settings=settings,
+        supports_chat_completion=body.supports_chat_completion,
+        supports_structured_json=body.supports_structured_json,
+        supports_verifier=body.supports_verifier,
         supports_reasoning=body.supports_reasoning,
         default_reasoning_effort=body.default_reasoning_effort,
     )
