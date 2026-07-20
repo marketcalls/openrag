@@ -20,6 +20,7 @@ from openrag.api.routes.embedding_deployments import (
     router as embedding_deployments_router,
 )
 from openrag.api.routes.embedding_profiles import router as embedding_profiles_router
+from openrag.api.routes.evaluations import router as evaluations_router
 from openrag.api.routes.health import router as health_router
 from openrag.api.routes.memories import router as memories_router
 from openrag.api.routes.models import router as models_router
@@ -191,6 +192,7 @@ def create_app(
     app.include_router(documents_router, prefix="/api/v1")
     app.include_router(embedding_profiles_router, prefix="/api/v1")
     app.include_router(embedding_deployments_router, prefix="/api/v1")
+    app.include_router(evaluations_router, prefix="/api/v1")
     app.include_router(health_router)
     app.include_router(memories_router, prefix="/api/v1")
     app.include_router(models_router, prefix="/api/v1")

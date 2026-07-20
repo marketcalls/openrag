@@ -308,7 +308,7 @@ Commit: `feat: add superadmin rag operations dashboard`
 - Produces versioned datasets/cases, queued evaluation runs, per-case retrieval/answer/citation/refusal results, and aggregate recall@k, precision@k, MRR, nDCG, citation precision/recall, groundedness, answer relevance, and correct-refusal rates.
 - Evaluation jobs run on queue `evaluations` with an explicit case count, token, and estimated-cost budget.
 
-- [ ] **Step 1: Write deterministic metric tests**
+- [x] **Step 1: Write deterministic metric tests**
 
 ```python
 def test_rank_metrics_match_known_order() -> None:
@@ -319,7 +319,7 @@ def test_rank_metrics_match_known_order() -> None:
     assert 0 < result.ndcg <= 1
 ```
 
-- [ ] **Step 2: Add immutable dataset versions and budgeted run state**
+- [x] **Step 2: Add immutable dataset versions and budgeted run state**
 
 Cases store bounded questions plus expected immutable document-version/evidence IDs; only this explicitly approved evaluation corpus may retain question text. Dataset versions are immutable once used. Runs are lease-fenced and terminally idempotent.
 
