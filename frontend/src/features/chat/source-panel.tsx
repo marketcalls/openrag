@@ -30,6 +30,12 @@ export function SourcePanel({
           </span>
           <FileText className="h-3 w-3 text-muted" aria-hidden />
           <span className="max-w-[220px] truncate">{source.filename}</span>
+          {source.version_label ? (
+            <span className="text-muted">· {source.version_label}</span>
+          ) : null}
+          {source.section_label ? (
+            <span className="max-w-[180px] truncate text-muted">· {source.section_label}</span>
+          ) : null}
           <span className="text-muted">· p. {source.page}</span>
         </button>
       ))}

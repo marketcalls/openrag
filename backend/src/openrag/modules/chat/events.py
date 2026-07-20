@@ -23,6 +23,18 @@ class SourceRef:
     chunk_index: int
     score: float
     snippet: str
+    document_version_id: str | None = None
+    evidence_span_id: str | None = None
+    version_label: str | None = None
+    section_label: str | None = None
+    section_path: list[str] | None = None
+    locator_kind: str | None = None
+    locator_label: str | None = None
+    content_hash: str | None = None
+    dense_score: float | None = None
+    sparse_score: float | None = None
+    fused_score: float | None = None
+    rerank_score: float | None = None
 
 
 @dataclass(frozen=True)
@@ -32,6 +44,19 @@ class CitationRef:
     chunk_ref: str
     page: int
     score: float
+    document_version_id: str | None = None
+    evidence_span_id: str | None = None
+    document_name: str | None = None
+    version_label: str | None = None
+    section_label: str | None = None
+    section_path: list[str] | None = None
+    locator_kind: str | None = None
+    locator_label: str | None = None
+    content_hash: str | None = None
+    dense_score: float | None = None
+    sparse_score: float | None = None
+    fused_score: float | None = None
+    rerank_score: float | None = None
 
 
 def retrieval_started_event() -> SSEEvent:

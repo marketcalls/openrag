@@ -328,6 +328,32 @@ async def _source_refs(
     context: TenantContext,
     result: RetrievalResult,
 ) -> list[SourceRef]:
+    if result.evidence:
+        return [
+            SourceRef(
+                marker=marker,
+                document_id=str(evidence.document_id),
+                filename=evidence.document_name,
+                page=evidence.page_number,
+                chunk_index=evidence.chunk_index,
+                score=evidence.fused_score,
+                snippet=evidence.text[:_SNIPPET_CHARS],
+                document_version_id=str(evidence.document_version_id),
+                evidence_span_id=str(evidence.evidence_span_id),
+                version_label=evidence.version_label,
+                section_label=" / ".join(evidence.section_path),
+                section_path=list(evidence.section_path),
+                locator_kind=evidence.locator_kind,
+                locator_label=evidence.locator_label,
+                content_hash=evidence.content_hash,
+                dense_score=evidence.dense_score,
+                sparse_score=evidence.sparse_score,
+                fused_score=evidence.fused_score,
+                rerank_score=evidence.rerank_score,
+            )
+            for marker, evidence in enumerate(result.evidence, start=1)
+        ]
+
     filenames: dict[UUID, str] = {}
     references: list[SourceRef] = []
     for marker, chunk in enumerate(result.chunks, start=1):
@@ -556,6 +582,19 @@ async def stream_reply(
             ),
             page=by_marker[marker].page,
             score=by_marker[marker].score,
+            document_version_id=by_marker[marker].document_version_id,
+            evidence_span_id=by_marker[marker].evidence_span_id,
+            document_name=by_marker[marker].filename,
+            version_label=by_marker[marker].version_label,
+            section_label=by_marker[marker].section_label,
+            section_path=by_marker[marker].section_path,
+            locator_kind=by_marker[marker].locator_kind,
+            locator_label=by_marker[marker].locator_label,
+            content_hash=by_marker[marker].content_hash,
+            dense_score=by_marker[marker].dense_score,
+            sparse_score=by_marker[marker].sparse_score,
+            fused_score=by_marker[marker].fused_score,
+            rerank_score=by_marker[marker].rerank_score,
         )
         for marker in markers
     ]

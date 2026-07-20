@@ -25,11 +25,23 @@ function historicalSources(citations: CitationRef[]): SourceRef[] {
   return citations.map((citation) => ({
     marker: citation.marker,
     document_id: citation.document_id,
-    filename: `Document ${citation.document_id.slice(0, 8)}`,
+    filename: citation.document_name ?? `Document ${citation.document_id.slice(0, 8)}`,
     page: citation.page,
     chunk_index: Number(citation.chunk_ref.split(':').at(-1)) || 0,
     score: citation.score,
     snippet: '',
+    document_version_id: citation.document_version_id,
+    evidence_span_id: citation.evidence_span_id,
+    version_label: citation.version_label,
+    section_label: citation.section_label,
+    section_path: citation.section_path,
+    locator_kind: citation.locator_kind,
+    locator_label: citation.locator_label,
+    content_hash: citation.content_hash,
+    dense_score: citation.dense_score,
+    sparse_score: citation.sparse_score,
+    fused_score: citation.fused_score,
+    rerank_score: citation.rerank_score,
   }));
 }
 

@@ -36,6 +36,18 @@ export interface SourceRef {
   chunk_index: number;
   score: number;
   snippet: string;
+  document_version_id?: string | null;
+  evidence_span_id?: string | null;
+  version_label?: string | null;
+  section_label?: string | null;
+  section_path?: string[] | null;
+  locator_kind?: string | null;
+  locator_label?: string | null;
+  content_hash?: string | null;
+  dense_score?: number | null;
+  sparse_score?: number | null;
+  fused_score?: number | null;
+  rerank_score?: number | null;
 }
 
 export interface CitationRef {
@@ -44,6 +56,19 @@ export interface CitationRef {
   chunk_ref: string;
   page: number;
   score: number;
+  document_version_id?: string | null;
+  evidence_span_id?: string | null;
+  document_name?: string | null;
+  version_label?: string | null;
+  section_label?: string | null;
+  section_path?: string[] | null;
+  locator_kind?: string | null;
+  locator_label?: string | null;
+  content_hash?: string | null;
+  dense_score?: number | null;
+  sparse_score?: number | null;
+  fused_score?: number | null;
+  rerank_score?: number | null;
 }
 
 export interface DoneInfo {
