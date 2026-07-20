@@ -26,3 +26,29 @@ test('whitespace-only content is not sent and disabled state blocks sending', as
   rerender(<ChatInput onSend={onSend} disabled />);
   expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
 });
+
+test('shows bounded reasoning controls only for capable models', async () => {
+  const onReasoningEffortChange = vi.fn();
+  const { rerender } = render(
+    <ChatInput
+      onSend={vi.fn()}
+      disabled={false}
+      supportsReasoning={false}
+      reasoningEffort="off"
+      onReasoningEffortChange={onReasoningEffortChange}
+    />,
+  );
+  expect(screen.queryByLabelText('Reasoning effort')).not.toBeInTheDocument();
+
+  rerender(
+    <ChatInput
+      onSend={vi.fn()}
+      disabled={false}
+      supportsReasoning
+      reasoningEffort="medium"
+      onReasoningEffortChange={onReasoningEffortChange}
+    />,
+  );
+  await userEvent.selectOptions(screen.getByLabelText('Reasoning effort'), 'high');
+  expect(onReasoningEffortChange).toHaveBeenCalledWith('high');
+});

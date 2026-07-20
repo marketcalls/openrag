@@ -2280,6 +2280,17 @@ export interface components {
             base_url?: string | null;
             /** Api Key */
             api_key?: string | null;
+            /**
+             * Supports Reasoning
+             * @default false
+             */
+            supports_reasoning: boolean;
+            /**
+             * Default Reasoning Effort
+             * @default off
+             * @enum {string}
+             */
+            default_reasoning_effort: "off" | "low" | "medium" | "high";
         };
         /** ModelOut */
         ModelOut: {
@@ -2308,6 +2319,13 @@ export interface components {
              * @enum {string}
              */
             sync_status: "synced" | "error" | "pending";
+            /** Supports Reasoning */
+            supports_reasoning: boolean;
+            /**
+             * Default Reasoning Effort
+             * @enum {string}
+             */
+            default_reasoning_effort: "off" | "low" | "medium" | "high";
         };
         /** ModelPatch */
         ModelPatch: {
@@ -2319,6 +2337,10 @@ export interface components {
             enabled?: boolean | null;
             /** Api Key */
             api_key?: string | null;
+            /** Supports Reasoning */
+            supports_reasoning?: boolean | null;
+            /** Default Reasoning Effort */
+            default_reasoning_effort?: ("off" | "low" | "medium" | "high") | null;
         };
         /** ModelPublic */
         ModelPublic: {
@@ -2329,6 +2351,13 @@ export interface components {
             id: string;
             /** Display Name */
             display_name: string;
+            /** Supports Reasoning */
+            supports_reasoning: boolean;
+            /**
+             * Default Reasoning Effort
+             * @enum {string}
+             */
+            default_reasoning_effort: "off" | "low" | "medium" | "high";
         };
         /** PermissionCatalogOut */
         PermissionCatalogOut: {
@@ -2611,6 +2640,8 @@ export interface components {
             parent_message_id?: string | null;
             /** Model Id */
             model_id?: string | null;
+            /** Reasoning Effort */
+            reasoning_effort?: ("off" | "low" | "medium" | "high") | null;
         };
         /** RunRegenerate */
         RunRegenerate: {
@@ -2621,6 +2652,8 @@ export interface components {
             client_request_id: string;
             /** Model Id */
             model_id?: string | null;
+            /** Reasoning Effort */
+            reasoning_effort?: ("off" | "low" | "medium" | "high") | null;
         };
         /**
          * RunStatusOut

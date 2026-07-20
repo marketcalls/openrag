@@ -61,6 +61,7 @@ export function ModelsPage() {
                   <TH>Base URL</TH>
                   <TH>Key</TH>
                   <TH>Gateway</TH>
+                  <TH>Reasoning</TH>
                   <TH>Enabled</TH>
                   <TH><span className="sr-only">Actions</span></TH>
                 </TR>
@@ -83,6 +84,9 @@ export function ModelsPage() {
                       <StatusPill tone={syncTone(model.sync_status)}>
                         {model.sync_status}
                       </StatusPill>
+                    </TD>
+                    <TD className="capitalize text-secondary">
+                      {model.supports_reasoning ? model.default_reasoning_effort : 'off'}
                     </TD>
                     <TD>
                       <input

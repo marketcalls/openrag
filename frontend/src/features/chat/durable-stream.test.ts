@@ -1,6 +1,10 @@
 import { setAccessToken } from '@/lib/auth-store';
 
-import { acceptDurableRun, streamDurableRun } from './durable-stream';
+import {
+  acceptDurableRegeneration,
+  acceptDurableRun,
+  streamDurableRun,
+} from './durable-stream';
 import type { ChatSseEvent } from './stream';
 
 function sseResponse(frames: string[]): Response {
@@ -57,13 +61,19 @@ test('accepts a run and replays its typed durable stream to completion', async (
   );
 
   const controller = new AbortController();
-  const accepted = await acceptDurableRun('c1', { content: 'hi' }, controller.signal);
+  const accepted = await acceptDurableRun(
+    'c1',
+    { content: 'hi', model_id: 'm1', reasoning_effort: 'high' },
+    controller.signal,
+  );
   const events: ChatSseEvent[] = [];
   await streamDurableRun(accepted, (event) => events.push(event), controller.signal);
 
   expect(requests.map((request) => request.method)).toEqual(['POST', 'GET']);
   expect(await requests[0]!.clone().json()).toMatchObject({
     content: 'hi',
+    model_id: 'm1',
+    reasoning_effort: 'high',
     client_request_id: expect.any(String),
   });
   expect(events.map((event) => event.type)).toEqual([
@@ -80,5 +90,34 @@ test('accepts a run and replays its typed durable stream to completion', async (
       completion_tokens: 1,
       no_answer: false,
     },
+  });
+});
+
+test('regeneration preserves the selected model and reasoning effort', async () => {
+  const requests: Request[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: Request) => {
+      requests.push(input);
+      return new Response(JSON.stringify({ run_id: 'r2', events_url: '/events/r2' }), {
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+      });
+    }),
+  );
+
+  await acceptDurableRegeneration(
+    'assistant-1',
+    'model-1',
+    'medium',
+    new AbortController().signal,
+  );
+
+  const request = requests[0];
+  if (!request) throw new Error('Expected a Request');
+  expect(await request.clone().json()).toMatchObject({
+    model_id: 'model-1',
+    reasoning_effort: 'medium',
+    client_request_id: expect.any(String),
   });
 });

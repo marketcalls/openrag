@@ -15,6 +15,8 @@ const existingModel: ModelOut = {
   enabled: true,
   key_fingerprint: '...7890 sha256:abc123',
   sync_status: 'synced',
+  supports_reasoning: false,
+  default_reasoning_effort: 'off',
 };
 
 function renderDialog(fetchMock = vi.fn(), model?: ModelOut) {
@@ -88,6 +90,8 @@ test('submits the assembled model payload', async () => {
         enabled: true,
         key_fingerprint: 'ab12…ef90',
         sync_status: 'pending',
+        supports_reasoning: false,
+        default_reasoning_effort: 'off',
       }),
       { status: 201, headers: { 'content-type': 'application/json' } },
     ),
@@ -110,6 +114,37 @@ test('submits the assembled model payload', async () => {
     litellm_model_name: 'gpt-4o-mini',
     provider_kind: 'openai',
     api_key: 'sk-test-123',
+  });
+});
+
+test('configures reasoning capability and a safe default effort', async () => {
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    new Response(
+      JSON.stringify({
+        ...existingModel,
+        supports_reasoning: true,
+        default_reasoning_effort: 'medium',
+      }),
+      { status: 201, headers: { 'content-type': 'application/json' } },
+    ),
+  );
+  const user = userEvent.setup();
+  renderDialog(fetchMock);
+
+  expect(screen.queryByLabelText('Default reasoning effort')).not.toBeInTheDocument();
+  await user.click(screen.getByLabelText('Supports reasoning effort'));
+  await user.selectOptions(screen.getByLabelText('Default reasoning effort'), 'medium');
+  await user.type(screen.getByLabelText('Display name'), 'GPT-5 mini');
+  await user.type(screen.getByLabelText('Model id'), 'gpt-5-mini');
+  await user.type(screen.getByLabelText('API key'), 'sk-test');
+  await user.click(screen.getByRole('button', { name: 'Add model' }));
+
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  const request = fetchMock.mock.calls[0]?.[0];
+  if (!(request instanceof Request)) throw new Error('Expected API client Request');
+  expect(await request.clone().json()).toMatchObject({
+    supports_reasoning: true,
+    default_reasoning_effort: 'medium',
   });
 });
 
@@ -139,6 +174,8 @@ test('edits model metadata without resending the stored api key', async () => {
   expect(body).toEqual({
     display_name: 'Private gateway v2',
     base_url: 'https://models.acme.test/v1',
+    supports_reasoning: false,
+    default_reasoning_effort: 'off',
   });
   expect(body).not.toHaveProperty('api_key');
 });

@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 
-import type { ChatRoute, CitationRef, SourceRef } from '@/api/types';
+import type { ChatRoute, CitationRef, ReasoningEffort, SourceRef } from '@/api/types';
 
 import {
   acceptDurableRegeneration,
@@ -76,7 +76,12 @@ export function useChatStream(chatId: string | null) {
   const activeRunId = useRef<string | null>(null);
 
   const send = useCallback(
-    (content: string, parentMessageId?: string | null, modelId?: string | null) => {
+    (
+      content: string,
+      parentMessageId?: string | null,
+      modelId?: string | null,
+      reasoningEffort: ReasoningEffort = 'off',
+    ) => {
       if (!chatId) return;
       abortController.current?.abort();
       const controller = new AbortController();
@@ -91,6 +96,7 @@ export function useChatStream(chatId: string | null) {
               content,
               ...(parentMessageId !== undefined ? { parent_message_id: parentMessageId } : {}),
               ...(modelId ? { model_id: modelId } : {}),
+              reasoning_effort: reasoningEffort,
             },
             controller.signal,
           );
@@ -122,7 +128,11 @@ export function useChatStream(chatId: string | null) {
   );
 
   const regenerate = useCallback(
-    (messageId: string) => {
+    (
+      messageId: string,
+      modelId: string | null,
+      reasoningEffort: ReasoningEffort,
+    ) => {
       if (!chatId) return;
       abortController.current?.abort();
       const controller = new AbortController();
@@ -131,7 +141,12 @@ export function useChatStream(chatId: string | null) {
       setState({ ...IDLE, status: 'routing', pendingUserContent: null });
       void (async () => {
         try {
-          const accepted = await acceptDurableRegeneration(messageId, null, controller.signal);
+          const accepted = await acceptDurableRegeneration(
+            messageId,
+            modelId,
+            reasoningEffort,
+            controller.signal,
+          );
           activeRunId.current = accepted.run_id;
           await streamDurableRun(
             accepted,

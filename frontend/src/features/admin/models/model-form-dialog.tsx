@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
-import type { ModelCreate, ModelOut, ModelPatch } from '@/api/types';
+import type { ModelCreate, ModelOut, ModelPatch, ReasoningEffort } from '@/api/types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -31,6 +31,9 @@ export function ModelFormDialog({
   const [modelId, setModelId] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [supportsReasoning, setSupportsReasoning] = useState(false);
+  const [defaultReasoningEffort, setDefaultReasoningEffort] =
+    useState<ReasoningEffort>('off');
   const editing = model !== null && model !== undefined;
 
   useEffect(() => {
@@ -40,6 +43,8 @@ export function ModelFormDialog({
     setModelId(model?.litellm_model_name ?? '');
     setBaseUrl(model?.base_url ?? '');
     setApiKey('');
+    setSupportsReasoning(model?.supports_reasoning ?? false);
+    setDefaultReasoningEffort(model?.default_reasoning_effort ?? 'off');
   }, [model, open]);
 
   const close = (next: boolean): void => {
@@ -49,6 +54,8 @@ export function ModelFormDialog({
       setModelId('');
       setBaseUrl('');
       setApiKey('');
+      setSupportsReasoning(false);
+      setDefaultReasoningEffort('off');
       create.reset();
       patch.reset();
     }
@@ -63,6 +70,8 @@ export function ModelFormDialog({
         display_name: displayName.trim(),
         ...(NEEDS_BASE_URL.includes(provider) ? { base_url: baseUrl.trim() } : {}),
         ...(NEEDS_KEY.includes(provider) && apiKey ? { api_key: apiKey } : {}),
+        supports_reasoning: supportsReasoning,
+        default_reasoning_effort: supportsReasoning ? defaultReasoningEffort : 'off',
       };
       patch.mutate(
         { modelId: model.id, body },
@@ -84,6 +93,8 @@ export function ModelFormDialog({
         ? { base_url: baseUrl.trim() }
         : {}),
       ...(NEEDS_KEY.includes(provider) && apiKey ? { api_key: apiKey } : {}),
+      supports_reasoning: supportsReasoning,
+      default_reasoning_effort: supportsReasoning ? defaultReasoningEffort : 'off',
     };
 
     create.mutate(body, {
@@ -101,7 +112,7 @@ export function ModelFormDialog({
         description={
           editing
             ? 'Update model metadata or rotate its write-only provider key.'
-            : 'Register a model with OpenRAG and synchronize it to the LiteLLM gateway.'
+            : 'Register a model with OpenRAG for the in-process LiteLLM runtime.'
         }
       >
         <form onSubmit={onSubmit} className="space-y-3">
@@ -175,6 +186,41 @@ export function ModelFormDialog({
               ) : null}
             </div>
           ) : null}
+          <div className="rounded-md border border-line bg-subtle/50 p-3">
+            <label className="flex items-center gap-2 text-[13px] font-medium text-ink">
+              <input
+                type="checkbox"
+                aria-label="Supports reasoning effort"
+                checked={supportsReasoning}
+                onChange={(event) => {
+                  setSupportsReasoning(event.target.checked);
+                  if (!event.target.checked) setDefaultReasoningEffort('off');
+                }}
+                className="h-4 w-4 accent-[var(--accent)]"
+              />
+              Supports reasoning effort
+            </label>
+            <p className="mt-1 text-[11px] text-muted">
+              Enable only when the provider model accepts LiteLLM reasoning effort.
+            </p>
+            {supportsReasoning ? (
+              <div className="mt-3">
+                <Label htmlFor="model-default-reasoning">Default reasoning effort</Label>
+                <NativeSelect
+                  id="model-default-reasoning"
+                  value={defaultReasoningEffort}
+                  onChange={(event) =>
+                    setDefaultReasoningEffort(event.target.value as ReasoningEffort)
+                  }
+                >
+                  <option value="off">Off</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </NativeSelect>
+              </div>
+            ) : null}
+          </div>
           {create.isError || patch.isError ? (
             <p role="alert" className="text-[12px] text-danger">
               {(create.error ?? patch.error)?.message}

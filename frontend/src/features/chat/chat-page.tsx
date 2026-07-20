@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
-import type { CitationRef, SourceRef } from '@/api/types';
+import type { CitationRef, ReasoningEffort, SourceRef } from '@/api/types';
 import { TopBar } from '@/components/layout/top-bar';
 import { Spinner } from '@/components/ui/spinner';
 import { useModels } from '@/features/models/queries';
@@ -57,22 +57,49 @@ export function ChatPage() {
   const stream = useChatStream(chatId);
   const { path, select, reset: resetSelection } = useTreeSelection(chatQuery.data?.messages);
   const [modelId, setModelId] = useState<string | null>(null);
+  const [reasoningOverride, setReasoningOverride] = useState<ReasoningEffort | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const endOfThread = useRef<HTMLDivElement>(null);
 
   const workspace = workspaces?.find((item) => item.id === workspaceId);
   const effectiveModelId = modelId ?? workspace?.default_model_id ?? models?.[0]?.id ?? null;
+  const effectiveModel = models?.find((model) => model.id === effectiveModelId);
+  const effectiveReasoningEffort: ReasoningEffort = effectiveModel?.supports_reasoning
+    ? (reasoningOverride ?? effectiveModel.default_reasoning_effort)
+    : 'off';
 
-  const initialMessage = (location.state as { initialMessage?: string } | null)?.initialMessage;
+  const handoff = location.state as
+    | {
+        initialMessage?: string;
+        initialModelId?: string | null;
+        initialReasoningEffort?: ReasoningEffort;
+      }
+    | null;
+  const initialMessage = handoff?.initialMessage;
   const sentHandoff = useRef<string | null>(null);
   useEffect(() => {
     if (!chatId || !initialMessage) return;
     const handoffKey = `${chatId}:${initialMessage}`;
     if (sentHandoff.current === handoffKey) return;
     sentHandoff.current = handoffKey;
-    stream.send(initialMessage, null, effectiveModelId);
+    stream.send(
+      initialMessage,
+      null,
+      handoff?.initialModelId ?? effectiveModelId,
+      handoff?.initialReasoningEffort ?? effectiveReasoningEffort,
+    );
     navigate(location.pathname, { replace: true, state: null });
-  }, [chatId, effectiveModelId, initialMessage, location.pathname, navigate, stream]);
+  }, [
+    chatId,
+    effectiveModelId,
+    effectiveReasoningEffort,
+    handoff?.initialModelId,
+    handoff?.initialReasoningEffort,
+    initialMessage,
+    location.pathname,
+    navigate,
+    stream,
+  ]);
 
   const streamedInTree = useMemo(
     () =>
@@ -90,7 +117,7 @@ export function ChatPage() {
 
   const onSend = (content: string) => {
     if (chatId) {
-      stream.send(content, activeLeafId(path), effectiveModelId);
+      stream.send(content, activeLeafId(path), effectiveModelId, effectiveReasoningEffort);
       return;
     }
     if (!workspaceId) return;
@@ -98,7 +125,13 @@ export function ChatPage() {
       { workspace_id: workspaceId },
       {
         onSuccess: (chat) =>
-          navigate(`/chat/${chat.id}`, { state: { initialMessage: content } }),
+          navigate(`/chat/${chat.id}`, {
+            state: {
+              initialMessage: content,
+              initialModelId: effectiveModelId,
+              initialReasoningEffort: effectiveReasoningEffort,
+            },
+          }),
       },
     );
   };
@@ -116,7 +149,10 @@ export function ChatPage() {
             <ModelSelector
               models={models ?? []}
               value={effectiveModelId}
-              onChange={setModelId}
+              onChange={(nextModelId) => {
+                setModelId(nextModelId);
+                setReasoningOverride(null);
+              }}
             />
           </>
         }
@@ -141,7 +177,12 @@ export function ChatPage() {
                     onSend={(content) => {
                       setEditingId(null);
                       resetSelection();
-                      stream.send(content, message.parent_message_id, effectiveModelId);
+                      stream.send(
+                        content,
+                        message.parent_message_id,
+                        effectiveModelId,
+                        effectiveReasoningEffort,
+                      );
                     }}
                   />
                 );
@@ -173,7 +214,11 @@ export function ChatPage() {
                     onSelectSibling={select}
                     onRegenerate={() => {
                       resetSelection();
-                      stream.regenerate(message.id);
+                      stream.regenerate(
+                        message.id,
+                        effectiveModelId,
+                        effectiveReasoningEffort,
+                      );
                     }}
                   />
                 }
@@ -198,6 +243,9 @@ export function ChatPage() {
         onSend={onSend}
         disabled={busy || createChat.isPending || !workspaceId || !effectiveModelId}
         placeholder={!effectiveModelId ? 'Configure a model to start chatting' : undefined}
+        supportsReasoning={effectiveModel?.supports_reasoning ?? false}
+        reasoningEffort={effectiveReasoningEffort}
+        onReasoningEffortChange={setReasoningOverride}
       />
     </>
   );

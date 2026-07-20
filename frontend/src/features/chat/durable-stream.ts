@@ -1,5 +1,11 @@
 import { authFetch } from '@/api/client';
-import type { ChatRoute, CitationRef, DoneInfo, SourceRef } from '@/api/types';
+import type {
+  ChatRoute,
+  CitationRef,
+  DoneInfo,
+  ReasoningEffort,
+  SourceRef,
+} from '@/api/types';
 import { createSseParser, type SseMessage } from '@/lib/sse';
 
 import type { ChatSseEvent } from './stream';
@@ -67,7 +73,12 @@ async function problemDetail(response: Response): Promise<string> {
 
 export async function acceptDurableRun(
   chatId: string,
-  body: { content: string; parent_message_id?: string | null; model_id?: string },
+  body: {
+    content: string;
+    parent_message_id?: string | null;
+    model_id?: string;
+    reasoning_effort?: ReasoningEffort;
+  },
   signal: AbortSignal,
 ): Promise<AcceptedRun> {
   return acceptRunAt(
@@ -80,6 +91,7 @@ export async function acceptDurableRun(
 export async function acceptDurableRegeneration(
   messageId: string,
   modelId: string | null,
+  reasoningEffort: ReasoningEffort,
   signal: AbortSignal,
 ): Promise<AcceptedRun> {
   return acceptRunAt(
@@ -87,6 +99,7 @@ export async function acceptDurableRegeneration(
     {
       client_request_id: crypto.randomUUID(),
       ...(modelId ? { model_id: modelId } : {}),
+      reasoning_effort: reasoningEffort,
     },
     signal,
   );
