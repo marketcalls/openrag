@@ -179,6 +179,40 @@ export async function streamDurableRun(
         case 'retrieval.started':
           onEvent({ type: 'retrieval_started' });
           break;
+        case 'agent.started':
+          if (typeof data.reason_code === 'string') {
+            onEvent({ type: 'agent_started', reasonCode: data.reason_code });
+          }
+          break;
+        case 'tool.started':
+        case 'tool.completed':
+        case 'tool.failed':
+          if (
+            typeof data.iteration === 'number' &&
+            Number.isInteger(data.iteration) &&
+            typeof data.tool === 'string' &&
+            (data.tool === 'search' ||
+              data.tool === 'search_by_metadata' ||
+              data.tool === 'get_document')
+          ) {
+            onEvent({
+              type: 'tool_progress',
+              iteration: data.iteration,
+              stage:
+                event.event_type === 'tool.started'
+                  ? 'started'
+                  : event.event_type === 'tool.completed'
+                    ? 'completed'
+                    : 'failed',
+              tool: data.tool,
+            });
+          }
+          break;
+        case 'agent.completed':
+          if (typeof data.finish_reason === 'string') {
+            onEvent({ type: 'agent_completed', finishReason: data.finish_reason });
+          }
+          break;
         case 'retrieval.sources':
           onEvent({ type: 'sources', sources: safeSources(data.sources) });
           break;

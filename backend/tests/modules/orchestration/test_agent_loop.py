@@ -5,7 +5,9 @@ import pytest
 
 from openrag.modules.orchestration.agent_loop import (
     AgentAction,
+    AgentLoopProgress,
     AgentLoopState,
+    AgentObservation,
     AgentToolCall,
     AgentToolResult,
     EscalationContext,
@@ -49,6 +51,54 @@ async def test_duplicate_tool_call_stops_without_executing_it_twice() -> None:
 
     assert calls == 1
     assert result.finish_reason == "duplicate_tool_call"
+
+
+async def test_seeded_retrieval_is_visible_and_cannot_be_repeated() -> None:
+    initial_call = AgentToolCall(name="search", query="original query")
+    initial = AgentObservation(
+        call=initial_call,
+        text="<data>initial evidence</data>",
+        provenance_refs=("span-1",),
+    )
+    executed = 0
+
+    async def planner(state: AgentLoopState) -> AgentAction:
+        assert state.observations == (initial,)
+        return AgentAction.tool(initial_call)
+
+    async def execute(_call: AgentToolCall) -> AgentToolResult:
+        nonlocal executed
+        executed += 1
+        return AgentToolResult(text="should not run")
+
+    result = await run_agent_loop(
+        planner,
+        execute,
+        initial_observations=(initial,),
+    )
+
+    assert executed == 0
+    assert result.finish_reason == "duplicate_tool_call"
+
+
+async def test_loop_emits_safe_tool_lifecycle_progress() -> None:
+    progress: list[AgentLoopProgress] = []
+
+    async def planner(state: AgentLoopState) -> AgentAction:
+        if state.observations:
+            return AgentAction.finish()
+        return AgentAction.tool(AgentToolCall(name="search", query="policy"))
+
+    async def execute(_call: AgentToolCall) -> AgentToolResult:
+        return AgentToolResult(text="evidence")
+
+    result = await run_agent_loop(planner, execute, on_progress=progress.append)
+
+    assert result.finish_reason == "planner_finished"
+    assert progress == [
+        AgentLoopProgress(iteration=1, stage="started", tool="search"),
+        AgentLoopProgress(iteration=1, stage="completed", tool="search"),
+    ]
 
 
 async def test_tool_results_are_escaped_and_bounded_before_reentering_the_planner() -> None:

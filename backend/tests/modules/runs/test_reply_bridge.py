@@ -169,6 +169,67 @@ async def test_bridge_streams_safe_durable_events_and_completes() -> None:
     ]
 
 
+async def test_bridge_persists_only_safe_agent_lifecycle_fields() -> None:
+    identity = _identity()
+    lifecycle = FakeLifecycle()
+    bus = RecordingBus()
+    bridge = DurableReplyBridge(lifecycle, bus)
+
+    await bridge.consume(
+        identity,
+        _events(
+            SSEEvent(
+                "agent_started",
+                {
+                    "reason_code": "weak_evidence",
+                    "query": "confidential user question",
+                },
+            ),
+            SSEEvent(
+                "tool_progress",
+                {
+                    "iteration": 1,
+                    "stage": "started",
+                    "tool": "search",
+                    "query": "must not persist",
+                    "result": "must not persist",
+                },
+            ),
+            SSEEvent(
+                "tool_progress",
+                {
+                    "iteration": 1,
+                    "stage": "completed",
+                    "tool": "search",
+                },
+            ),
+            SSEEvent(
+                "agent_completed",
+                {
+                    "finish_reason": "planner_finished",
+                    "reasoning": "must not persist",
+                },
+            ),
+            SSEEvent("error", {"detail": "stop after lifecycle assertions"}),
+        ),
+    )
+
+    assert [event["event_type"] for event in bus.events] == [
+        "agent.started",
+        "tool.started",
+        "tool.completed",
+        "agent.completed",
+    ]
+    assert [event["payload"] for event in bus.events] == [
+        {"reason_code": "weak_evidence"},
+        {"iteration": 1, "tool": "search"},
+        {"iteration": 1, "tool": "search"},
+        {"finish_reason": "planner_finished"},
+    ]
+    assert "confidential" not in str(bus.events)
+    assert "must not persist" not in str(bus.events)
+
+
 async def test_bridge_reports_monotonic_stage_boundaries() -> None:
     identity = _identity()
     lifecycle = FakeLifecycle()

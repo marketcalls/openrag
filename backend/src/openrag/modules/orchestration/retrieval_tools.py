@@ -16,9 +16,11 @@ from openrag.modules.documents.models import (
     DocumentVersion,
 )
 from openrag.modules.orchestration.agent_loop import (
+    AgentObservation,
     AgentToolCall,
     AgentToolResult,
     MetadataScalar,
+    wrap_untrusted_data,
 )
 from openrag.modules.retrieval.authority import (
     AuthorizedEvidence,
@@ -27,15 +29,82 @@ from openrag.modules.retrieval.authority import (
 )
 from openrag.modules.retrieval.service import (
     RetrievalResult,
+    RetrievedChunk,
     RetrievedEvidence,
     execute_retrieval,
     finalize_retrieval,
     prepare_retrieval,
+    select_final_evidence,
+)
+from openrag.modules.retrieval.sufficiency import (
+    EvidenceStatus,
+    SufficiencyPolicy,
+    evaluate_evidence,
 )
 from openrag.modules.tenancy.context import TenantContext
 
 _MAX_RESULTS_PER_CALL = 16
 _MAX_EVIDENCE_TEXT_CHARS = 4_000
+
+
+def merge_authoritative_evidence(
+    query: str,
+    evidence: Sequence[RetrievedEvidence],
+    *,
+    top_k: int,
+    min_score: float,
+) -> RetrievalResult:
+    """Deduplicate agent evidence and rerun the deterministic release gate."""
+
+    if len(evidence) > 128:
+        raise ValueError("agent_evidence_limit_exceeded")
+    by_span: dict[UUID, RetrievedEvidence] = {}
+    for item in evidence:
+        current = by_span.get(item.evidence_span_id)
+        item_rank = (
+            item.dense_score if item.dense_score is not None else -1.0,
+            item.fused_score,
+        )
+        current_rank = (
+            current.dense_score if current and current.dense_score is not None else -1.0,
+            current.fused_score if current else -1.0,
+        )
+        if current is None or item_rank > current_rank:
+            by_span[item.evidence_span_id] = item
+    ranked = sorted(
+        by_span.values(),
+        key=lambda item: (
+            item.dense_score if item.dense_score is not None else -1.0,
+            item.fused_score,
+        ),
+        reverse=True,
+    )
+    selected = select_final_evidence(
+        ranked,
+        top_k=top_k,
+        max_per_document=min(4, top_k),
+        max_per_section=min(2, top_k),
+    )
+    decision = evaluate_evidence(
+        query,
+        selected,
+        SufficiencyPolicy(min_dense_score=min_score),
+    )
+    return RetrievalResult(
+        chunks=[
+            RetrievedChunk(
+                document_id=item.document_id,
+                page=item.page_number,
+                chunk_index=item.chunk_index,
+                text=item.text,
+                score=item.fused_score,
+            )
+            for item in selected
+        ],
+        no_answer=decision.status is not EvidenceStatus.SUFFICIENT,
+        evidence=selected,
+        decision=decision,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,6 +365,25 @@ class RetrievalToolExecutor:
     @property
     def collected_evidence(self) -> tuple[RetrievedEvidence, ...]:
         return tuple(self._evidence.values())
+
+    def seed(
+        self,
+        *,
+        query: str,
+        evidence: Sequence[RetrievedEvidence],
+    ) -> AgentObservation:
+        call = AgentToolCall(name="search", query=query)
+        bounded: list[RetrievedEvidence] = []
+        for item in evidence[:_MAX_RESULTS_PER_CALL]:
+            if item.evidence_span_id in self._evidence:
+                continue
+            self._evidence[item.evidence_span_id] = item
+            bounded.append(item)
+        return AgentObservation(
+            call=call,
+            text=wrap_untrusted_data(_render(bounded), max_chars=15_000),
+            provenance_refs=tuple(str(item.evidence_span_id) for item in bounded),
+        )
 
     async def __call__(self, call: AgentToolCall) -> AgentToolResult:
         if call.name == "get_document":

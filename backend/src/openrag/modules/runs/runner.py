@@ -24,7 +24,7 @@ from openrag.modules.operations.facts import (
     record_run_fact,
 )
 from openrag.modules.operations.schemas import ErrorCategory, ErrorOccurrenceCreate
-from openrag.modules.orchestration.runtime import create_model_streamer
+from openrag.modules.orchestration.runtime import create_model_execution
 from openrag.modules.retrieval.service import retrieve
 from openrag.modules.runs.context import record_run_context
 from openrag.modules.runs.leases import (
@@ -210,10 +210,13 @@ async def _execute_started_run(
             requested_model_id=run.model_id,
             default_model_id=workspace.default_model_id,
         )
-        streamer = await create_model_streamer(
+        execution = await create_model_execution(
             session,
             model,
             settings,
+            session_factory=session_factory,
+            context=context,
+            workspace_id=workspace.id,
             reasoning_effort=cast(ReasoningEffort, run.reasoning_effort),
         )
         bridge = DurableReplyBridge(
@@ -234,9 +237,11 @@ async def _execute_started_run(
                 chat=chat,
                 user_message=user_message,
                 model=model,
-                streamer=streamer,
+                streamer=execution.streamer,
                 retriever=retrieve,
                 settings=settings,
+                agent_gatherer_factory=execution.agent_gatherer_factory,
+                retrieval_min_score=workspace.min_score,
                 context_recorder=lambda snapshot, memories: record_run_context(
                     session_factory,
                     identity,

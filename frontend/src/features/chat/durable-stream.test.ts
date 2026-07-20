@@ -48,14 +48,18 @@ test('accepts a run and replays its typed durable stream to completion', async (
       }
       return sseResponse([
         frame('e1', 'route.selected', { route: 'direct', reason_code: 'greeting' }),
-        frame('e2', 'message.delta', { delta: 'Hello' }),
-        frame('e3', 'message.completed', {
+        frame('e2', 'agent.started', { reason_code: 'weak_evidence' }),
+        frame('e3', 'tool.started', { iteration: 1, tool: 'search' }),
+        frame('e4', 'tool.completed', { iteration: 1, tool: 'search' }),
+        frame('e5', 'agent.completed', { finish_reason: 'planner_finished' }),
+        frame('e6', 'message.delta', { delta: 'Hello' }),
+        frame('e7', 'message.completed', {
           message_id: 'm1',
           no_answer: false,
           citations: [],
         }),
-        frame('e4', 'usage.updated', { prompt_tokens: 3, completion_tokens: 1 }),
-        frame('e5', 'run.completed', {}),
+        frame('e8', 'usage.updated', { prompt_tokens: 3, completion_tokens: 1 }),
+        frame('e9', 'run.completed', {}),
       ]);
     }),
   );
@@ -78,6 +82,10 @@ test('accepts a run and replays its typed durable stream to completion', async (
   });
   expect(events.map((event) => event.type)).toEqual([
     'route_selected',
+    'agent_started',
+    'tool_progress',
+    'tool_progress',
+    'agent_completed',
     'token',
     'citations',
     'done',

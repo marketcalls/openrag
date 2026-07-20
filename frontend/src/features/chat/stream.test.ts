@@ -29,6 +29,9 @@ test('emits authoritative typed events in order across transport chunks', async 
       sseResponse([
         'event: route_selected\ndata: {"route":"rag","reason_code":"substantive_default"}\n\n',
         'event: retrieval_started\ndata: {}\n\n',
+        'event: agent_started\ndata: {"reason_code":"weak_evidence"}\n\n',
+        'event: tool_progress\ndata: {"iteration":1,"stage":"started","tool":"search"}\n\n',
+        'event: agent_completed\ndata: {"finish_reason":"planner_finished"}\n\n',
         'event: sources\ndata: {"sources":[{"marker":1,"document_id":"d1","filename":"a.pdf","page":3,"chunk_index":2,"score":0.7,"snippet":"evidence"}]}\n\n',
         'event: token\ndata: {"del',
         'ta":"Hel"}\n\nevent: token\ndata: {"delta":"lo"}\n\n',
@@ -49,6 +52,9 @@ test('emits authoritative typed events in order across transport chunks', async 
   expect(events.map((event) => event.type)).toEqual([
     'route_selected',
     'retrieval_started',
+    'agent_started',
+    'tool_progress',
+    'agent_completed',
     'sources',
     'token',
     'token',
@@ -64,6 +70,33 @@ test('emits authoritative typed events in order across transport chunks', async 
     route: 'rag',
     reasonCode: 'substantive_default',
   });
+  expect(events[3]).toEqual({
+    type: 'tool_progress',
+    iteration: 1,
+    stage: 'started',
+    tool: 'search',
+  });
+});
+
+test('rejects agent progress payloads with unsafe or unknown values', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      sseResponse([
+        'event: tool_progress\ndata: {"iteration":1,"stage":"thinking","tool":"search","query":"secret"}\n\n',
+      ]),
+    ),
+  );
+  const events: ChatSseEvent[] = [];
+
+  await streamChatSse(
+    '/api/v1/chats/c1/messages',
+    {},
+    (event) => events.push(event),
+    new AbortController().signal,
+  );
+
+  expect(events).toEqual([{ type: 'error', detail: 'Malformed tool_progress frame' }]);
 });
 
 test('rejects an unknown public route code', async () => {

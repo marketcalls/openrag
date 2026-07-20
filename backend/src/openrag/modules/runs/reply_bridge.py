@@ -44,6 +44,32 @@ _CITATION_FIELDS = (
     "page",
     "score",
 )
+_AGENT_REASON_CODES = frozenset(
+    {
+        "analytics_request",
+        "multi_part_query",
+        "metadata_sensitive",
+        "weak_evidence",
+    }
+)
+_AGENT_FINISH_REASONS = frozenset(
+    {
+        "planner_finished",
+        "iteration_limit",
+        "duplicate_tool_call",
+        "planner_timeout",
+        "planner_failed",
+        "tool_timeout",
+        "tool_failed",
+        "observation_budget_exhausted",
+    }
+)
+_AGENT_TOOLS = frozenset({"search", "search_by_metadata", "get_document"})
+_TOOL_STAGES: dict[str, RunEventType] = {
+    "started": "tool.started",
+    "completed": "tool.completed",
+    "failed": "tool.failed",
+}
 
 
 class ReplyLifecycle(Protocol):
@@ -208,6 +234,58 @@ class DurableReplyBridge:
                     "retrieval.started",
                     {},
                     dedupe_key="retrieval.started",
+                )
+            elif event.event == "agent_started":
+                reason = event.data.get("reason_code")
+                if not isinstance(reason, str) or reason not in _AGENT_REASON_CODES:
+                    await self._persist(
+                        self._lifecycle.fail(identity.run_id, error_code="internal")
+                    )
+                    return "failed"
+                await self._append(
+                    identity,
+                    "agent.started",
+                    {"reason_code": reason},
+                    dedupe_key="agent.started",
+                )
+            elif event.event == "tool_progress":
+                iteration = event.data.get("iteration")
+                stage = event.data.get("stage")
+                tool = event.data.get("tool")
+                if (
+                    not isinstance(iteration, int)
+                    or isinstance(iteration, bool)
+                    or not 1 <= iteration <= 4
+                    or not isinstance(stage, str)
+                    or stage not in _TOOL_STAGES
+                    or not isinstance(tool, str)
+                    or tool not in _AGENT_TOOLS
+                ):
+                    await self._persist(
+                        self._lifecycle.fail(identity.run_id, error_code="internal")
+                    )
+                    return "failed"
+                await self._append(
+                    identity,
+                    _TOOL_STAGES[stage],
+                    {"iteration": iteration, "tool": tool},
+                    dedupe_key=f"tool.{stage}:{iteration}:{tool}",
+                )
+            elif event.event == "agent_completed":
+                finish_reason = event.data.get("finish_reason")
+                if (
+                    not isinstance(finish_reason, str)
+                    or finish_reason not in _AGENT_FINISH_REASONS
+                ):
+                    await self._persist(
+                        self._lifecycle.fail(identity.run_id, error_code="internal")
+                    )
+                    return "failed"
+                await self._append(
+                    identity,
+                    "agent.completed",
+                    {"finish_reason": finish_reason},
+                    dedupe_key="agent.completed",
                 )
             elif event.event == "sources":
                 sources = _safe_records(event.data.get("sources"), _SOURCE_FIELDS)

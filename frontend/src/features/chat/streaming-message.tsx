@@ -21,8 +21,15 @@ export function StreamingMessage({ stream }: { stream: ChatStreamState }) {
     <>
       {stream.pendingUserContent ? <UserMessage content={stream.pendingUserContent} /> : null}
       {stream.status === 'routing' ? <Spinner label="Routing request…" /> : null}
-      {stream.status === 'retrieving' ? <Spinner label="Searching documents…" /> : null}
-      {stream.status === 'generating' ? <Spinner label="Generating response…" /> : null}
+      {stream.status === 'planning' ? (
+        <Spinner label={stream.agentProgress ?? 'Planning evidence search…'} />
+      ) : null}
+      {stream.status === 'retrieving' ? (
+        <Spinner label={stream.agentProgress ?? 'Searching documents…'} />
+      ) : null}
+      {stream.status === 'generating' ? (
+        <Spinner label={stream.agentProgress ?? 'Generating response…'} />
+      ) : null}
       {stream.status === 'streaming' || stream.status === 'done' ? (
         <div>
           {routeLabel ? (

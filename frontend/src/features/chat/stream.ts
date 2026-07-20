@@ -5,6 +5,14 @@ import { createSseParser, type SseMessage } from '@/lib/sse';
 export type ChatSseEvent =
   | { type: 'route_selected'; route: ChatRoute; reasonCode: string }
   | { type: 'retrieval_started' }
+  | { type: 'agent_started'; reasonCode: string }
+  | {
+      type: 'tool_progress';
+      iteration: number;
+      stage: 'started' | 'completed' | 'failed';
+      tool: 'search' | 'search_by_metadata' | 'get_document';
+    }
+  | { type: 'agent_completed'; finishReason: string }
   | { type: 'sources'; sources: SourceRef[] }
   | { type: 'token'; delta: string }
   | { type: 'citations'; citations: CitationRef[] }
@@ -22,6 +30,24 @@ const CHAT_ROUTES = new Set<ChatRoute>([
   'analytics',
   'clarify',
 ]);
+const AGENT_REASON_CODES = new Set([
+  'analytics_request',
+  'multi_part_query',
+  'metadata_sensitive',
+  'weak_evidence',
+]);
+const AGENT_FINISH_REASONS = new Set([
+  'planner_finished',
+  'iteration_limit',
+  'duplicate_tool_call',
+  'planner_timeout',
+  'planner_failed',
+  'tool_timeout',
+  'tool_failed',
+  'observation_budget_exhausted',
+]);
+const TOOL_STAGES = new Set(['started', 'completed', 'failed']);
+const AGENT_TOOLS = new Set(['search', 'search_by_metadata', 'get_document']);
 
 function isChatRoute(value: unknown): value is ChatRoute {
   return typeof value === 'string' && CHAT_ROUTES.has(value as ChatRoute);
@@ -43,6 +69,38 @@ function toEvent(message: SseMessage): ChatSseEvent {
         };
       case 'retrieval_started':
         return { type: 'retrieval_started' };
+      case 'agent_started':
+        if (typeof data.reason_code !== 'string' || !AGENT_REASON_CODES.has(data.reason_code)) {
+          throw new Error('agent reason missing');
+        }
+        return { type: 'agent_started', reasonCode: data.reason_code };
+      case 'tool_progress':
+        if (
+          typeof data.iteration !== 'number' ||
+          !Number.isInteger(data.iteration) ||
+          data.iteration < 1 ||
+          data.iteration > 4 ||
+          typeof data.stage !== 'string' ||
+          !TOOL_STAGES.has(data.stage) ||
+          typeof data.tool !== 'string' ||
+          !AGENT_TOOLS.has(data.tool)
+        ) {
+          throw new Error('tool progress fields missing');
+        }
+        return {
+          type: 'tool_progress',
+          iteration: data.iteration,
+          stage: data.stage as 'started' | 'completed' | 'failed',
+          tool: data.tool as 'search' | 'search_by_metadata' | 'get_document',
+        };
+      case 'agent_completed':
+        if (
+          typeof data.finish_reason !== 'string' ||
+          !AGENT_FINISH_REASONS.has(data.finish_reason)
+        ) {
+          throw new Error('agent finish reason missing');
+        }
+        return { type: 'agent_completed', finishReason: data.finish_reason };
       case 'sources':
         if (!Array.isArray(data.sources)) throw new Error('sources missing');
         return { type: 'sources', sources: data.sources as SourceRef[] };

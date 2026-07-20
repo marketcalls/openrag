@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import asdict, dataclass
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,26 @@ class CitationRef:
 
 def retrieval_started_event() -> SSEEvent:
     return SSEEvent("retrieval_started", {})
+
+
+def agent_started_event(reason_code: str) -> SSEEvent:
+    return SSEEvent("agent_started", {"reason_code": reason_code})
+
+
+def tool_progress_event(
+    *,
+    iteration: int,
+    stage: Literal["started", "completed", "failed"],
+    tool: Literal["search", "search_by_metadata", "get_document"],
+) -> SSEEvent:
+    return SSEEvent(
+        "tool_progress",
+        {"iteration": iteration, "stage": stage, "tool": tool},
+    )
+
+
+def agent_completed_event(finish_reason: str) -> SSEEvent:
+    return SSEEvent("agent_completed", {"finish_reason": finish_reason})
 
 
 def route_selected_event(route: str, reason_code: str) -> SSEEvent:

@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from dataclasses import replace
 from uuid import UUID, uuid4
 
 import pytest
@@ -9,6 +10,7 @@ from openrag.modules.orchestration.retrieval_tools import (
     AuthorizedToolEvidence,
     RetrievalToolExecutor,
     _metadata_document_query,
+    merge_authoritative_evidence,
 )
 from openrag.modules.retrieval.service import RetrievedEvidence
 
@@ -173,3 +175,47 @@ def test_metadata_query_rejects_invalid_revision_dates() -> None:
             workspace_id=uuid4(),
             metadata={"revision_date_from": "not-a-date"},
         )
+
+
+def test_merge_deduplicates_reranks_and_rechecks_sufficiency() -> None:
+    org_id = uuid4()
+    workspace_id = uuid4()
+    first = _evidence(org_id, workspace_id).evidence
+    stronger_duplicate = replace(
+        first,
+        dense_score=0.96,
+        fused_score=0.94,
+        text="Stronger matching policy text",
+    )
+    second = replace(
+        _evidence(org_id, workspace_id, text="Second document").evidence,
+        content_hash="b" * 64,
+    )
+
+    result = merge_authoritative_evidence(
+        "What is the emergency policy?",
+        (first, stronger_duplicate, second),
+        top_k=8,
+        min_score=0.8,
+    )
+
+    assert result.no_answer is False
+    assert len(result.evidence) == 2
+    assert result.evidence[0].text == "Stronger matching policy text"
+    assert result.decision is not None
+    assert result.decision.best_dense_score == 0.96
+
+
+def test_merge_refuses_when_agent_evidence_remains_below_threshold() -> None:
+    row = _evidence(uuid4(), uuid4()).evidence
+
+    result = merge_authoritative_evidence(
+        "What is the emergency policy?",
+        (row,),
+        top_k=8,
+        min_score=0.99,
+    )
+
+    assert result.no_answer is True
+    assert result.decision is not None
+    assert result.decision.reason_code == "below_threshold"

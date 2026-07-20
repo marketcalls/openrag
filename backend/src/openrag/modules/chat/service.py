@@ -21,6 +21,8 @@ from openrag.modules.chat.events import (
     CitationRef,
     SourceRef,
     SSEEvent,
+    agent_completed_event,
+    agent_started_event,
     citations_event,
     done_event,
     error_event,
@@ -28,6 +30,7 @@ from openrag.modules.chat.events import (
     route_selected_event,
     sources_event,
     token_event,
+    tool_progress_event,
 )
 from openrag.modules.chat.llm import LLMDelta, LLMStreamer, LLMUsage
 from openrag.modules.chat.models import Chat, Citation, Message
@@ -61,6 +64,15 @@ from openrag.modules.grounding.models import GroundingPolicy
 from openrag.modules.memory.models import MemoryRecord
 from openrag.modules.memory.selection import select_memories
 from openrag.modules.models.models import Model
+from openrag.modules.orchestration.agent_gather import (
+    AgentGatherCompleted,
+    AgentGathererFactory,
+)
+from openrag.modules.orchestration.agent_loop import (
+    AgentLoopProgress,
+    EscalationContext,
+    decide_escalation,
+)
 from openrag.modules.orchestration.routing import QueryRoute, decide_route
 from openrag.modules.retrieval.authority import (
     AuthorizedEvidence,
@@ -819,6 +831,9 @@ async def stream_reply(
     retriever: Retriever,
     settings: Settings,
     context_recorder: ContextRecorder | None = None,
+    agent_gatherer_factory: AgentGathererFactory | None = None,
+    retrieval_top_k: int = 8,
+    retrieval_min_score: float = 0.35,
 ) -> AsyncIterator[SSEEvent]:
     model_name = model.litellm_model_name
     model_id = model.id
@@ -966,6 +981,36 @@ async def stream_reply(
         chat.workspace_id,
         decision.retrieval_query,
     )
+    escalation = decide_escalation(
+        EscalationContext(
+            query=user_message.content,
+            route=decision.route,
+            weak_evidence=result.no_answer,
+        )
+    )
+    if escalation.escalate and agent_gatherer_factory is not None:
+        yield agent_started_event(escalation.reason_code)
+        finish_reason = "planner_failed"
+        try:
+            gatherer = agent_gatherer_factory(decision.retrieval_query)
+            async for gather_event in gatherer.stream(
+                query=decision.retrieval_query,
+                initial_result=result,
+                top_k=retrieval_top_k,
+                min_score=retrieval_min_score,
+            ):
+                if isinstance(gather_event, AgentLoopProgress):
+                    yield tool_progress_event(
+                        iteration=gather_event.iteration,
+                        stage=gather_event.stage,
+                        tool=gather_event.tool,
+                    )
+                elif isinstance(gather_event, AgentGatherCompleted):
+                    result = gather_event.result
+                    finish_reason = gather_event.finish_reason
+        except Exception:  # noqa: BLE001 - planner details remain private
+            finish_reason = "planner_failed"
+        yield agent_completed_event(finish_reason)
     sources = await _source_refs(session, context, result)
     yield sources_event(sources)
     retrieval_texts = [chunk.text for chunk in result.chunks]

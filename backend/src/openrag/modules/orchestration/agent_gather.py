@@ -1,0 +1,91 @@
+"""Stream bounded agent gathering while preserving deterministic release gates."""
+
+import asyncio
+from collections.abc import AsyncIterator, Callable
+from contextlib import suppress
+from dataclasses import dataclass
+
+from openrag.modules.orchestration.agent_loop import (
+    AgentFinishReason,
+    AgentLoopProgress,
+    AgentPlanner,
+    run_agent_loop,
+)
+from openrag.modules.orchestration.retrieval_tools import (
+    RetrievalToolExecutor,
+    merge_authoritative_evidence,
+)
+from openrag.modules.retrieval.service import RetrievalResult
+
+
+@dataclass(frozen=True, slots=True)
+class AgentGatherCompleted:
+    result: RetrievalResult
+    finish_reason: AgentFinishReason
+
+
+AgentGatherEvent = AgentLoopProgress | AgentGatherCompleted
+AgentGathererFactory = Callable[[str], "AgentGatherer"]
+
+
+class AgentGatherer:
+    """Join a planner and tenant-pinned tools for one user question."""
+
+    def __init__(
+        self,
+        planner: AgentPlanner,
+        executor: RetrievalToolExecutor,
+    ) -> None:
+        self._planner = planner
+        self._executor = executor
+
+    async def stream(
+        self,
+        *,
+        query: str,
+        initial_result: RetrievalResult,
+        top_k: int,
+        min_score: float,
+    ) -> AsyncIterator[AgentGatherEvent]:
+        initial = self._executor.seed(
+            query=query,
+            evidence=initial_result.evidence,
+        )
+        progress: asyncio.Queue[AgentLoopProgress] = asyncio.Queue(maxsize=8)
+        loop_task = asyncio.create_task(
+            run_agent_loop(
+                self._planner,
+                self._executor,
+                initial_observations=(initial,),
+                on_progress=progress.put_nowait,
+            )
+        )
+        try:
+            while not loop_task.done() or not progress.empty():
+                next_progress = asyncio.create_task(progress.get())
+                done, _pending = await asyncio.wait(
+                    {loop_task, next_progress},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if next_progress in done:
+                    yield next_progress.result()
+                else:
+                    next_progress.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await next_progress
+            loop_result = await loop_task
+        finally:
+            if not loop_task.done():
+                loop_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await loop_task
+
+        yield AgentGatherCompleted(
+            result=merge_authoritative_evidence(
+                query,
+                self._executor.collected_evidence,
+                top_k=top_k,
+                min_score=min_score,
+            ),
+            finish_reason=loop_result.finish_reason,
+        )

@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.modules.chat.events import (
     CitationRef,
     SourceRef,
+    agent_completed_event,
+    agent_started_event,
     citations_event,
     done_event,
     error_event,
@@ -14,6 +16,7 @@ from openrag.modules.chat.events import (
     route_selected_event,
     sources_event,
     token_event,
+    tool_progress_event,
 )
 from openrag.modules.chat.service import _source_refs
 from openrag.modules.retrieval.service import RetrievalResult, RetrievedEvidence
@@ -71,6 +74,17 @@ def test_all_event_names_and_payloads() -> None:
     )
 
     assert retrieval_started_event().event == "retrieval_started"
+    assert agent_started_event("weak_evidence").data == {
+        "reason_code": "weak_evidence"
+    }
+    assert tool_progress_event(iteration=2, stage="started", tool="search").data == {
+        "iteration": 2,
+        "stage": "started",
+        "tool": "search",
+    }
+    assert agent_completed_event("planner_finished").data == {
+        "finish_reason": "planner_finished"
+    }
     assert route_selected_event("direct", "safe_greeting").data == {
         "route": "direct",
         "reason_code": "safe_greeting",

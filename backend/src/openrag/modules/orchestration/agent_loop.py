@@ -178,11 +178,19 @@ class AgentLoopResult:
     finish_reason: AgentFinishReason
 
 
+@dataclass(frozen=True, slots=True)
+class AgentLoopProgress:
+    iteration: int
+    stage: Literal["started", "completed", "failed"]
+    tool: AgentToolName
+
+
 AgentPlanner = Callable[[AgentLoopState], Awaitable[AgentAction]]
 AgentToolExecutor = Callable[[AgentToolCall], Awaitable[AgentToolResult]]
+AgentProgressSink = Callable[[AgentLoopProgress], None]
 
 
-def _untrusted_data(text: str, *, max_chars: int) -> str:
+def wrap_untrusted_data(text: str, *, max_chars: int) -> str:
     escaped = html.escape(text, quote=True)[:max_chars]
     return f"<data>{escaped}</data>"
 
@@ -195,6 +203,8 @@ async def run_agent_loop(
     planner_timeout_seconds: float = 10.0,
     tool_timeout_seconds: float = 8.0,
     max_observation_chars: int = 16_000,
+    initial_observations: tuple[AgentObservation, ...] = (),
+    on_progress: AgentProgressSink | None = None,
 ) -> AgentLoopResult:
     """Execute an OpenRAG-owned loop without allowing provider-owned policy."""
 
@@ -207,9 +217,15 @@ async def run_agent_loop(
     if not 1 <= max_observation_chars <= 32_000:
         raise ValueError("observation_budget_invalid")
 
-    observations: list[AgentObservation] = []
-    fingerprints: set[str] = set()
-    consumed_chars = 0
+    if len(initial_observations) > 32:
+        raise ValueError("initial_observation_limit_exceeded")
+    observations = list(initial_observations)
+    fingerprints = {
+        observation.call.fingerprint() for observation in initial_observations
+    }
+    consumed_chars = sum(len(item.text) for item in initial_observations)
+    if consumed_chars > max_observation_chars:
+        raise ValueError("initial_observation_budget_exceeded")
     for iteration in range(max_iterations):
         state = AgentLoopState(iteration=iteration, observations=tuple(observations))
         try:
@@ -236,15 +252,39 @@ async def run_agent_loop(
                 tuple(observations),
                 "observation_budget_exhausted",
             )
+        if on_progress is not None:
+            on_progress(
+                AgentLoopProgress(
+                    iteration=iteration + 1,
+                    stage="started",
+                    tool=action.call.name,
+                )
+            )
         try:
             async with asyncio.timeout(tool_timeout_seconds):
                 result = await execute_tool(action.call)
         except TimeoutError:
+            if on_progress is not None:
+                on_progress(
+                    AgentLoopProgress(
+                        iteration=iteration + 1,
+                        stage="failed",
+                        tool=action.call.name,
+                    )
+                )
             return AgentLoopResult(tuple(observations), "tool_timeout")
         except Exception:  # noqa: BLE001 - tool details remain private
+            if on_progress is not None:
+                on_progress(
+                    AgentLoopProgress(
+                        iteration=iteration + 1,
+                        stage="failed",
+                        tool=action.call.name,
+                    )
+                )
             return AgentLoopResult(tuple(observations), "tool_failed")
 
-        bounded_text = _untrusted_data(result.text, max_chars=remaining)
+        bounded_text = wrap_untrusted_data(result.text, max_chars=remaining)
         consumed_chars += min(len(html.escape(result.text, quote=True)), remaining)
         observations.append(
             AgentObservation(
@@ -257,5 +297,13 @@ async def run_agent_loop(
                 ),
             )
         )
+        if on_progress is not None:
+            on_progress(
+                AgentLoopProgress(
+                    iteration=iteration + 1,
+                    stage="completed",
+                    tool=action.call.name,
+                )
+            )
 
     return AgentLoopResult(tuple(observations), "iteration_limit")

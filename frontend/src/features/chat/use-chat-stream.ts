@@ -12,7 +12,14 @@ import {
 import type { ChatSseEvent } from './stream';
 
 export type StreamStatus =
-  'idle' | 'routing' | 'retrieving' | 'generating' | 'streaming' | 'done' | 'error';
+  | 'idle'
+  | 'routing'
+  | 'planning'
+  | 'retrieving'
+  | 'generating'
+  | 'streaming'
+  | 'done'
+  | 'error';
 
 export interface ChatStreamState {
   status: StreamStatus;
@@ -24,6 +31,7 @@ export interface ChatStreamState {
   errorDetail: string | null;
   pendingUserContent: string | null;
   doneMessageId: string | null;
+  agentProgress: string | null;
 }
 
 const IDLE: ChatStreamState = {
@@ -36,7 +44,19 @@ const IDLE: ChatStreamState = {
   errorDetail: null,
   pendingUserContent: null,
   doneMessageId: null,
+  agentProgress: null,
 };
+
+function toolProgressLabel(
+  tool: Extract<ChatSseEvent, { type: 'tool_progress' }>['tool'],
+  stage: Extract<ChatSseEvent, { type: 'tool_progress' }>['stage'],
+): string {
+  if (stage === 'failed') return 'Continuing with available evidence…';
+  if (stage === 'completed') return 'Reviewing grounded evidence…';
+  if (tool === 'search_by_metadata') return 'Filtering approved documents…';
+  if (tool === 'get_document') return 'Reading an approved document…';
+  return 'Searching related documents…';
+}
 
 function reduceStream(state: ChatStreamState, event: ChatSseEvent): ChatStreamState {
   switch (event.type) {
@@ -51,10 +71,25 @@ function reduceStream(state: ChatStreamState, event: ChatSseEvent): ChatStreamSt
       };
     case 'retrieval_started':
       return { ...state, status: 'retrieving' };
+    case 'agent_started':
+      return { ...state, status: 'planning', agentProgress: 'Planning evidence search…' };
+    case 'tool_progress':
+      return {
+        ...state,
+        status: event.stage === 'started' ? 'retrieving' : 'planning',
+        agentProgress: toolProgressLabel(event.tool, event.stage),
+      };
+    case 'agent_completed':
+      return { ...state, status: 'generating', agentProgress: 'Preparing grounded response…' };
     case 'sources':
       return { ...state, sources: event.sources };
     case 'token':
-      return { ...state, status: 'streaming', text: state.text + event.delta };
+      return {
+        ...state,
+        status: 'streaming',
+        text: state.text + event.delta,
+        agentProgress: null,
+      };
     case 'citations':
       return { ...state, citations: event.citations };
     case 'done':
@@ -63,6 +98,7 @@ function reduceStream(state: ChatStreamState, event: ChatSseEvent): ChatStreamSt
         status: 'done',
         noAnswer: event.done.no_answer,
         doneMessageId: event.done.message_id,
+        agentProgress: null,
       };
     case 'error':
       return { ...state, status: 'error', errorDetail: event.detail };
