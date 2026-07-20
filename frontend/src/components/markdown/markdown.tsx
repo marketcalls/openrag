@@ -59,13 +59,19 @@ const components = {
   ),
 } as Components;
 
-export function Markdown({ content }: { content: string }) {
+export function Markdown({ content, allowLinks = true }: { content: string; allowLinks?: boolean }) {
+  const renderedComponents: Components = allowLinks
+    ? components
+    : {
+        ...components,
+        a: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+      };
   return (
     <div className="text-[15px] leading-[1.6] text-ink">
       <ReactMarkdown
         skipHtml
         remarkPlugins={[remarkGfm, remarkCitations]}
-        components={components}
+        components={renderedComponents}
       >
         {content}
       </ReactMarkdown>

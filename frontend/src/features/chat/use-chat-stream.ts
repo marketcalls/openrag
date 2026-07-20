@@ -1,7 +1,13 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 
-import type { ChatRoute, CitationRef, ReasoningEffort, SourceRef } from '@/api/types';
+import type {
+  AnalyticsResponseV1,
+  ChatRoute,
+  CitationRef,
+  ReasoningEffort,
+  SourceRef,
+} from '@/api/types';
 
 import {
   acceptDurableRegeneration,
@@ -27,6 +33,7 @@ export interface ChatStreamState {
   text: string;
   sources: SourceRef[];
   citations: CitationRef[];
+  artifact: AnalyticsResponseV1 | null;
   noAnswer: boolean;
   errorDetail: string | null;
   pendingUserContent: string | null;
@@ -40,6 +47,7 @@ const IDLE: ChatStreamState = {
   text: '',
   sources: [],
   citations: [],
+  artifact: null,
   noAnswer: false,
   errorDetail: null,
   pendingUserContent: null,
@@ -58,7 +66,7 @@ function toolProgressLabel(
   return 'Searching related documents…';
 }
 
-function reduceStream(state: ChatStreamState, event: ChatSseEvent): ChatStreamState {
+export function reduceStream(state: ChatStreamState, event: ChatSseEvent): ChatStreamState {
   switch (event.type) {
     case 'route_selected':
       return {
@@ -90,6 +98,8 @@ function reduceStream(state: ChatStreamState, event: ChatSseEvent): ChatStreamSt
         text: state.text + event.delta,
         agentProgress: null,
       };
+    case 'artifact':
+      return { ...state, artifact: event.artifact };
     case 'citations':
       return { ...state, citations: event.citations };
     case 'done':
@@ -101,7 +111,7 @@ function reduceStream(state: ChatStreamState, event: ChatSseEvent): ChatStreamSt
         agentProgress: null,
       };
     case 'error':
-      return { ...state, status: 'error', errorDetail: event.detail };
+      return { ...state, status: 'error', artifact: null, errorDetail: event.detail };
   }
 }
 
@@ -154,6 +164,7 @@ export function useChatStream(chatId: string | null) {
             setState((current) => ({
               ...current,
               status: 'error',
+              artifact: null,
               errorDetail: error instanceof Error ? error.message : 'Request failed',
             }));
           }
@@ -201,6 +212,7 @@ export function useChatStream(chatId: string | null) {
             setState((current) => ({
               ...current,
               status: 'error',
+              artifact: null,
               errorDetail: error instanceof Error ? error.message : 'Request failed',
             }));
           }
@@ -215,7 +227,7 @@ export function useChatStream(chatId: string | null) {
     activeRunId.current = null;
     if (runId) void cancelDurableRun(runId);
     abortController.current?.abort();
-    setState((current) => ({ ...current, status: 'idle' }));
+    setState({ ...IDLE });
   }, []);
   const reset = useCallback(() => setState({ ...IDLE }), []);
 

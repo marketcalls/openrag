@@ -23,6 +23,7 @@ function entryFor(
       completion_tokens: null,
       created_at: '2026-07-18T00:00:00Z',
       citations: [],
+      artifacts: [],
       children: [],
       ...overrides,
     },

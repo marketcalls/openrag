@@ -7,6 +7,22 @@ import {
 } from './durable-stream';
 import type { ChatSseEvent } from './stream';
 
+const ARTIFACT = {
+  schema_version: 'analytics.v1',
+  title: 'Revenue dashboard',
+  subtitle: null,
+  kpis: [],
+  blocks: [
+    {
+      kind: 'explainer',
+      title: 'Summary',
+      body_markdown: 'Revenue increased [1].',
+      source_markers: [1],
+    },
+  ],
+  suggested_followups: [],
+};
+
 function sseResponse(frames: string[]): Response {
   const encoder = new TextEncoder();
   return new Response(
@@ -53,13 +69,14 @@ test('accepts a run and replays its typed durable stream to completion', async (
         frame('e4', 'tool.completed', { iteration: 1, tool: 'search' }),
         frame('e5', 'agent.completed', { finish_reason: 'planner_finished' }),
         frame('e6', 'message.delta', { delta: 'Hello' }),
-        frame('e7', 'message.completed', {
+        frame('e7', 'artifact.created', { message_id: 'm1', artifact: ARTIFACT }),
+        frame('e8', 'message.completed', {
           message_id: 'm1',
           no_answer: false,
           citations: [],
         }),
-        frame('e8', 'usage.updated', { prompt_tokens: 3, completion_tokens: 1 }),
-        frame('e9', 'run.completed', {}),
+        frame('e9', 'usage.updated', { prompt_tokens: 3, completion_tokens: 1 }),
+        frame('e10', 'run.completed', {}),
       ]);
     }),
   );
@@ -87,9 +104,14 @@ test('accepts a run and replays its typed durable stream to completion', async (
     'tool_progress',
     'agent_completed',
     'token',
+    'artifact',
     'citations',
     'done',
   ]);
+  expect(events.find((event) => event.type === 'artifact')).toEqual({
+    type: 'artifact',
+    artifact: ARTIFACT,
+  });
   expect(events.at(-1)).toEqual({
     type: 'done',
     done: {
@@ -99,6 +121,37 @@ test('accepts a run and replays its typed durable stream to completion', async (
       no_answer: false,
     },
   });
+});
+
+test('drops an invalid durable artifact but preserves the grounded answer', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      sseResponse([
+        frame('e1', 'message.delta', { delta: 'Grounded answer [1].' }),
+        frame('e2', 'artifact.created', {
+          message_id: 'm1',
+          artifact: { ...ARTIFACT, component: '<script>alert(1)</script>' },
+        }),
+        frame('e3', 'message.completed', {
+          message_id: 'm1',
+          no_answer: false,
+          citations: [],
+        }),
+        frame('e4', 'run.completed', {}),
+      ]),
+    ),
+  );
+  const events: ChatSseEvent[] = [];
+
+  await streamDurableRun(
+    { run_id: 'r1', events_url: '/events/r1' },
+    (event) => events.push(event),
+    new AbortController().signal,
+  );
+
+  expect(events.some((event) => event.type === 'artifact')).toBe(false);
+  expect(events.map((event) => event.type)).toEqual(['token', 'citations', 'done']);
 });
 
 test('regeneration preserves the selected model and reasoning effort', async () => {

@@ -8,6 +8,7 @@ import type {
 } from '@/api/types';
 import { createSseParser, type SseMessage } from '@/lib/sse';
 
+import { parseAnalyticsArtifact } from './analytics/contract';
 import type { ChatSseEvent } from './stream';
 
 interface AcceptedRun {
@@ -219,6 +220,13 @@ export async function streamDurableRun(
         case 'message.delta':
           if (typeof data.delta === 'string') onEvent({ type: 'token', delta: data.delta });
           break;
+        case 'artifact.created': {
+          const artifact = parseAnalyticsArtifact(data.artifact);
+          if (typeof data.message_id === 'string' && artifact) {
+            onEvent({ type: 'artifact', artifact });
+          }
+          break;
+        }
         case 'message.completed':
           if (typeof data.message_id === 'string') {
             message = {

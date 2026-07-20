@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
-import type { CitationRef, ReasoningEffort, SourceRef } from '@/api/types';
+import type {
+  CitationRef,
+  ReasoningEffort,
+  SourceRef,
+} from '@/api/types';
 import { TopBar } from '@/components/layout/top-bar';
 import { Spinner } from '@/components/ui/spinner';
 import { useModels } from '@/features/models/queries';
@@ -20,6 +24,7 @@ import { UsageMeter } from './usage-meter';
 import { UserMessage } from './user-message';
 import { useChatStream } from './use-chat-stream';
 import { useTreeSelection } from './use-tree-selection';
+import { parseHistoricalAnalyticsArtifacts } from './analytics/contract';
 
 function historicalSources(citations: CitationRef[]): SourceRef[] {
   return citations.map((citation) => ({
@@ -210,6 +215,9 @@ export function ChatPage() {
                 key={message.id}
                 content={message.content}
                 sources={historicalSources(message.citations)}
+                artifact={parseHistoricalAnalyticsArtifacts(message.artifacts)}
+                onFollowup={onSend}
+                followupDisabled={busy}
                 footer={
                   <MessageActions
                     entry={entry}
@@ -228,7 +236,13 @@ export function ChatPage() {
               />
             );
           })}
-          {showStream ? <StreamingMessage stream={stream} /> : null}
+          {showStream ? (
+            <StreamingMessage
+              stream={stream}
+              onFollowup={onSend}
+              followupDisabled={busy}
+            />
+          ) : null}
           {!chatId && path.length === 0 && stream.status === 'idle' ? (
             <p className="pt-16 text-center text-[15px] text-secondary">
               Ask a question about the documents in this workspace.

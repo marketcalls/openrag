@@ -1128,6 +1128,113 @@ export interface components {
              */
             token_type: string;
         };
+        /** AnalyticsChartBlockV1 */
+        AnalyticsChartBlockV1: {
+            /** Source Markers */
+            source_markers: number[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "bar_chart" | "line_chart";
+            /** Title */
+            title: string;
+            /** X Label */
+            x_label: string;
+            /** Y Label */
+            y_label: string;
+            /** Categories */
+            categories: string[];
+            /** Series */
+            series: components["schemas"]["AnalyticsSeriesV1"][];
+        };
+        /** AnalyticsColumnV1 */
+        AnalyticsColumnV1: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Format
+             * @default text
+             * @enum {string}
+             */
+            format: "text" | "number" | "currency" | "percent" | "date";
+        };
+        /** AnalyticsExplainerBlockV1 */
+        AnalyticsExplainerBlockV1: {
+            /** Source Markers */
+            source_markers: number[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "explainer";
+            /** Title */
+            title: string;
+            /** Body Markdown */
+            body_markdown: string;
+        };
+        /** AnalyticsKpiV1 */
+        AnalyticsKpiV1: {
+            /** Source Markers */
+            source_markers: number[];
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
+            /** Detail */
+            detail?: string | null;
+            /**
+             * Trend
+             * @default none
+             * @enum {string}
+             */
+            trend: "up" | "down" | "flat" | "none";
+        };
+        /** AnalyticsResponseV1 */
+        AnalyticsResponseV1: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "analytics.v1";
+            /** Title */
+            title: string;
+            /** Subtitle */
+            subtitle?: string | null;
+            /** Kpis */
+            kpis: components["schemas"]["AnalyticsKpiV1"][];
+            /** Blocks */
+            blocks: (components["schemas"]["AnalyticsChartBlockV1"] | components["schemas"]["AnalyticsTableBlockV1"] | components["schemas"]["AnalyticsExplainerBlockV1"])[];
+            /** Suggested Followups */
+            suggested_followups: string[];
+        };
+        /** AnalyticsSeriesV1 */
+        AnalyticsSeriesV1: {
+            /** Name */
+            name: string;
+            /** Values */
+            values: (number | null)[];
+        };
+        /** AnalyticsTableBlockV1 */
+        AnalyticsTableBlockV1: {
+            /** Source Markers */
+            source_markers: number[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "table";
+            /** Title */
+            title: string;
+            /** Columns */
+            columns: components["schemas"]["AnalyticsColumnV1"][];
+            /** Rows */
+            rows: {
+                [key: string]: string | number | null;
+            }[];
+        };
         /** AnswerQualityOverview */
         AnswerQualityOverview: {
             /** Scheduled Count */
@@ -2486,6 +2593,40 @@ export interface components {
              */
             created_at: string;
         };
+        /**
+         * MessageArtifactOut
+         * @description Content-addressed artifact returned with a historical message.
+         */
+        MessageArtifactOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Message Id
+             * Format: uuid
+             */
+            message_id: string;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "analytics";
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "analytics.v1";
+            artifact: components["schemas"]["AnalyticsResponseV1"];
+            /** Content Hash */
+            content_hash: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** MessageNode */
         MessageNode: {
             /**
@@ -2514,6 +2655,8 @@ export interface components {
             created_at: string;
             /** Citations */
             citations: components["schemas"]["CitationOut"][];
+            /** Artifacts */
+            artifacts: components["schemas"]["MessageArtifactOut"][];
             /** Children */
             children: components["schemas"]["MessageNode"][];
         };

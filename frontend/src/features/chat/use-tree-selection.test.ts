@@ -16,6 +16,7 @@ function root(id: string, siblingIndex: number): MessageOut {
     completion_tokens: null,
     created_at: `2026-07-18T00:00:0${siblingIndex}Z`,
     citations: [],
+    artifacts: [],
     children: [],
   };
 }

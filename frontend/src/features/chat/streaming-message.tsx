@@ -4,7 +4,15 @@ import { AssistantMessage } from './assistant-message';
 import type { ChatStreamState } from './use-chat-stream';
 import { UserMessage } from './user-message';
 
-export function StreamingMessage({ stream }: { stream: ChatStreamState }) {
+export function StreamingMessage({
+  stream,
+  onFollowup,
+  followupDisabled = false,
+}: {
+  stream: ChatStreamState;
+  onFollowup?: (question: string) => void;
+  followupDisabled?: boolean;
+}) {
   const routeLabel =
     stream.route === 'direct'
       ? 'Direct response'
@@ -41,6 +49,9 @@ export function StreamingMessage({ stream }: { stream: ChatStreamState }) {
             content={stream.text}
             sources={stream.sources}
             noAnswer={stream.noAnswer}
+            artifact={stream.artifact}
+            onFollowup={onFollowup}
+            followupDisabled={followupDisabled}
           />
         </div>
       ) : null}

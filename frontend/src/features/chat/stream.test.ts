@@ -2,6 +2,22 @@ import { setAccessToken } from '@/lib/auth-store';
 
 import { streamChatSse, type ChatSseEvent } from './stream';
 
+const ARTIFACT = {
+  schema_version: 'analytics.v1',
+  title: 'Revenue dashboard',
+  subtitle: null,
+  kpis: [],
+  blocks: [
+    {
+      kind: 'explainer',
+      title: 'Summary',
+      body_markdown: 'Revenue increased [1].',
+      source_markers: [1],
+    },
+  ],
+  suggested_followups: [],
+};
+
 function sseResponse(frames: string[]): Response {
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
@@ -35,6 +51,7 @@ test('emits authoritative typed events in order across transport chunks', async 
         'event: sources\ndata: {"sources":[{"marker":1,"document_id":"d1","filename":"a.pdf","page":3,"chunk_index":2,"score":0.7,"snippet":"evidence"}]}\n\n',
         'event: token\ndata: {"del',
         'ta":"Hel"}\n\nevent: token\ndata: {"delta":"lo"}\n\n',
+        `event: analytics_artifact\ndata: ${JSON.stringify({ artifact: ARTIFACT })}\n\n`,
         'event: citations\ndata: {"citations":[{"marker":1,"document_id":"d1","chunk_ref":"d1:3:2","page":3,"score":0.7}]}\n\n',
         'event: done\ndata: {"message_id":"m1","prompt_tokens":10,"completion_tokens":5,"no_answer":false}\n\n',
       ]),
@@ -58,6 +75,7 @@ test('emits authoritative typed events in order across transport chunks', async 
     'sources',
     'token',
     'token',
+    'artifact',
     'citations',
     'done',
   ]);
@@ -76,6 +94,33 @@ test('emits authoritative typed events in order across transport chunks', async 
     stage: 'started',
     tool: 'search',
   });
+  expect(events.find((event) => event.type === 'artifact')).toEqual({
+    type: 'artifact',
+    artifact: ARTIFACT,
+  });
+});
+
+test('rejects a malformed legacy analytics artifact', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      sseResponse([
+        'event: analytics_artifact\ndata: {"artifact":{"schema_version":"analytics.v2"}}\n\n',
+      ]),
+    ),
+  );
+  const events: ChatSseEvent[] = [];
+
+  await streamChatSse(
+    '/api/v1/chats/c1/messages',
+    {},
+    (event) => events.push(event),
+    new AbortController().signal,
+  );
+
+  expect(events).toEqual([
+    { type: 'error', detail: 'Malformed analytics_artifact frame' },
+  ]);
 });
 
 test('rejects agent progress payloads with unsafe or unknown values', async () => {

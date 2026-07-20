@@ -1,6 +1,8 @@
 import { authFetch } from '@/api/client';
-import type { ChatRoute, CitationRef, DoneInfo, SourceRef } from '@/api/types';
+import type { AnalyticsResponseV1, ChatRoute, CitationRef, DoneInfo, SourceRef } from '@/api/types';
 import { createSseParser, type SseMessage } from '@/lib/sse';
+
+import { parseAnalyticsArtifact } from './analytics/contract';
 
 export type ChatSseEvent =
   | { type: 'route_selected'; route: ChatRoute; reasonCode: string }
@@ -15,6 +17,7 @@ export type ChatSseEvent =
   | { type: 'agent_completed'; finishReason: string }
   | { type: 'sources'; sources: SourceRef[] }
   | { type: 'token'; delta: string }
+  | { type: 'artifact'; artifact: AnalyticsResponseV1 }
   | { type: 'citations'; citations: CitationRef[] }
   | { type: 'done'; done: DoneInfo }
   | { type: 'error'; detail: string };
@@ -107,6 +110,11 @@ function toEvent(message: SseMessage): ChatSseEvent {
       case 'token':
         if (typeof data.delta !== 'string') throw new Error('delta missing');
         return { type: 'token', delta: data.delta };
+      case 'analytics_artifact': {
+        const artifact = parseAnalyticsArtifact(data.artifact);
+        if (!artifact) throw new Error('artifact invalid');
+        return { type: 'artifact', artifact };
+      }
       case 'citations':
         if (!Array.isArray(data.citations)) throw new Error('citations missing');
         return { type: 'citations', citations: data.citations as CitationRef[] };
