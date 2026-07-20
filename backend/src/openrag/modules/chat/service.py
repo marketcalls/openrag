@@ -4,7 +4,7 @@ import base64
 import json
 import re
 from collections import defaultdict
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
@@ -32,8 +32,10 @@ from openrag.modules.chat.events import (
 from openrag.modules.chat.llm import LLMDelta, LLMStreamer, LLMUsage
 from openrag.modules.chat.models import Chat, Citation, Message
 from openrag.modules.chat.prompting import (
+    PromptContextSnapshot,
     PromptMemory,
     PromptSource,
+    build_context_snapshot,
     build_conversation_messages,
     build_direct_messages,
     build_messages,
@@ -50,6 +52,7 @@ from openrag.modules.documents.lifecycle import (
 )
 from openrag.modules.documents.models import Document, DocumentVersion
 from openrag.modules.grounding.models import GroundingPolicy
+from openrag.modules.memory.models import MemoryRecord
 from openrag.modules.memory.selection import select_memories
 from openrag.modules.models.models import Model
 from openrag.modules.orchestration.routing import QueryRoute, decide_route
@@ -136,6 +139,12 @@ class Retriever(Protocol):
         query: str,
         top_k: int = 8,
     ) -> RetrievalResult: ...
+
+
+ContextRecorder = Callable[
+    [PromptContextSnapshot, Sequence[MemoryRecord]],
+    Awaitable[None],
+]
 
 
 async def create_chat(
@@ -792,6 +801,7 @@ async def stream_reply(
     streamer: LLMStreamer,
     retriever: Retriever,
     settings: Settings,
+    context_recorder: ContextRecorder | None = None,
 ) -> AsyncIterator[SSEEvent]:
     model_name = model.litellm_model_name
     model_id = model.id
@@ -814,10 +824,30 @@ async def stream_reply(
         )
         for memory in selected_memories
     ]
+
+    async def record_context(
+        route: str,
+        prompt: Sequence[dict[str, str]],
+        retrieval_texts: Sequence[str] = (),
+    ) -> None:
+        if context_recorder is None:
+            return
+        await context_recorder(
+            build_context_snapshot(
+                route=route,
+                budget_tokens=settings.chat_context_token_budget,
+                prompt=prompt,
+                memories=prompt_memories,
+                history=history,
+                retrieval_texts=retrieval_texts,
+            ),
+            selected_memories,
+        )
     decision = decide_route(user_message.content, history=history)
     yield route_selected_event(decision.route.value, decision.reason_code)
 
     if decision.route is QueryRoute.CLARIFY:
+        await record_context(decision.route.value, ())
         yield token_event(CLARIFY_TEXT)
         message = await _persist_conversational_assistant(
             session,
@@ -848,6 +878,7 @@ async def stream_reply(
                 memories=prompt_memories,
             )
         )
+        await record_context(decision.route.value, prompt)
         await session.rollback()
         direct_parts: list[str] = []
         direct_usage: LLMUsage | None = None
@@ -898,8 +929,10 @@ async def stream_reply(
     )
     sources = await _source_refs(session, context, result)
     yield sources_event(sources)
+    retrieval_texts = [chunk.text for chunk in result.chunks]
 
     if result.no_answer:
+        await record_context(decision.route.value, (), retrieval_texts)
         yield token_event(NO_ANSWER_TEXT)
         message = await _persist_assistant(
             session,
@@ -940,6 +973,7 @@ async def stream_reply(
         budget=settings.chat_context_token_budget,
         memories=prompt_memories,
     )
+    await record_context(decision.route.value, prompt, retrieval_texts)
 
     parts: list[str] = []
     usage: LLMUsage | None = None

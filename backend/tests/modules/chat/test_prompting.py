@@ -4,6 +4,7 @@ from openrag.modules.chat.prompting import (
     SYSTEM_PROMPT,
     PromptMemory,
     PromptSource,
+    build_context_snapshot,
     build_conversation_messages,
     build_direct_messages,
     build_messages,
@@ -210,3 +211,29 @@ def test_direct_prompt_can_apply_bounded_user_memory() -> None:
 
     assert [message["role"] for message in messages] == ["system", "system", "user"]
     assert "Prefer short answers." in messages[1]["content"]
+
+
+def test_context_snapshot_accounts_for_budget_without_raw_prompt_content() -> None:
+    memories = [
+        PromptMemory(
+            canonical_key="response.style",
+            memory_type="semantic",
+            content="Prefer short answers.",
+        )
+    ]
+    prompt = build_direct_messages("hi", memories=memories)
+    snapshot = build_context_snapshot(
+        route="direct",
+        budget_tokens=8_000,
+        prompt=prompt,
+        memories=memories,
+        history=[("user", "an earlier question")],
+        retrieval_texts=[],
+    )
+
+    assert snapshot.route == "direct"
+    assert snapshot.memory_items == 1
+    assert snapshot.history_messages == 1
+    assert snapshot.retrieval_items == 0
+    assert snapshot.estimated_prompt_tokens > snapshot.memory_tokens > 0
+    assert not hasattr(snapshot, "prompt")

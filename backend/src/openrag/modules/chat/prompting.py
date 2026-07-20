@@ -71,8 +71,48 @@ class PromptMemory:
     content: str
 
 
+@dataclass(frozen=True, slots=True)
+class PromptContextSnapshot:
+    route: str
+    budget_tokens: int
+    estimated_prompt_tokens: int
+    memory_tokens: int
+    memory_items: int
+    history_tokens: int
+    history_messages: int
+    retrieval_tokens: int
+    retrieval_items: int
+
+
 def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
+
+
+def build_context_snapshot(
+    *,
+    route: str,
+    budget_tokens: int,
+    prompt: Sequence[dict[str, str]],
+    memories: Sequence[PromptMemory],
+    history: Sequence[tuple[str, str]],
+    retrieval_texts: Sequence[str],
+) -> PromptContextSnapshot:
+    memory_tokens = (
+        estimate_tokens(render_memory_blocks(memories)) if memories else 0
+    )
+    return PromptContextSnapshot(
+        route=route,
+        budget_tokens=budget_tokens,
+        estimated_prompt_tokens=sum(
+            estimate_tokens(message["content"]) for message in prompt
+        ),
+        memory_tokens=memory_tokens,
+        memory_items=len(memories),
+        history_tokens=sum(estimate_tokens(content) for _role, content in history),
+        history_messages=len(history),
+        retrieval_tokens=sum(estimate_tokens(text) for text in retrieval_texts),
+        retrieval_items=len(retrieval_texts),
+    )
 
 
 def render_memory_blocks(memories: Sequence[PromptMemory]) -> str:

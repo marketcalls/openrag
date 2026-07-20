@@ -17,6 +17,7 @@ from openrag.modules.chat.models import Message
 from openrag.modules.models import service as models_service
 from openrag.modules.orchestration.runtime import create_model_streamer
 from openrag.modules.retrieval.service import retrieve
+from openrag.modules.runs.context import record_run_context
 from openrag.modules.runs.leases import (
     RunLeaseClaim,
     claim_next_run,
@@ -84,6 +85,7 @@ async def _execute_started_run(
     identity: RunIdentity,
     lifecycle: RunLifecycle,
     bus: ReplyEventBus,
+    attempt: int,
 ) -> RunOutcome:
     async with session_factory() as session:
         run = await session.get(AgentRun, identity.run_id)
@@ -142,6 +144,13 @@ async def _execute_started_run(
                 streamer=streamer,
                 retriever=retrieve,
                 settings=settings,
+                context_recorder=lambda snapshot, memories: record_run_context(
+                    session_factory,
+                    identity,
+                    attempt=attempt,
+                    snapshot=snapshot,
+                    memories=memories,
+                ),
             ),
         )
 
@@ -166,6 +175,7 @@ async def _execute_with_heartbeat(
             identity,
             lifecycle,
             bus,
+            claim.attempt,
         )
     )
     heartbeat_seconds = max(5.0, settings.run_lease_seconds / 3)
