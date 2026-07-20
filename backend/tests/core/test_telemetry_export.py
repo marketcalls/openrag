@@ -61,6 +61,10 @@ def test_rag_metrics_have_only_bounded_operational_labels() -> None:
         answer_relevance=0.9,
         correct_refusal=1.0,
     )
+    runtime.record_runtime_health(
+        event_loop_lag_seconds=0.012,
+        database_pool_utilization_ratio=0.5,
+    )
 
     data = reader.get_metrics_data()
     metrics = {
@@ -79,6 +83,8 @@ def test_rag_metrics_have_only_bounded_operational_labels() -> None:
         'evaluation.groundedness_ratio',
         'evaluation.answer_relevance_ratio',
         'evaluation.correct_refusal_ratio',
+        'event_loop.lag_seconds',
+        'db.pool_utilization_ratio',
     } <= set(metrics)
     for metric in metrics.values():
         for point in metric.data.data_points:

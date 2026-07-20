@@ -99,6 +99,21 @@ def test_backend_services_use_the_prebuilt_virtualenv_at_runtime() -> None:
     assert services["worker"]["security_opt"] == ["no-new-privileges:true"]
 
 
+def test_database_pool_budget_is_explicit_and_below_postgres_capacity() -> None:
+    config = render_compose()
+    services = config["services"]
+    environment = services["api"]["environment"]
+    pool_size = int(environment["OPENRAG_DATABASE_POOL_SIZE"])
+    max_overflow = int(environment["OPENRAG_DATABASE_MAX_OVERFLOW"])
+    process_count = int(environment["OPENRAG_DATABASE_PROCESS_COUNT"])
+    budget = int(environment["OPENRAG_DATABASE_CONNECTION_BUDGET"])
+    postgres_command = " ".join(services["postgres"]["command"])
+
+    assert (pool_size + max_overflow) * process_count <= budget
+    assert budget == 160
+    assert "max_connections=200" in postgres_command
+
+
 def test_authority_generation_is_provisioned_before_writes() -> None:
     services = render_compose()["services"]
     generation = services["api"]["environment"]["OPENRAG_AUTHORITY_GENERATION_ID"]

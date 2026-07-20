@@ -12,7 +12,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from openrag.core.config import get_settings
-from openrag.core.db import build_engine, build_session_factory
+from openrag.core.db import build_configured_engine, build_session_factory
 from openrag.modules.auth.models import User
 from openrag.modules.auth.passwords import hash_password
 from openrag.modules.secrets.crypto import ensure_kek
@@ -78,7 +78,7 @@ def main() -> None:
     settings = get_settings()
     ensure_kek(settings.kek_file)
     print(f"KEK ready at {settings.kek_file}")
-    factory = build_session_factory(build_engine(settings.database_url))
+    factory = build_session_factory(build_configured_engine(settings))
     created = asyncio.run(
         bootstrap_superadmin(factory, email=email, password=password)
     )

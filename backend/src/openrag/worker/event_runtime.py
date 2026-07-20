@@ -7,7 +7,7 @@ from typing import cast
 from sqlalchemy import select
 
 from openrag.core.config import Settings, get_settings
-from openrag.core.db import build_engine, build_session_factory
+from openrag.core.db import build_configured_engine, build_session_factory
 from openrag.modules.chat.summary_runtime import run_summary_job_once
 from openrag.modules.documents.lifecycle_projection import (
     DocumentLifecycleRedis,
@@ -43,7 +43,7 @@ async def dispatch_outbox_once(
     """Provision topology, claim a bounded batch, and durably relay it."""
 
     resolved = settings or get_settings()
-    engine = build_engine(resolved.database_url)
+    engine = build_configured_engine(resolved)
     session_factory = build_session_factory(engine)
     redis = build_event_redis(resolved)
     counts = {
@@ -85,7 +85,7 @@ async def consume_document_starts_once(
     """Provision topology and process one reclaimed/fresh command batch."""
 
     resolved = settings or get_settings()
-    engine = build_engine(resolved.database_url)
+    engine = build_configured_engine(resolved)
     session_factory = build_session_factory(engine)
     redis = build_event_redis(resolved)
     try:
@@ -114,7 +114,7 @@ async def consume_document_lifecycle_once(
     """Provision topology and process one lifecycle projection batch."""
 
     resolved = settings or get_settings()
-    engine = build_engine(resolved.database_url)
+    engine = build_configured_engine(resolved)
     session_factory = build_session_factory(engine)
     redis = build_event_redis(resolved)
     try:
@@ -143,7 +143,7 @@ async def consume_run_commands_once(
     """Queue attested run commands without holding SQL during execution."""
 
     resolved = settings or get_settings()
-    engine = build_engine(resolved.database_url)
+    engine = build_configured_engine(resolved)
     session_factory = build_session_factory(engine)
     redis = build_event_redis(resolved)
     try:
@@ -172,7 +172,7 @@ async def execute_run_once(
     """Claim one queued run and execute it on the isolated runs worker."""
 
     resolved = settings or get_settings()
-    engine = build_engine(resolved.database_url)
+    engine = build_configured_engine(resolved)
     session_factory = build_session_factory(engine)
     redis = build_event_redis(resolved)
     try:
@@ -201,7 +201,7 @@ async def execute_summary_once(
     """Claim one branch summary job without sharing the interactive run queue."""
 
     resolved = settings or get_settings()
-    engine = build_engine(resolved.database_url)
+    engine = build_configured_engine(resolved)
     session_factory = build_session_factory(engine)
     try:
         return await run_summary_job_once(
@@ -219,7 +219,7 @@ async def event_runtime_readiness(
     """Check PostgreSQL plus authenticated event Redis and exact topology."""
 
     resolved = settings or get_settings()
-    engine = build_engine(resolved.database_url)
+    engine = build_configured_engine(resolved)
     redis = build_event_redis(resolved)
     try:
         async with engine.connect() as connection:

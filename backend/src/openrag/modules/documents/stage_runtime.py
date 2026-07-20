@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from openrag.core.config import Settings, get_settings
-from openrag.core.db import build_engine, build_session_factory
+from openrag.core.db import build_configured_engine, build_session_factory
 from openrag.core.storage import ObjectStorage, build_storage
 from openrag.modules.audit.service import record_audit
 from openrag.modules.documents.authority_storage import (
@@ -667,7 +667,7 @@ async def run_durable_stage_once(
     """Compose production dependencies for one bounded durable-stage tick."""
 
     resolved = settings or get_settings()
-    engine = build_engine(resolved.database_url)
+    engine = build_configured_engine(resolved)
     session_factory = build_session_factory(engine)
     storage: ObjectStorage = build_storage(resolved)
     qdrant = AsyncQdrantClient(url=resolved.qdrant_url)

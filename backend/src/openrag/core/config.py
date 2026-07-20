@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     )
 
     database_url: str = "postgresql+asyncpg://openrag:openrag@127.0.0.1:55432/openrag"
+    database_pool_size: int = Field(default=10, ge=1, le=100)
+    database_max_overflow: int = Field(default=5, ge=0, le=100)
+    database_pool_timeout_seconds: float = Field(default=5.0, ge=0.1, le=60)
+    database_process_count: int = Field(default=8, ge=1, le=1000)
+    database_connection_budget: int = Field(default=160, ge=1, le=100_000)
+    runtime_metric_interval_seconds: float = Field(default=5.0, ge=0.1, le=300)
     redis_url: str = "redis://127.0.0.1:56379/0"
     event_redis_url: str | None = None
     event_redis_password_file: str | None = None

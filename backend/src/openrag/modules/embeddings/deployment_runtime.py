@@ -9,7 +9,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from openrag.core.config import Settings, get_settings
-from openrag.core.db import build_engine, build_session_factory, naive_utc
+from openrag.core.db import build_configured_engine, build_session_factory, naive_utc
 from openrag.modules.documents.authority_storage import (
     AuthorityCollectionSpec,
     provision_authority_storage,
@@ -226,7 +226,7 @@ async def run_deployment_scan_once(
     settings: Settings | None = None,
 ) -> DeploymentScanResult:
     resolved = settings or get_settings()
-    engine = build_engine(resolved.database_url)
+    engine = build_configured_engine(resolved)
     session_factory = build_session_factory(engine)
     qdrant = AsyncQdrantClient(url=resolved.qdrant_url)
     try:

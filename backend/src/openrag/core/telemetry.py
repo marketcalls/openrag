@@ -98,6 +98,8 @@ class TelemetryRuntime:
     _evaluation_groundedness: GaugeInstrument | None = field(default=None, init=False)
     _evaluation_relevance: GaugeInstrument | None = field(default=None, init=False)
     _evaluation_refusal: GaugeInstrument | None = field(default=None, init=False)
+    _event_loop_lag: GaugeInstrument | None = field(default=None, init=False)
+    _database_pool_utilization: GaugeInstrument | None = field(default=None, init=False)
 
     @property
     def export_enabled(self) -> bool:
@@ -186,6 +188,34 @@ class TelemetryRuntime:
             self._evaluation_relevance.set(answer_relevance, {})
         if correct_refusal is not None and self._evaluation_refusal is not None:
             self._evaluation_refusal.set(correct_refusal, {})
+
+    def record_runtime_health(
+        self,
+        *,
+        event_loop_lag_seconds: float,
+        database_pool_utilization_ratio: float | None,
+    ) -> None:
+        if self.meter_provider is None:
+            return
+        if self._event_loop_lag is None:
+            meter = self.meter_provider.get_meter("openrag.runtime")
+            self._event_loop_lag = meter.create_gauge(
+                "event_loop.lag_seconds",
+                unit="s",
+            )
+            self._database_pool_utilization = meter.create_gauge(
+                "db.pool_utilization_ratio",
+                unit="1",
+            )
+        self._event_loop_lag.set(max(0.0, event_loop_lag_seconds), {})
+        if (
+            database_pool_utilization_ratio is not None
+            and self._database_pool_utilization is not None
+        ):
+            self._database_pool_utilization.set(
+                min(1.0, max(0.0, database_pool_utilization_ratio)),
+                {},
+            )
 
 
 _ACTIVE_RUNTIME: TelemetryRuntime | None = None

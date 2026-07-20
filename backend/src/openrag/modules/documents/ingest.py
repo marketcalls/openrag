@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import get_settings
-from openrag.core.db import build_engine, build_session_factory, naive_utc
+from openrag.core.db import build_configured_engine, build_session_factory, naive_utc
 from openrag.core.storage import ObjectStorage, build_storage
 from openrag.modules.audit.service import record_audit
 from openrag.modules.documents.lifecycle import (
@@ -69,7 +69,7 @@ class _DeletionPlan:
 
 @asynccontextmanager
 async def _session() -> AsyncIterator[AsyncSession]:
-    engine = build_engine(get_settings().database_url)
+    engine = build_configured_engine(get_settings())
     try:
         async with build_session_factory(engine)() as session:
             yield session

@@ -31,9 +31,14 @@ from openrag.api.routes.search import router as search_router
 from openrag.api.routes.users import router as users_router
 from openrag.api.routes.workspaces import router as workspaces_router
 from openrag.core.config import get_settings
-from openrag.core.db import build_engine, build_session_factory
+from openrag.core.db import (
+    build_configured_engine,
+    build_session_factory,
+    validate_connection_budget,
+)
 from openrag.core.errors import OpenRAGError
 from openrag.core.logging import configure_logging
+from openrag.core.runtime_metrics import RuntimeMetricsSampler
 from openrag.core.telemetry import build_telemetry, current_trace_id
 from openrag.modules.chat.llm import LLMStreamer
 from openrag.modules.chat.service import Retriever
@@ -55,10 +60,22 @@ def create_app(
     settings = get_settings()
     telemetry = build_telemetry(settings)
     configure_logging(telemetry.logger_provider)
+    validate_connection_budget(
+        pool_size=settings.database_pool_size,
+        max_overflow=settings.database_max_overflow,
+        process_count=settings.database_process_count,
+        connection_budget=settings.database_connection_budget,
+    )
     owned_engine: AsyncEngine | None = None
     if session_factory is None:
-        owned_engine = build_engine(settings.database_url)
+        owned_engine = build_configured_engine(settings)
         session_factory = build_session_factory(owned_engine)
+    runtime_metrics = RuntimeMetricsSampler(
+        runtime=telemetry,
+        engine=owned_engine,
+        database_capacity=settings.database_pool_size + settings.database_max_overflow,
+        interval_seconds=settings.runtime_metric_interval_seconds,
+    )
     owns_redis = redis_client is None
     if redis_client is None:
         redis_client = Redis.from_url(settings.redis_url)
@@ -75,6 +92,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(runtime_app: FastAPI) -> AsyncIterator[None]:
+        runtime_metrics.start()
         try:
             async with runtime_app.state.session_factory() as session:
                 deployed = await sync_models_to_litellm(
@@ -89,6 +107,7 @@ def create_app(
         try:
             yield
         finally:
+            await runtime_metrics.stop()
             if owns_event_redis:
                 await runtime_app.state.event_redis.aclose()
             if owns_redis:
@@ -119,6 +138,7 @@ def create_app(
     app.state.retriever = retriever if retriever is not None else retrieve
     app.state.llm_streamer = llm_streamer
     app.state.telemetry = telemetry
+    app.state.runtime_metrics = runtime_metrics
 
     def problem(status: int, title: str, detail: str) -> JSONResponse:
         return JSONResponse(

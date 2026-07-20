@@ -17,6 +17,12 @@ def test_settings_use_openrag_database_defaults() -> None:
     assert settings.redis_url == "redis://127.0.0.1:56379/0"
     assert settings.event_redis_url is None
     assert settings.event_redis_password_file is None
+    assert settings.database_pool_size == 10
+    assert settings.database_max_overflow == 5
+    assert settings.database_pool_timeout_seconds == 5.0
+    assert settings.database_process_count == 8
+    assert settings.database_connection_budget == 160
+    assert settings.runtime_metric_interval_seconds == 5.0
 
 
 def test_event_transport_settings_are_distinct_and_injected(monkeypatch) -> None:  # type: ignore[no-untyped-def]
