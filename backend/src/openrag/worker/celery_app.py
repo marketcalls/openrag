@@ -20,12 +20,14 @@ def build_celery() -> Celery:
             Queue("default"),
             Queue("interactive"),
             Queue("events"),
+            Queue("evaluations"),
             Queue("ingestion"),
             Queue("runs"),
             Queue("summaries"),
         ),
         task_routes={
             "events.*": {"queue": "events"},
+            "evaluations.*": {"queue": "evaluations"},
             "runs.*": {"queue": "runs"},
             "summaries.*": {"queue": "summaries"},
         },
@@ -71,6 +73,11 @@ def build_celery() -> Celery:
                 "task": "runs.execute_next",
                 "schedule": 0.25,
                 "options": {"queue": "runs", "expires": 2},
+            },
+            "execute-rag-evaluation": {
+                "task": "evaluations.execute_next",
+                "schedule": 0.5,
+                "options": {"queue": "evaluations", "expires": 3},
             },
             "refresh-conversation-summary": {
                 "task": "summaries.refresh_next",

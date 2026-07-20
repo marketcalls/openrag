@@ -19,6 +19,7 @@ class LLMDelta:
 class LLMUsage:
     prompt_tokens: int
     completion_tokens: int
+    estimated_cost_microusd: int = 0
 
 
 class LLMStreamer(Protocol):
@@ -91,6 +92,17 @@ class LiteLLMStreamer:
                                 ),
                                 completion_tokens=int(
                                     usage.get("completion_tokens", 0)
+                                ),
+                                estimated_cost_microusd=max(
+                                    0,
+                                    round(
+                                        float(
+                                            usage.get("response_cost")
+                                            or usage.get("cost")
+                                            or 0
+                                        )
+                                        * 1_000_000
+                                    ),
                                 ),
                             )
                             continue

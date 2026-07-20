@@ -22,6 +22,7 @@ def test_celery_config() -> None:
     assert {queue.name for queue in celery_app.conf.task_queues} == {
         "default",
         "events",
+        "evaluations",
         "ingestion",
         "interactive",
         "runs",
@@ -83,6 +84,11 @@ def test_event_tasks_are_isolated_to_the_events_queue() -> None:
     assert celery_app.conf.task_routes["summaries.*"] == {"queue": "summaries"}
     assert "runs.execute_next" in celery_app.tasks
     assert "summaries.refresh_next" in celery_app.tasks
+    assert celery_app.conf.task_routes["evaluations.*"] == {"queue": "evaluations"}
+    assert "evaluations.execute_next" in celery_app.tasks
+    evaluation_schedule = celery_app.conf.beat_schedule["execute-rag-evaluation"]
+    assert evaluation_schedule["task"] == "evaluations.execute_next"
+    assert evaluation_schedule["options"]["queue"] == "evaluations"
 
 
 def test_queue_selection_by_size() -> None:

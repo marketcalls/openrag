@@ -55,6 +55,8 @@ def test_dataset_version_has_bounded_nonempty_cases() -> None:
 
     with pytest.raises(ValidationError):
         EvaluationCaseCreate(question="x" * 2001, expected_evidence=[evidence()])
+    with pytest.raises(ValidationError):
+        EvaluationCaseCreate(question="   ", expected_evidence=[evidence()])
 
 
 def test_evaluation_run_requires_explicit_case_token_and_cost_budgets() -> None:

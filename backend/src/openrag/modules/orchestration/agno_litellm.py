@@ -96,6 +96,13 @@ class AgnoLiteLLMStreamer:
                         completion_tokens=int(
                             getattr(metrics, "output_tokens", 0) or 0
                         ),
+                        estimated_cost_microusd=max(
+                            0,
+                            round(
+                                float(getattr(metrics, "cost", 0) or 0)
+                                * 1_000_000
+                            ),
+                        ),
                     )
                 elif event_name in {"RunError", "RunCancelled"}:
                     raise UpstreamError("model execution failed")

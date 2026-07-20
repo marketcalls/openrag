@@ -323,11 +323,11 @@ def test_rank_metrics_match_known_order() -> None:
 
 Cases store bounded questions plus expected immutable document-version/evidence IDs; only this explicitly approved evaluation corpus may retain question text. Dataset versions are immutable once used. Runs are lease-fenced and terminally idempotent.
 
-- [ ] **Step 3: Implement deterministic retrieval/citation/refusal scoring**
+- [x] **Step 3: Implement deterministic retrieval/citation/refusal scoring**
 
 Every case executes through the same tenant-authorized production retrieval path. Store identifiers and numeric scores, not retrieved text or model reasoning. Live LLM-judge scoring is optional per run, uses a configured evaluator model through in-process LiteLLM, has a closed JSON schema, and fails independently from deterministic metrics.
 
-- [ ] **Step 4: Wire isolated worker/API and verify**
+- [x] **Step 4: Wire isolated worker/API and verify**
 
 Run: `cd backend && uv run pytest -q tests/modules/evaluations tests/api/test_evaluations.py tests/worker/test_celery.py tests/test_compose.py && uv run ruff check src tests && uv run mypy`
 

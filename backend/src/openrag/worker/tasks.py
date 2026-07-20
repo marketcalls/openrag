@@ -15,6 +15,7 @@ from openrag.modules.documents.projection_runtime import (
 from openrag.modules.documents.stage_runtime import run_durable_stage_once
 from openrag.modules.embeddings.deployment_runtime import run_deployment_scan_once
 from openrag.worker.celery_app import celery_app
+from openrag.worker.evaluation_runtime import run_evaluation_once
 from openrag.worker.event_runtime import (
     consume_document_lifecycle_once,
     consume_document_starts_once,
@@ -114,6 +115,22 @@ def refresh_summary_task(task: Task) -> str:
     task_id = str(getattr(task.request, "id", None) or "tick")
     owner = f"summary:{hostname}:{task_id}"[:200]
     return asyncio.run(execute_summary_once(owner=owner))
+
+
+@celery_app.task(
+    bind=True,
+    name="evaluations.execute_next",
+    ignore_result=True,
+    soft_time_limit=540,
+    time_limit=570,
+)
+def execute_evaluation_task(task: Task) -> str:
+    """Execute one lease-fenced evaluation case on its isolated queue."""
+
+    hostname = str(getattr(task.request, "hostname", None) or "evaluation-worker")
+    task_id = str(getattr(task.request, "id", None) or "tick")
+    owner = f"evaluation:{hostname}:{task_id}"[:200]
+    return asyncio.run(run_evaluation_once(owner=owner))
 
 
 @celery_app.task(

@@ -461,6 +461,39 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
+  evaluation-worker:
+    <<: *openrag-backend
+    command:
+      - /app/.venv/bin/celery
+      - -A
+      - openrag.worker.celery_app:celery_app
+      - worker
+      - -Q
+      - evaluations
+      - -l
+      - info
+      - --concurrency=${OPENRAG_EVALUATION_CONCURRENCY:-4}
+      - --hostname=evaluations@%h
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      authority-provisioner:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+    mem_limit: ${OPENRAG_EVALUATION_WORKER_MEMORY_LIMIT:-4g}
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 35s
+    restart: unless-stopped
+
   web:
     image: openrag-frontend:local
     build:

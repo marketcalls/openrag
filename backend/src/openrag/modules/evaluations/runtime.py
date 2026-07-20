@@ -1,13 +1,29 @@
 """Lease-fenced execution and content-free scoring for RAG evaluations."""
 
 from dataclasses import dataclass
-from datetime import datetime
-from uuid import UUID
+from datetime import datetime, timedelta
+from uuid import UUID, uuid4
 
-from sqlalchemy import Select, or_, select
+from sqlalchemy import Select, and_, or_, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from openrag.core.db import naive_utc
 from openrag.modules.evaluations.metrics import citation_metrics, rank_metrics
 from openrag.modules.evaluations.models import EvaluationRun
+
+MAX_EVALUATION_ATTEMPTS = 1000
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationLeaseClaim:
+    run_id: UUID
+    org_id: UUID
+    workspace_id: UUID
+    dataset_version_id: UUID
+    token: UUID
+    owner: str
+    attempt: int
+    recovered: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,13 +162,79 @@ def build_claim_query(now: datetime) -> Select[tuple[EvaluationRun]]:
         .where(
             or_(
                 EvaluationRun.status == "queued",
-                (
-                    (EvaluationRun.status == "running")
-                    & (EvaluationRun.lease_expires_at < now)
+                and_(
+                    EvaluationRun.status == "running",
+                    EvaluationRun.lease_expires_at.is_not(None),
+                    EvaluationRun.lease_expires_at <= now,
                 ),
             )
+            & (EvaluationRun.attempts < MAX_EVALUATION_ATTEMPTS)
         )
         .order_by(EvaluationRun.created_at, EvaluationRun.id)
         .limit(1)
         .with_for_update(skip_locked=True)
     )
+
+
+def _validate_lease(owner: str, lease_seconds: int) -> None:
+    if not 1 <= len(owner) <= 200:
+        raise ValueError("evaluation_lease_owner_invalid")
+    if not 30 <= lease_seconds <= 600:
+        raise ValueError("evaluation_lease_seconds_invalid")
+
+
+async def claim_next_evaluation_run(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    owner: str,
+    lease_seconds: int,
+) -> EvaluationLeaseClaim | None:
+    _validate_lease(owner, lease_seconds)
+    now = naive_utc()
+    async with session_factory.begin() as session:
+        run = await session.scalar(build_claim_query(now))
+        if run is None:
+            return None
+        recovered = run.status == "running"
+        token = uuid4()
+        run.status = "running"
+        run.started_at = run.started_at or now
+        run.lease_owner = owner
+        run.lease_token = token
+        run.lease_expires_at = now + timedelta(seconds=lease_seconds)
+        run.attempts += 1
+        await session.flush()
+        return EvaluationLeaseClaim(
+            run_id=run.id,
+            org_id=run.org_id,
+            workspace_id=run.workspace_id,
+            dataset_version_id=run.dataset_version_id,
+            token=token,
+            owner=owner,
+            attempt=run.attempts,
+            recovered=recovered,
+        )
+
+
+async def renew_evaluation_lease(
+    session_factory: async_sessionmaker[AsyncSession],
+    claim: EvaluationLeaseClaim,
+    *,
+    lease_seconds: int,
+) -> bool:
+    _validate_lease(claim.owner, lease_seconds)
+    async with session_factory.begin() as session:
+        result = await session.execute(
+            update(EvaluationRun)
+            .where(
+                EvaluationRun.id == claim.run_id,
+                EvaluationRun.status == "running",
+                EvaluationRun.lease_token == claim.token,
+                EvaluationRun.lease_owner == claim.owner,
+            )
+            .values(
+                lease_expires_at=naive_utc() + timedelta(seconds=lease_seconds)
+            )
+            .returning(EvaluationRun.id)
+        )
+        return result.scalar_one_or_none() == claim.run_id

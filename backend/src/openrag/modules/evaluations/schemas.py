@@ -18,7 +18,7 @@ class EvaluationEvidenceCreate(BaseModel):
 
 
 class EvaluationCaseCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     question: str = Field(min_length=1, max_length=2000)
     should_refuse: bool = False
@@ -40,7 +40,7 @@ class EvaluationCaseCreate(BaseModel):
 
 
 class EvaluationDatasetCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     workspace_id: UUID
     name: str = Field(min_length=1, max_length=120)
@@ -62,7 +62,7 @@ class EvaluationDatasetOut(BaseModel):
 
 
 class EvaluationDatasetVersionCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     label: str | None = Field(default=None, min_length=1, max_length=100)
     cases: list[EvaluationCaseCreate] = Field(min_length=1, max_length=1000)
