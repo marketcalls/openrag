@@ -8,41 +8,49 @@ import { Spinner } from '@/components/ui/spinner';
 
 import { RequireAuth } from './require-auth';
 import { RequirePermission, RequirePlatformSuperadmin } from './require-permission';
+import { loadRouteModule } from './deployment-recovery';
+import { RouteErrorPage } from './route-error-page';
 
 const ChatPage = lazy(async () => {
-  const module = await import('@/features/chat/chat-page');
+  const module = await loadRouteModule(() => import('@/features/chat/chat-page'));
   return { default: module.ChatPage };
 });
 const DocumentsPage = lazy(async () => {
-  const module = await import('@/features/documents/documents-page');
+  const module = await loadRouteModule(() => import('@/features/documents/documents-page'));
   return { default: module.DocumentsPage };
 });
 const MemoryPage = lazy(async () => {
-  const module = await import('@/features/memory/memory-page');
+  const module = await loadRouteModule(() => import('@/features/memory/memory-page'));
   return { default: module.MemoryPage };
 });
 const UsersPage = lazy(async () => {
-  const module = await import('@/features/admin/users/users-page');
+  const module = await loadRouteModule(() => import('@/features/admin/users/users-page'));
   return { default: module.UsersPage };
 });
 const ModelsPage = lazy(async () => {
-  const module = await import('@/features/admin/models/models-page');
+  const module = await loadRouteModule(() => import('@/features/admin/models/models-page'));
   return { default: module.ModelsPage };
 });
 const EmbeddingProfilesPage = lazy(async () => {
-  const module = await import('@/features/admin/embeddings/embedding-profiles-page');
+  const module = await loadRouteModule(
+    () => import('@/features/admin/embeddings/embedding-profiles-page'),
+  );
   return { default: module.EmbeddingProfilesPage };
 });
 const RagOperationsPage = lazy(async () => {
-  const module = await import('@/features/admin/rag-operations/rag-operations-page');
+  const module = await loadRouteModule(
+    () => import('@/features/admin/rag-operations/rag-operations-page'),
+  );
   return { default: module.RagOperationsPage };
 });
 const EvaluationsPage = lazy(async () => {
-  const module = await import('@/features/admin/evaluations/evaluations-page');
+  const module = await loadRouteModule(
+    () => import('@/features/admin/evaluations/evaluations-page'),
+  );
   return { default: module.EvaluationsPage };
 });
 const RolesPage = lazy(async () => {
-  const module = await import('@/features/admin/roles/roles-page');
+  const module = await loadRouteModule(() => import('@/features/admin/roles/roles-page'));
   return { default: module.RolesPage };
 });
 
@@ -178,6 +186,7 @@ export const router = createBrowserRouter(
     { path: '/invite', element: <AcceptInvitePage /> },
     {
       element: <RequireAuth />,
+      errorElement: <RouteErrorPage />,
       children: [
         {
           element: <AppShell />,
