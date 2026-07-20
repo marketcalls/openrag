@@ -1,10 +1,10 @@
 """Strict, content-free contracts for RAG operations and error facts."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 RagRoute = Literal["direct", "conversation", "rag", "analytics", "clarify", "unknown"]
 RagRunOutcome = Literal["grounded", "conversational", "no_answer", "failed", "cancelled"]
@@ -161,3 +161,44 @@ class ErrorOccurrenceOut(BaseModel):
     http_status: int | None
     release: str | None
     occurred_at: datetime
+
+
+class RagOperationsFilter(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    from_at: AwareDatetime
+    to_at: AwareDatetime
+    org_id: UUID | None = None
+    workspace_id: UUID | None = None
+    route: RagRoute | None = None
+    outcome: RagRunOutcome | None = None
+    model_id: UUID | None = None
+    environment: str | None = Field(default=None, pattern=_ENVIRONMENT_PATTERN)
+    release: str | None = Field(default=None, pattern=_RELEASE_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_window_and_scope(self) -> Self:
+        if self.to_at <= self.from_at or self.to_at - self.from_at > timedelta(days=90):
+            raise ValueError("rag_operations_window_invalid")
+        if self.workspace_id is not None and self.org_id is None:
+            raise ValueError("rag_operations_workspace_requires_org")
+        return self
+
+
+class RagOperationsOverview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query_count: int = Field(ge=0)
+    grounded_count: int = Field(ge=0)
+    no_answer_count: int = Field(ge=0)
+    failed_count: int = Field(ge=0)
+    cancelled_count: int = Field(ge=0)
+    grounded_rate: float = Field(ge=0, le=1)
+    no_answer_rate: float = Field(ge=0, le=1)
+    p50_latency_ms: float | None = Field(default=None, ge=0)
+    p95_latency_ms: float | None = Field(default=None, ge=0)
+    p99_latency_ms: float | None = Field(default=None, ge=0)
+    average_ttft_ms: float | None = Field(default=None, ge=0)
+    prompt_tokens: int = Field(ge=0)
+    completion_tokens: int = Field(ge=0)
+    estimated_cost_microusd: int = Field(ge=0)

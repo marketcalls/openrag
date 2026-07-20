@@ -28,6 +28,11 @@ class NotFoundError(OpenRAGError):
     title = "Not found"
 
 
+class InvalidRequestError(OpenRAGError):
+    status_code = 422
+    title = "Invalid request"
+
+
 class ConflictError(OpenRAGError):
     status_code = 409
     title = "Conflict"
