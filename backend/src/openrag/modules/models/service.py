@@ -2,7 +2,7 @@ import hashlib
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import select, true
+from sqlalchemy import select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import Settings
@@ -96,6 +96,7 @@ async def to_model_out(
             provider_kind=cast(ProviderKind, model.provider_kind),
             base_url=model.base_url,
             enabled=model.enabled,
+            is_utility=model.is_utility,
             key_fingerprint=fingerprints.get(f"model:{model.id}"),
             supports_chat_completion=model.supports_chat_completion,
             supports_streaming=model.supports_streaming,
@@ -206,6 +207,7 @@ def _configuration_fingerprint(
 
 
 def _reset_measured_capabilities(model: Model) -> None:
+    model.is_utility = False
     model.probe_status = "pending"
     model.probe_latency_ms = None
     model.last_probe_error_code = None
@@ -298,16 +300,21 @@ async def update_model(
     api_key: str | None,
     settings: Settings,
     default_reasoning_effort: ReasoningEffort | None = None,
+    is_utility: bool | None = None,
 ) -> Model:
     try:
         model = await get_model(session, model_id)
         if display_name is not None:
             model.display_name = display_name
-        probe_required = base_url is not None and base_url != model.base_url
+        probe_required = (
+            base_url is not None and base_url != model.base_url
+        ) or api_key is not None
         if base_url is not None:
             model.base_url = base_url
         if enabled is not None:
             model.enabled = enabled
+            if not enabled:
+                model.is_utility = False
         next_default_effort = (
             model.default_reasoning_effort
             if default_reasoning_effort is None
@@ -318,6 +325,28 @@ async def update_model(
                 "default reasoning effort requires reasoning support"
             )
         model.default_reasoning_effort = next_default_effort
+        if is_utility is True:
+            if probe_required:
+                raise ConflictError(
+                    "re-probe the changed model before utility designation"
+                )
+            if (
+                not model.enabled
+                or model.probe_status != "passed"
+                or not model.supports_chat_completion
+                or not model.supports_streaming
+            ):
+                raise ConflictError(
+                    "utility model requires measured chat and streaming support"
+                )
+            await session.execute(
+                update(Model)
+                .where(Model.id != model.id, Model.is_utility.is_(True))
+                .values(is_utility=False)
+            )
+            model.is_utility = True
+        elif is_utility is False:
+            model.is_utility = False
         await record_audit(
             session,
             org_id=None,
@@ -328,7 +357,6 @@ async def update_model(
         )
         secret: Secret | None = None
         if api_key is not None:
-            probe_required = True
             secret = await secrets_service.set_secret(
                 session,
                 actor_id=ctx.user_id,

@@ -13,6 +13,7 @@ const model: ModelOut = {
   provider_kind: 'openai',
   base_url: null,
   enabled: true,
+  is_utility: false,
   key_fingerprint: '...-key sha256:abc',
   supports_chat_completion: true,
   supports_streaming: true,
@@ -33,8 +34,10 @@ const model: ModelOut = {
 afterEach(() => vi.unstubAllGlobals());
 
 test('shows measured capabilities and queues an on-demand connection test', async () => {
+  const requests: Request[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     if (!(input instanceof Request)) throw new Error('Expected Request');
+    requests.push(input);
     if (input.method === 'POST' && input.url.endsWith(`/models/${model.id}/probe`)) {
       return Response.json({
         id: '550e8400-e29b-41d4-a716-446655440041',
@@ -70,6 +73,13 @@ test('shows measured capabilities and queues an on-demand connection test', asyn
   expect(await screen.findByText('Probe passed')).toBeVisible();
   expect(screen.getByText('Chat · Stream · JSON · Tools · Judge')).toBeVisible();
   expect(screen.getByText('128k')).toBeVisible();
+  await user.click(screen.getByRole('radio', { name: 'Use GPT-5 mini for background AI tasks' }));
+  await vi.waitFor(() => {
+    const request = requests.find((item) => item.method === 'PATCH');
+    expect(request).toBeDefined();
+  });
+  const utilityPatch = requests.find((item) => item.method === 'PATCH');
+  expect(await utilityPatch?.clone().json()).toEqual({ is_utility: true });
   await user.click(screen.getByRole('button', { name: 'Test GPT-5 mini connection' }));
 
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(

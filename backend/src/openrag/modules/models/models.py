@@ -8,6 +8,7 @@ from sqlalchemy import (
     Index,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -51,6 +52,17 @@ class Model(UUIDPk, Base):
             "probe_latency_ms IS NULL OR probe_latency_ms BETWEEN 0 AND 120000",
             name="ck_models_probe_latency",
         ),
+        CheckConstraint(
+            "NOT is_utility OR (enabled AND probe_status = 'passed' "
+            "AND supports_chat_completion AND supports_streaming)",
+            name="ck_models_utility_measured",
+        ),
+        Index(
+            "uq_models_single_utility",
+            "is_utility",
+            unique=True,
+            postgresql_where=text("is_utility"),
+        ),
     )
 
     litellm_model_name: Mapped[str] = mapped_column(unique=True)
@@ -58,6 +70,11 @@ class Model(UUIDPk, Base):
     provider_kind: Mapped[str]
     base_url: Mapped[str | None] = mapped_column(default=None)
     enabled: Mapped[bool] = mapped_column(default=True)
+    is_utility: Mapped[bool] = mapped_column(
+        default=False,
+        server_default="false",
+        index=True,
+    )
     supports_chat_completion: Mapped[bool] = mapped_column(default=False)
     supports_streaming: Mapped[bool] = mapped_column(default=False)
     supports_structured_json: Mapped[bool] = mapped_column(default=False)

@@ -79,6 +79,7 @@ async def patch_model(
         api_key=body.api_key,
         settings=settings,
         default_reasoning_effort=body.default_reasoning_effort,
+        is_utility=body.is_utility,
     )
     return (await service.to_model_out(session, [model]))[0]
 

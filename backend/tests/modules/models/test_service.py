@@ -24,6 +24,7 @@ from openrag.modules.models.service import (
     to_model_out,
     update_model,
 )
+from openrag.modules.models.utility import resolve_utility_model
 from openrag.modules.secrets.crypto import ensure_kek
 from openrag.modules.secrets.models import Secret
 from openrag.modules.tenancy.authorization import AuthorizationSnapshot
@@ -191,6 +192,145 @@ async def test_update_and_disable(
     assert updated.enabled is False
     assert await list_enabled_models(session) == []
     assert len(await list_models(session)) == 1
+
+
+async def test_utility_model_is_single_measured_and_cleared_when_disabled(
+    session: AsyncSession,
+    seeded_user: User,
+    settings: Settings,
+) -> None:
+    ctx = super_ctx(seeded_user)
+    first = await create_model(
+        session,
+        ctx,
+        litellm_model_name="utility-one",
+        display_name="Utility one",
+        provider_kind="ollama",
+        base_url="http://ollama:11434",
+        api_key=None,
+        settings=settings,
+    )
+    second = await create_model(
+        session,
+        ctx,
+        litellm_model_name="utility-two",
+        display_name="Utility two",
+        provider_kind="ollama",
+        base_url="http://ollama:11434",
+        api_key=None,
+        settings=settings,
+    )
+    for model in (first, second):
+        model.probe_status = "passed"
+        model.supports_chat_completion = True
+        model.supports_streaming = True
+    await session.commit()
+
+    await update_model(
+        session,
+        ctx,
+        first.id,
+        display_name=None,
+        base_url=None,
+        enabled=None,
+        api_key=None,
+        settings=settings,
+        is_utility=True,
+    )
+    assert (await resolve_utility_model(session)).id == first.id  # type: ignore[union-attr]
+
+    await update_model(
+        session,
+        ctx,
+        second.id,
+        display_name=None,
+        base_url=None,
+        enabled=None,
+        api_key=None,
+        settings=settings,
+        is_utility=True,
+    )
+    await session.refresh(first)
+    assert first.is_utility is False
+    assert (await resolve_utility_model(session)).id == second.id  # type: ignore[union-attr]
+
+    await update_model(
+        session,
+        ctx,
+        second.id,
+        display_name=None,
+        base_url=None,
+        enabled=False,
+        api_key=None,
+        settings=settings,
+    )
+    assert await resolve_utility_model(session) is None
+
+
+async def test_unmeasured_model_cannot_be_designated_as_utility(
+    session: AsyncSession,
+    seeded_user: User,
+    settings: Settings,
+) -> None:
+    ctx = super_ctx(seeded_user)
+    model = await create_model(
+        session,
+        ctx,
+        litellm_model_name="unmeasured-utility",
+        display_name="Unmeasured",
+        provider_kind="ollama",
+        base_url="http://ollama:11434",
+        api_key=None,
+        settings=settings,
+    )
+
+    with pytest.raises(ConflictError, match="measured chat and streaming"):
+        await update_model(
+            session,
+            ctx,
+            model.id,
+            display_name=None,
+            base_url=None,
+            enabled=None,
+            api_key=None,
+            settings=settings,
+            is_utility=True,
+        )
+
+
+async def test_changed_model_must_be_reprobed_before_utility_designation(
+    session: AsyncSession,
+    seeded_user: User,
+    settings: Settings,
+) -> None:
+    ctx = super_ctx(seeded_user)
+    model = await create_model(
+        session,
+        ctx,
+        litellm_model_name="changed-utility",
+        display_name="Changed utility",
+        provider_kind="ollama",
+        base_url="http://ollama:11434",
+        api_key=None,
+        settings=settings,
+    )
+    model.probe_status = "passed"
+    model.supports_chat_completion = True
+    model.supports_streaming = True
+    await session.commit()
+
+    with pytest.raises(ConflictError, match="re-probe the changed model"):
+        await update_model(
+            session,
+            ctx,
+            model.id,
+            display_name=None,
+            base_url="http://ollama-new:11434",
+            enabled=None,
+            api_key=None,
+            settings=settings,
+            is_utility=True,
+        )
 
 
 async def test_delete_removes_model_and_secret(

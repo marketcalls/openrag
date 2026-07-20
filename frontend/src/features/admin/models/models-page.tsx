@@ -65,6 +65,7 @@ export function ModelsPage() {
                   <TH>Capabilities</TH>
                   <TH>Context</TH>
                   <TH>Connection</TH>
+                  <TH>Background role</TH>
                   <TH>Enabled</TH>
                   <TH><span className="sr-only">Actions</span></TH>
                 </TR>
@@ -107,6 +108,28 @@ export function ModelsPage() {
                         {model.probe_latency_ms !== null ? <p className="text-[10px] text-muted">{model.probe_latency_ms} ms</p> : null}
                         {model.last_probe_error_code ? <p className="font-mono text-[10px] text-danger">{model.last_probe_error_code}</p> : null}
                       </div>
+                    </TD>
+                    <TD>
+                      <label className="flex items-center gap-2 text-[11px] text-secondary" title="Used for summaries and future bounded enrichment jobs">
+                        <input
+                          type="radio"
+                          name="utility-model"
+                          aria-label={`Use ${model.display_name} for background AI tasks`}
+                          checked={model.is_utility}
+                          disabled={patchModel.isPending || !model.enabled || model.probe_status !== 'passed' || !model.supports_chat_completion || !model.supports_streaming}
+                          onChange={() =>
+                            patchModel.mutate(
+                              { modelId: model.id, body: { is_utility: true } },
+                              {
+                                onSuccess: () => toast.success('Background utility model updated'),
+                                onError: (error) => toast.error(error.message),
+                              },
+                            )
+                          }
+                          className="h-4 w-4 accent-[var(--accent)]"
+                        />
+                        {model.is_utility ? <span className="rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent">Utility</span> : 'Available'}
+                      </label>
                     </TD>
                     <TD>
                       <input

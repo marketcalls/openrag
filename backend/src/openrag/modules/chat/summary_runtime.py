@@ -23,6 +23,7 @@ from openrag.modules.chat.summary_models import (
     ConversationSummaryJob,
 )
 from openrag.modules.models import service as models_service
+from openrag.modules.models.utility import resolve_utility_model
 from openrag.modules.orchestration.runtime import create_model_streamer
 from openrag.modules.tenancy import service as tenancy_service
 from openrag.modules.tenancy.authorization import resolve_authorization
@@ -342,11 +343,13 @@ async def _prepare_summary(
         )
         if plan is None:
             return "skipped"
-        model = await models_service.resolve_model(
-            session,
-            requested_model_id=job.requested_model_id,
-            default_model_id=workspace.default_model_id,
-        )
+        model = await resolve_utility_model(session)
+        if model is None:
+            model = await models_service.resolve_model(
+                session,
+                requested_model_id=job.requested_model_id,
+                default_model_id=workspace.default_model_id,
+            )
         summary_settings = settings.model_copy(
             update={"chat_max_output_tokens": settings.summary_target_token_budget}
         )

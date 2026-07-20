@@ -46,6 +46,7 @@ async def test_superadmin_crud_and_key_never_returned(
     assert "sync_status" not in created
     assert created["probe_status"] == "pending"
     assert created["probe_revision"] == 1
+    assert created["is_utility"] is False
     assert created["supports_chat_completion"] is False
     assert created["supports_streaming"] is False
     assert created["supports_structured_json"] is False
@@ -172,6 +173,14 @@ async def test_workspace_default_model(
     model.supports_chat_completion = True
     model.supports_streaming = True
     await session.commit()
+
+    response = await client.patch(
+        f"/api/v1/admin/models/{model_id}",
+        json={"is_utility": True},
+        headers=super_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["is_utility"] is True
 
     response = await client.patch(
         f"/api/v1/workspaces/{workspace_id}",

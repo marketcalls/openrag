@@ -13,6 +13,7 @@ const existingModel: ModelOut = {
   provider_kind: 'openai_compatible',
   base_url: 'https://models.acme.test/v1',
   enabled: true,
+  is_utility: false,
   key_fingerprint: '...7890 sha256:abc123',
   supports_chat_completion: true,
   supports_streaming: true,

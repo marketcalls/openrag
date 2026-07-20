@@ -2515,6 +2515,8 @@ export interface components {
             base_url: string | null;
             /** Enabled */
             enabled: boolean;
+            /** Is Utility */
+            is_utility: boolean;
             /** Key Fingerprint */
             key_fingerprint: string | null;
             /** Supports Chat Completion */
@@ -2560,6 +2562,8 @@ export interface components {
             base_url?: string | null;
             /** Enabled */
             enabled?: boolean | null;
+            /** Is Utility */
+            is_utility?: boolean | null;
             /** Api Key */
             api_key?: string | null;
             /** Default Reasoning Effort */

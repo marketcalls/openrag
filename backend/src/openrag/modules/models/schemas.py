@@ -43,6 +43,7 @@ class ModelPatch(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=200)
     base_url: str | None = None
     enabled: bool | None = None
+    is_utility: bool | None = None
     api_key: str | None = Field(
         default=None,
         min_length=1,
@@ -59,6 +60,7 @@ class ModelOut(BaseModel):
     provider_kind: ProviderKind
     base_url: str | None
     enabled: bool
+    is_utility: bool
     key_fingerprint: str | None
     supports_chat_completion: bool
     supports_streaming: bool
