@@ -5,6 +5,7 @@ import pytest
 
 from openrag.modules.retrieval.service import (
     RetrievedEvidence,
+    attach_dense_scores,
     select_final_evidence,
 )
 
@@ -96,3 +97,15 @@ def test_retrieved_evidence_rejects_incomplete_or_unbounded_provenance(
 ) -> None:
     with pytest.raises(ValueError, match="evidence_"):
         replace(evidence(1), **changes)
+
+
+def test_dense_scores_are_attached_only_by_exact_evidence_identity() -> None:
+    first = evidence(1)
+    second = evidence(2)
+    scored = attach_dense_scores(
+        (first, second),
+        {first.evidence_span_id: 0.92},
+    )
+
+    assert scored[0].dense_score == 0.92
+    assert scored[1].dense_score == second.dense_score

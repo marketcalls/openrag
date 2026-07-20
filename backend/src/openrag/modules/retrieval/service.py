@@ -2,7 +2,8 @@
 
 import asyncio
 import math
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -23,6 +24,12 @@ from openrag.modules.retrieval.authority import (
 )
 from openrag.modules.retrieval.client import COLLECTION, get_qdrant
 from openrag.modules.retrieval.embeddings import embed_sparse, get_dense_embedder
+from openrag.modules.retrieval.sufficiency import (
+    EvidenceDecision,
+    EvidenceStatus,
+    SufficiencyPolicy,
+    evaluate_evidence,
+)
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.service import get_workspace_checked
 
@@ -91,6 +98,7 @@ class RetrievalResult:
     chunks: list[RetrievedChunk]
     no_answer: bool
     evidence: tuple[RetrievedEvidence, ...] = ()
+    decision: EvidenceDecision | None = None
 
 
 def _retrieved_evidence(item: AuthorizedEvidence) -> RetrievedEvidence:
@@ -147,6 +155,16 @@ def select_final_evidence(
         if len(selected) == top_k:
             break
     return tuple(selected)
+
+
+def attach_dense_scores(
+    evidence: tuple[RetrievedEvidence, ...],
+    scores: Mapping[UUID, float],
+) -> tuple[RetrievedEvidence, ...]:
+    return tuple(
+        replace(item, dense_score=scores.get(item.evidence_span_id, item.dense_score))
+        for item in evidence
+    )
 
 
 def _tenant_filter(
@@ -248,6 +266,7 @@ async def retrieve(
             EmbeddingDeployment.status == "active"
         )
     )
+    decision: EvidenceDecision | None = None
     now = datetime.now(UTC)
     eligibility = [
         DocumentVersion.org_id == context.org_id,
@@ -288,7 +307,16 @@ async def retrieve(
             select(DocumentVersion.id).where(*eligibility).limit(1)
         )
         if eligible_version is None:
-            return RetrievalResult(chunks=[], no_answer=True)
+            decision = evaluate_evidence(
+                query,
+                [],
+                SufficiencyPolicy(min_dense_score=workspace.min_score),
+            )
+            return RetrievalResult(
+                chunks=[],
+                no_answer=True,
+                decision=decision,
+            )
     current_approved: bool | None = None
     if deployment is None:
         collection = await ensure_collection(workspace.embedding_model)
@@ -297,7 +325,16 @@ async def retrieve(
     else:
         profile = await session.get(EmbeddingProfile, deployment.profile_id)
         if profile is None or not profile.enabled:
-            return RetrievalResult(chunks=[], no_answer=True)
+            decision = evaluate_evidence(
+                query,
+                [],
+                SufficiencyPolicy(min_dense_score=workspace.min_score),
+            )
+            return RetrievalResult(
+                chunks=[],
+                no_answer=True,
+                decision=decision,
+            )
         runtime = build_profile_runtime(profile, get_settings())
         collection = AuthorityCollectionSpec(
             generation_id=deployment.generation_id,
@@ -389,7 +426,20 @@ async def retrieve(
             for evidence in final_evidence
         ]
     if not chunks:
-        return RetrievalResult(chunks=[], no_answer=True)
+        decision = (
+            evaluate_evidence(
+                query,
+                [],
+                SufficiencyPolicy(min_dense_score=workspace.min_score),
+            )
+            if deployment is not None
+            else None
+        )
+        return RetrievalResult(
+            chunks=[],
+            no_answer=True,
+            decision=decision,
+        )
 
     top_dense = await client.query_points(
         collection,
@@ -421,18 +471,29 @@ async def retrieve(
             dense_candidates,
             now=now,
         )
-        best_cosine = max(
-            (
-                item.dense_score
+        final_evidence = attach_dense_scores(
+            final_evidence,
+            {
+                item.evidence_span_id: item.dense_score
                 for item in dense_authority
                 if item.dense_score is not None
-            ),
-            default=0.0,
+            },
         )
+        decision = evaluate_evidence(
+            query,
+            final_evidence,
+            SufficiencyPolicy(min_dense_score=workspace.min_score),
+        )
+        best_cosine = decision.best_dense_score or 0.0
     return RetrievalResult(
         chunks=chunks,
-        no_answer=best_cosine < workspace.min_score,
+        no_answer=(
+            best_cosine < workspace.min_score
+            if decision is None
+            else decision.status is not EvidenceStatus.SUFFICIENT
+        ),
         evidence=final_evidence,
+        decision=decision,
     )
 
 
