@@ -1148,6 +1148,12 @@ async def stream_reply(
                 initial_result=result,
                 top_k=retrieval_top_k,
                 min_score=retrieval_min_score,
+                minimum_tool_calls=(
+                    2
+                    if escalation.reason_code
+                    in {"analytics_request", "multi_part_query"}
+                    else 1
+                ),
             ):
                 if isinstance(gather_event, AgentLoopProgress):
                     yield tool_progress_event(

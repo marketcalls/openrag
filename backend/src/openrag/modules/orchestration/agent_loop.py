@@ -14,6 +14,8 @@ from openrag.modules.orchestration.routing import QueryRoute
 AgentToolName = Literal["search", "search_by_metadata", "get_document"]
 AgentFinishReason = Literal[
     "planner_finished",
+    "evidence_sufficient",
+    "no_novel_evidence",
     "iteration_limit",
     "duplicate_tool_call",
     "planner_timeout",
@@ -188,6 +190,7 @@ class AgentLoopProgress:
 AgentPlanner = Callable[[AgentLoopState], Awaitable[AgentAction]]
 AgentToolExecutor = Callable[[AgentToolCall], Awaitable[AgentToolResult]]
 AgentProgressSink = Callable[[AgentLoopProgress], None]
+AgentStopPredicate = Callable[[tuple[AgentObservation, ...]], bool]
 
 
 def wrap_untrusted_data(text: str, *, max_chars: int) -> str:
@@ -205,6 +208,8 @@ async def run_agent_loop(
     max_observation_chars: int = 16_000,
     initial_observations: tuple[AgentObservation, ...] = (),
     on_progress: AgentProgressSink | None = None,
+    stop_when: AgentStopPredicate | None = None,
+    stop_on_empty_provenance: bool = False,
 ) -> AgentLoopResult:
     """Execute an OpenRAG-owned loop without allowing provider-owned policy."""
 
@@ -305,5 +310,14 @@ async def run_agent_loop(
                     tool=action.call.name,
                 )
             )
+        if stop_on_empty_provenance and not result.provenance_refs:
+            return AgentLoopResult(tuple(observations), "no_novel_evidence")
+        if stop_when is not None:
+            try:
+                should_stop = stop_when(tuple(observations))
+            except Exception:  # noqa: BLE001 - policy internals remain private
+                return AgentLoopResult(tuple(observations), "planner_failed")
+            if should_stop:
+                return AgentLoopResult(tuple(observations), "evidence_sufficient")
 
     return AgentLoopResult(tuple(observations), "iteration_limit")

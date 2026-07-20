@@ -45,6 +45,7 @@ from openrag.modules.tenancy.context import TenantContext
 
 _MAX_RESULTS_PER_CALL = 16
 _MAX_EVIDENCE_TEXT_CHARS = 4_000
+_MAX_INITIAL_OBSERVATION_CHARS = 6_000
 
 
 def merge_authoritative_evidence(
@@ -381,7 +382,10 @@ class RetrievalToolExecutor:
             bounded.append(item)
         return AgentObservation(
             call=call,
-            text=wrap_untrusted_data(_render(bounded), max_chars=15_000),
+            text=wrap_untrusted_data(
+                _render(bounded),
+                max_chars=_MAX_INITIAL_OBSERVATION_CHARS,
+            ),
             provenance_refs=tuple(str(item.evidence_span_id) for item in bounded),
         )
 

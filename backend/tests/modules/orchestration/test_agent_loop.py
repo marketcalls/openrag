@@ -144,6 +144,48 @@ async def test_tool_timeout_fails_closed_with_a_safe_reason() -> None:
     assert result.observations == ()
 
 
+async def test_loop_stops_without_another_planner_call_when_evidence_is_sufficient() -> None:
+    planner_calls = 0
+
+    async def planner(_state: AgentLoopState) -> AgentAction:
+        nonlocal planner_calls
+        planner_calls += 1
+        return AgentAction.tool(AgentToolCall(name="search", query="targeted policy"))
+
+    async def execute(_call: AgentToolCall) -> AgentToolResult:
+        return AgentToolResult(text="authoritative evidence", provenance_refs=("span-1",))
+
+    result = await run_agent_loop(
+        planner,
+        execute,
+        stop_when=lambda observations: bool(observations[-1].provenance_refs),
+    )
+
+    assert planner_calls == 1
+    assert result.finish_reason == "evidence_sufficient"
+
+
+async def test_loop_stops_on_a_tool_call_with_no_novel_evidence() -> None:
+    planner_calls = 0
+
+    async def planner(_state: AgentLoopState) -> AgentAction:
+        nonlocal planner_calls
+        planner_calls += 1
+        return AgentAction.tool(AgentToolCall(name="search", query="missing policy"))
+
+    async def execute(_call: AgentToolCall) -> AgentToolResult:
+        return AgentToolResult(text="No authorized evidence found.", provenance_refs=())
+
+    result = await run_agent_loop(
+        planner,
+        execute,
+        stop_on_empty_provenance=True,
+    )
+
+    assert planner_calls == 1
+    assert result.finish_reason == "no_novel_evidence"
+
+
 @pytest.mark.parametrize(
     ("context", "expected", "reason"),
     [

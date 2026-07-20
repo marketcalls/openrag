@@ -132,6 +132,24 @@ async def test_executor_fails_closed_on_scope_mismatch_or_empty_evidence() -> No
     assert result.provenance_refs == ()
 
 
+def test_seed_observation_is_compact_even_for_large_initial_retrieval() -> None:
+    org_id = uuid4()
+    workspace_id = uuid4()
+    rows = tuple(
+        _evidence(org_id, workspace_id, text="x" * 4_000).evidence
+        for _ in range(8)
+    )
+    executor = RetrievalToolExecutor(
+        _Backend(()),
+        org_id=org_id,
+        workspace_id=workspace_id,
+    )
+
+    observation = executor.seed(query="policy", evidence=rows)
+
+    assert len(observation.text) <= 6_013
+
+
 def test_metadata_search_accepts_only_indexed_enterprise_fields() -> None:
     with pytest.raises(ValueError, match="tool_metadata_key_not_allowed"):
         AgentToolCall(

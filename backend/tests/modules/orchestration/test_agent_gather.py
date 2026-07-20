@@ -90,12 +90,56 @@ async def test_gather_streams_progress_and_returns_revalidated_merged_evidence()
     ]
     completed = events[-1]
     assert isinstance(completed, AgentGatherCompleted)
-    assert completed.finish_reason == "planner_finished"
+    assert completed.finish_reason == "evidence_sufficient"
     assert completed.result.no_answer is False
     assert {row.text for row in completed.result.evidence} == {
         "Initial weak evidence",
         "Expanded strong evidence",
     }
+
+
+async def test_multi_part_gather_requires_two_useful_tool_calls_before_early_stop() -> None:
+    org_id = uuid4()
+    workspace_id = uuid4()
+    first = _evidence(score=0.65, text="First clause")
+    second = _evidence(score=0.93, text="Second clause")
+    third = _evidence(score=0.94, text="Third clause")
+    searches = 0
+
+    class Backend:
+        async def search(self, query: str, metadata: object) -> tuple[AuthorizedToolEvidence, ...]:
+            nonlocal searches
+            searches += 1
+            row = second if searches == 1 else third
+            return (AuthorizedToolEvidence(org_id, workspace_id, row),)
+
+        async def get_document(self, document_id: object) -> tuple[AuthorizedToolEvidence, ...]:
+            raise AssertionError(document_id)
+
+    async def planner(state: AgentLoopState) -> AgentAction:
+        return AgentAction.tool(
+            AgentToolCall(name="search", query=f"clause {state.iteration + 1}")
+        )
+
+    gatherer = AgentGatherer(
+        planner,
+        RetrievalToolExecutor(Backend(), org_id=org_id, workspace_id=workspace_id),
+    )
+    events = [
+        event
+        async for event in gatherer.stream(
+            query="Compare both clauses and explain differences",
+            initial_result=RetrievalResult(chunks=[], no_answer=True, evidence=(first,)),
+            top_k=8,
+            min_score=0.8,
+            minimum_tool_calls=2,
+        )
+    ]
+
+    completed = events[-1]
+    assert isinstance(completed, AgentGatherCompleted)
+    assert completed.finish_reason == "evidence_sufficient"
+    assert searches == 2
 
 
 async def test_gather_never_upgrades_weak_evidence_without_a_passing_score() -> None:

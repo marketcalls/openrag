@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from openrag.modules.orchestration.agent_loop import (
     AgentFinishReason,
     AgentLoopProgress,
+    AgentObservation,
     AgentPlanner,
     run_agent_loop,
 )
@@ -46,18 +47,37 @@ class AgentGatherer:
         initial_result: RetrievalResult,
         top_k: int,
         min_score: float,
+        minimum_tool_calls: int = 1,
     ) -> AsyncIterator[AgentGatherEvent]:
+        if not 1 <= minimum_tool_calls <= 4:
+            raise ValueError("agent_minimum_tool_calls_invalid")
         initial = self._executor.seed(
             query=query,
             evidence=initial_result.evidence,
         )
         progress: asyncio.Queue[AgentLoopProgress] = asyncio.Queue(maxsize=8)
+
+        def evidence_is_sufficient(
+            observations: tuple[AgentObservation, ...],
+        ) -> bool:
+            tool_calls = max(0, len(observations) - 1)
+            if tool_calls < minimum_tool_calls:
+                return False
+            return not merge_authoritative_evidence(
+                query,
+                self._executor.collected_evidence,
+                top_k=top_k,
+                min_score=min_score,
+            ).no_answer
+
         loop_task = asyncio.create_task(
             run_agent_loop(
                 self._planner,
                 self._executor,
                 initial_observations=(initial,),
                 on_progress=progress.put_nowait,
+                stop_when=evidence_is_sufficient,
+                stop_on_empty_provenance=True,
             )
         )
         try:
