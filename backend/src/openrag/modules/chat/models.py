@@ -5,6 +5,7 @@ from sqlalchemy import (
     CheckConstraint,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     String,
     Text,
     UniqueConstraint,
@@ -33,6 +34,13 @@ class Chat(UUIDPk, Base):
             ["org_id", "user_id"],
             ["users.org_id", "users.id"],
             name="fk_chats_org_user",
+        ),
+        Index(
+            "ix_chats_user_workspace_updated",
+            "user_id",
+            "workspace_id",
+            "updated_at",
+            "id",
         ),
     )
 
@@ -110,7 +118,7 @@ class Citation(UUIDPk, Base):
             "AND jsonb_array_length(section_path) BETWEEN 1 AND 8 "
             "AND pg_column_size(section_path) <= 4096 "
             "AND jsonb_array_length(jsonb_path_query_array(section_path, "
-            "'$[*] ? (@.type() == \"string\" && @ like_regex \"^.{1,200}$\" flag \"s\")')) "
+            '\'$[*] ? (@.type() == "string" && @ like_regex "^.{1,200}$" flag "s")\')) '
             "= jsonb_array_length(section_path))",
             name="ck_citations_section_path",
         ),
@@ -119,7 +127,7 @@ class Citation(UUIDPk, Base):
             "AND jsonb_array_length(claim_ids) BETWEEN 0 AND 64 "
             "AND pg_column_size(claim_ids) <= 8192 "
             "AND jsonb_array_length(jsonb_path_query_array(claim_ids, "
-            "'$[*] ? (@.type() == \"string\" && @ like_regex \"^.{1,64}$\" flag \"s\")')) "
+            '\'$[*] ? (@.type() == "string" && @ like_regex "^.{1,64}$" flag "s")\')) '
             "= jsonb_array_length(claim_ids))",
             name="ck_citations_claim_ids",
         ),
@@ -233,17 +241,13 @@ class Citation(UUIDPk, Base):
     credential_fingerprint: Mapped[str | None] = mapped_column(String(128), default=None)
 
     @validates("section_path")
-    def normalize_section_path(
-        self, _key: str, value: list[str] | None
-    ) -> list[str] | None:
+    def normalize_section_path(self, _key: str, value: list[str] | None) -> list[str] | None:
         if value is None:
             return None
         return list(validate_section_path(value))
 
     @validates("claim_ids")
-    def validate_claim_ids(
-        self, _key: str, value: list[str] | None
-    ) -> list[str] | None:
+    def validate_claim_ids(self, _key: str, value: list[str] | None) -> list[str] | None:
         if value is None:
             return None
         if len(value) > 64:

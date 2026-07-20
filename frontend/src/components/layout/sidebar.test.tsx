@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 import { WorkspaceProvider } from '@/features/workspaces/workspace-context';
@@ -18,27 +18,28 @@ const tokenFor = (permissions: string[], platformSuperadmin = false) =>
     exp: 4_102_444_800,
   })}.signature`;
 
-function renderSidebar() {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (request: Request) => {
-      const body = request.url.includes('/workspaces')
-        ? [
-            {
-              id: 'w1',
-              name: 'Finance',
-              embedding_model: 'bge-m3',
-              min_score: 0.35,
-              default_model_id: null,
-            },
-          ]
+function renderSidebar(chats: Array<Record<string, unknown>> = []) {
+  const fetchMock = vi.fn(async (request: Request) => {
+    if (request.method === 'DELETE') return new Response(null, { status: 204 });
+    const body = request.url.includes('/workspaces')
+      ? [
+          {
+            id: 'w1',
+            name: 'Finance',
+            embedding_model: 'bge-m3',
+            min_score: 0.35,
+            default_model_id: null,
+          },
+        ]
+      : request.url.includes('/chats/search')
+        ? { items: chats, next_cursor: null }
         : [];
-      return new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    }),
-  );
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+  vi.stubGlobal('fetch', fetchMock);
   render(
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
@@ -50,6 +51,7 @@ function renderSidebar() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return fetchMock;
 }
 
 afterEach(() => {
@@ -86,4 +88,28 @@ test('a platform superadmin sees platform and organization administration links'
   expect(screen.getByText('Models')).toBeInTheDocument();
   expect(screen.getByText('Embeddings')).toBeInTheDocument();
   expect(screen.getByText('Roles')).toBeInTheDocument();
+});
+
+test('a user can confirm and delete a chat from the sidebar', async () => {
+  setAccessToken(tokenFor(['chat.use']));
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true),
+  );
+  const fetchMock = renderSidebar([
+    {
+      id: 'c1',
+      workspace_id: 'w1',
+      title: 'Revenue analysis',
+      created_at: '2026-07-20T00:00:00',
+      updated_at: '2026-07-20T00:00:00',
+    },
+  ]);
+
+  expect(await screen.findByText('Revenue analysis')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Delete Revenue analysis' }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(expect.objectContaining({ method: 'DELETE' })),
+  );
 });

@@ -1,6 +1,12 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { api } from '@/api/client';
+import { api, authFetch } from '@/api/client';
+import type { ChatOut } from '@/api/types';
+
+interface ChatSearchPage {
+  items: ChatOut[];
+  next_cursor: string | null;
+}
 
 export function useChats(workspaceId: string | null) {
   return useQuery({
@@ -25,6 +31,48 @@ export function useChat(chatId: string | null) {
       });
       if (error) throw new Error('Failed to load chat');
       return data;
+    },
+  });
+}
+
+export function useChatSearch(workspaceId: string | null, query: string) {
+  return useInfiniteQuery({
+    queryKey: ['chat-search', workspaceId, query],
+    enabled: workspaceId !== null,
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) => {
+      const parameters = new URLSearchParams({
+        workspace_id: workspaceId as string,
+        limit: '50',
+      });
+      if (query.trim()) parameters.set('q', query.trim());
+      if (pageParam) parameters.set('cursor', pageParam);
+      const response = await authFetch(
+        new Request(
+          new URL(`/api/v1/chats/search?${parameters.toString()}`, window.location.origin),
+          { method: 'GET', credentials: 'include' },
+        ),
+      );
+      if (!response.ok) throw new Error('Failed to search chats');
+      return (await response.json()) as ChatSearchPage;
+    },
+    getNextPageParam: (page) => page.next_cursor ?? undefined,
+  });
+}
+
+export function useDeleteChat() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (chatId: string) => {
+      const { error } = await api.DELETE('/api/v1/chats/{chat_id}', {
+        params: { path: { chat_id: chatId } },
+      });
+      if (error) throw new Error('Failed to delete chat');
+    },
+    onSuccess: async (_value, chatId) => {
+      await queryClient.invalidateQueries({ queryKey: ['chats'] });
+      await queryClient.invalidateQueries({ queryKey: ['chat-search'] });
+      queryClient.removeQueries({ queryKey: ['chat', chatId] });
     },
   });
 }

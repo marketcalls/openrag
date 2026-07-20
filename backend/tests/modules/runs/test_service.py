@@ -70,6 +70,7 @@ async def test_accept_run_persists_message_run_and_outbox_atomically(
     assert accepted.created is True
     assert accepted.run.client_request_id == request_id
     assert accepted.run.status == "accepted"
+    assert chat.title == "hello"
     assert await session.scalar(select(func.count()).select_from(Message)) == 1
     assert await session.scalar(select(func.count()).select_from(OutboxEvent)) == 1
     outbox = await session.scalar(select(OutboxEvent))

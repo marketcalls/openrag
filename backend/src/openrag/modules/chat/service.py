@@ -1,12 +1,16 @@
 """Tenant-scoped conversation trees and retrieval-backed reply streaming."""
 
+import base64
+import json
+import re
 from collections import defaultdict
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import Settings
@@ -73,6 +77,52 @@ CLARIFY_TEXT = (
     "What would you like me to explain? Please mention the document, topic, "
     "or earlier question you mean."
 )
+_TITLE_SPACE_RE = re.compile(r"\s+")
+_DEFAULT_CHAT_TITLE = "New chat"
+
+
+@dataclass(frozen=True, slots=True)
+class ChatPage:
+    items: tuple[Chat, ...]
+    next_cursor: str | None
+
+
+def derive_chat_title(content: str, *, max_chars: int = 80) -> str:
+    if not 20 <= max_chars <= 200:
+        raise ValueError("chat_title_limit_invalid")
+    normalized = _TITLE_SPACE_RE.sub(" ", content).strip()
+    if not normalized:
+        return _DEFAULT_CHAT_TITLE
+    if len(normalized) <= max_chars:
+        return normalized
+    truncated = normalized[: max_chars - 1].rstrip(" ,.;:-")
+    return f"{truncated}…"
+
+
+def _encode_chat_cursor(chat: Chat) -> str:
+    payload = json.dumps(
+        [chat.updated_at.isoformat(), str(chat.id)],
+        separators=(",", ":"),
+    ).encode()
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def _decode_chat_cursor(cursor: str) -> tuple[datetime, UUID]:
+    if not 1 <= len(cursor) <= 512:
+        raise ValueError("chat_cursor_invalid")
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        value = json.loads(base64.urlsafe_b64decode(cursor + padding))
+        if not isinstance(value, list) or len(value) != 2:
+            raise ValueError
+        updated_at = datetime.fromisoformat(str(value[0]))
+        return updated_at.replace(tzinfo=None), UUID(str(value[1]))
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("chat_cursor_invalid") from exc
+
+
+def _escaped_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 class Retriever(Protocol):
@@ -126,6 +176,68 @@ async def list_chats(
     return list((await session.execute(statement)).scalars())
 
 
+async def search_chats(
+    session: AsyncSession,
+    context: TenantContext,
+    *,
+    workspace_id: UUID,
+    query: str | None,
+    limit: int,
+    cursor: str | None,
+) -> ChatPage:
+    if not 1 <= limit <= 100:
+        raise ValueError("chat_page_limit_invalid")
+    await tenancy_service.get_workspace(
+        session,
+        context,
+        workspace_id,
+        "chat.use",
+    )
+    statement = select(Chat).where(
+        Chat.org_id == context.org_id,
+        Chat.user_id == context.user_id,
+        Chat.workspace_id == workspace_id,
+    )
+    normalized_query = _TITLE_SPACE_RE.sub(" ", query or "").strip()
+    if normalized_query:
+        if len(normalized_query) > 200:
+            raise ValueError("chat_search_query_invalid")
+        pattern = f"%{_escaped_like(normalized_query)}%"
+        statement = statement.where(
+            or_(
+                Chat.title.ilike(pattern, escape="\\"),
+                exists(
+                    select(Message.id).where(
+                        Message.chat_id == Chat.id,
+                        Message.org_id == context.org_id,
+                        Message.content.ilike(pattern, escape="\\"),
+                    )
+                ),
+            )
+        )
+    if cursor is not None:
+        cursor_time, cursor_id = _decode_chat_cursor(cursor)
+        statement = statement.where(
+            or_(
+                Chat.updated_at < cursor_time,
+                and_(
+                    Chat.updated_at == cursor_time,
+                    Chat.id < cursor_id,
+                ),
+            )
+        )
+    rows = list(
+        (
+            await session.execute(
+                statement.order_by(Chat.updated_at.desc(), Chat.id.desc()).limit(limit + 1)
+            )
+        ).scalars()
+    )
+    items = rows[:limit]
+    next_cursor = _encode_chat_cursor(items[-1]) if len(rows) > limit and items else None
+    return ChatPage(items=tuple(items), next_cursor=next_cursor)
+
+
 async def get_chat(
     session: AsyncSession,
     context: TenantContext,
@@ -171,11 +283,7 @@ async def list_messages(
     session: AsyncSession,
     chat_id: UUID,
 ) -> list[Message]:
-    statement = (
-        select(Message)
-        .where(Message.chat_id == chat_id)
-        .order_by(Message.created_at)
-    )
+    statement = select(Message).where(Message.chat_id == chat_id).order_by(Message.created_at)
     return list((await session.execute(statement)).scalars())
 
 
@@ -185,9 +293,7 @@ async def get_message(
     message_id: UUID,
 ) -> tuple[Chat, Message]:
     message = (
-        await session.execute(
-            select(Message).where(Message.id == message_id)
-        )
+        await session.execute(select(Message).where(Message.id == message_id))
     ).scalar_one_or_none()
     if message is None:
         raise NotFoundError("message not found")
@@ -306,8 +412,7 @@ async def build_message(
             .select_from(Message)
             .where(
                 Message.chat_id == chat.id,
-                Message.parent_message_id
-                == (parent.id if parent is not None else None),
+                Message.parent_message_id == (parent.id if parent is not None else None),
             )
         )
     ).scalar_one()
@@ -503,10 +608,7 @@ async def _persist_assistant(
                 by_span = {item.evidence_span_id: item for item in authorized}
                 for citation, candidate in zip(citations, candidates, strict=True):
                     evidence = by_span.get(candidate.evidence_span_id)
-                    if (
-                        evidence is None
-                        or str(evidence.document_id) != citation.document_id
-                    ):
+                    if evidence is None or str(evidence.document_id) != citation.document_id:
                         authority_sources = []
                         citations = []
                         refusal_reason = "authority_changed"
@@ -551,9 +653,7 @@ async def _persist_assistant(
             parent=parent,
             model_id=model_id,
             prompt_tokens=usage.prompt_tokens if usage is not None else None,
-            completion_tokens=(
-                usage.completion_tokens if usage is not None else None
-            ),
+            completion_tokens=(usage.completion_tokens if usage is not None else None),
         )
         if citations and workspace.document_authority_enabled:
             assert policy is not None
@@ -669,9 +769,7 @@ async def _persist_conversational_assistant(
             parent=parent,
             model_id=model_id,
             prompt_tokens=usage.prompt_tokens if usage is not None else None,
-            completion_tokens=(
-                usage.completion_tokens if usage is not None else None
-            ),
+            completion_tokens=(usage.completion_tokens if usage is not None else None),
         )
         message.answer_status = None
         message.refusal_reason = None
@@ -698,8 +796,7 @@ async def stream_reply(
     user_message_id = user_message.id
     all_messages = await list_messages(session, chat.id)
     history = [
-        (message.role, message.content)
-        for message in path_to_root(all_messages, user_message)
+        (message.role, message.content) for message in path_to_root(all_messages, user_message)
     ]
     decision = decide_route(user_message.content, history=history)
     yield route_selected_event(decision.route.value, decision.reason_code)
@@ -768,14 +865,8 @@ async def stream_reply(
         yield citations_event([])
         yield done_event(
             message_id=str(message.id),
-            prompt_tokens=(
-                direct_usage.prompt_tokens if direct_usage is not None else 0
-            ),
-            completion_tokens=(
-                direct_usage.completion_tokens
-                if direct_usage is not None
-                else 0
-            ),
+            prompt_tokens=(direct_usage.prompt_tokens if direct_usage is not None else 0),
+            completion_tokens=(direct_usage.completion_tokens if direct_usage is not None else 0),
             no_answer=False,
         )
         return
@@ -896,9 +987,7 @@ async def stream_reply(
         usage=usage,
         citations=citation_references,
     )
-    persisted_citations = (
-        citation_references if message.answer_status != "refused" else []
-    )
+    persisted_citations = citation_references if message.answer_status != "refused" else []
     if persisted_citations:
         for part in parts:
             yield token_event(part)
@@ -908,9 +997,7 @@ async def stream_reply(
     yield done_event(
         message_id=str(message.id),
         prompt_tokens=usage.prompt_tokens if usage is not None else 0,
-        completion_tokens=(
-            usage.completion_tokens if usage is not None else 0
-        ),
+        completion_tokens=(usage.completion_tokens if usage is not None else 0),
         no_answer=not persisted_citations,
     )
 
@@ -939,8 +1026,7 @@ def build_tree(
             completion_tokens=message.completion_tokens,
             created_at=message.created_at,
             citations=[
-                CitationOut.model_validate(citation)
-                for citation in citations.get(message.id, [])
+                CitationOut.model_validate(citation) for citation in citations.get(message.id, [])
             ],
             children=[node(child) for child in child_messages],
         )

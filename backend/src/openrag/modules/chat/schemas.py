@@ -29,6 +29,11 @@ class ChatOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ChatPageOut(BaseModel):
+    items: list[ChatOut]
+    next_cursor: str | None
+
+
 class ChatPatch(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 

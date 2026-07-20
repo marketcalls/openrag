@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from openrag.modules.chat.models import Chat
 from openrag.modules.chat.schemas import (
     ChatCreate,
     ChatOut,
+    ChatPageOut,
     ChatPatch,
     ChatTreeOut,
     MessageSend,
@@ -166,10 +167,7 @@ async def regenerate(
         context,
         message_id,
     )
-    if (
-        message.role != service.ROLE_ASSISTANT
-        or message.parent_message_id is None
-    ):
+    if message.role != service.ROLE_ASSISTANT or message.parent_message_id is None:
         raise ConflictError("only assistant messages can be regenerated")
     model = await _resolve_model(
         session,
@@ -178,9 +176,7 @@ async def regenerate(
         body.model_id if body is not None else None,
     )
     messages = await service.list_messages(session, chat.id)
-    user_message = next(
-        item for item in messages if item.id == message.parent_message_id
-    )
+    user_message = next(item for item in messages if item.id == message.parent_message_id)
     streamer = await _streamer(request, settings, session, model)
     return _sse(
         service.stream_reply(
@@ -201,10 +197,33 @@ async def list_chats(
     session: SessionDep,
     context: ContextDep,
 ) -> list[ChatOut]:
-    return [
-        ChatOut.model_validate(chat)
-        for chat in await service.list_chats(session, context)
-    ]
+    return [ChatOut.model_validate(chat) for chat in await service.list_chats(session, context)]
+
+
+@router.get("/chats/search", response_model=ChatPageOut)
+async def search_chats(
+    session: SessionDep,
+    context: ContextDep,
+    workspace_id: Annotated[UUID, Query()],
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    cursor: Annotated[str | None, Query(max_length=512)] = None,
+) -> ChatPageOut:
+    try:
+        page = await service.search_chats(
+            session,
+            context,
+            workspace_id=workspace_id,
+            query=q,
+            limit=limit,
+            cursor=cursor,
+        )
+    except ValueError as exc:
+        raise ConflictError("chat search cursor is invalid") from exc
+    return ChatPageOut(
+        items=[ChatOut.model_validate(chat) for chat in page.items],
+        next_cursor=page.next_cursor,
+    )
 
 
 @router.get("/chats/{chat_id}", response_model=ChatTreeOut)

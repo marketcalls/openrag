@@ -106,6 +106,8 @@ async def accept_run(
         resolved_model_id = model.id
 
     messages = await chat_service.list_messages(session, chat.id)
+    if not messages and chat.title == "New chat":
+        chat.title = chat_service.derive_chat_title(command.content)
     parent = chat_service.resolve_parent(
         messages,
         command.parent_message_id,
