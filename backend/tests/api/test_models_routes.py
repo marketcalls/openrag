@@ -1,8 +1,10 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.modules.auth.models import User
+from openrag.modules.models.models import Model
 
 
 async def auth(
@@ -42,9 +44,21 @@ async def test_superadmin_crud_and_key_never_returned(
     model_id = created["id"]
     assert created["key_fingerprint"].startswith("...-abc sha256:")
     assert "sync_status" not in created
-    assert created["supports_chat_completion"] is True
+    assert created["probe_status"] == "pending"
+    assert created["probe_revision"] == 1
+    assert created["supports_chat_completion"] is False
+    assert created["supports_streaming"] is False
     assert created["supports_structured_json"] is False
     assert created["supports_verifier"] is False
+
+    probe = await client.post(
+        f"/api/v1/admin/models/{model_id}/probe",
+        headers=headers,
+    )
+    assert probe.status_code == 202
+    assert probe.json()["model_id"] == model_id
+    assert probe.json()["revision"] == 1
+    assert probe.json()["status"] == "queued"
 
     response = await client.patch(
         f"/api/v1/admin/models/{model_id}",
@@ -114,12 +128,13 @@ async def test_admin_role_denied_but_can_list_public(
 
     public = await client.get("/api/v1/models", headers=admin_headers)
     assert public.status_code == 200
-    assert [model["display_name"] for model in public.json()] == ["Llama"]
+    assert public.json() == []
     assert "litellm_model_name" not in public.text
 
 
 async def test_workspace_default_model(
     client: httpx.AsyncClient,
+    session: AsyncSession,
     seeded_user: User,
     seeded_superadmin: User,
 ) -> None:
@@ -143,6 +158,20 @@ async def test_workspace_default_model(
         headers=admin_headers,
     )
     workspace_id = workspace.json()["id"]
+
+    response = await client.patch(
+        f"/api/v1/workspaces/{workspace_id}",
+        json={"default_model_id": model_id},
+        headers=admin_headers,
+    )
+    assert response.status_code == 404
+
+    model = await session.get(Model, UUID(model_id))
+    assert model is not None
+    model.probe_status = "passed"
+    model.supports_chat_completion = True
+    model.supports_streaming = True
+    await session.commit()
 
     response = await client.patch(
         f"/api/v1/workspaces/{workspace_id}",

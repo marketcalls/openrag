@@ -459,7 +459,11 @@ async def set_default_model(
         "model.configure",
     )
     if model_id is not None:
-        await models_service.get_model(session, model_id)
+        await models_service.resolve_model(
+            session,
+            requested_model_id=model_id,
+            default_model_id=None,
+        )
     if workspace.default_model_id == model_id:
         return workspace
     workspace.default_model_id = model_id

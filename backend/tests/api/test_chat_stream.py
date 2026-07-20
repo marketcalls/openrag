@@ -17,6 +17,7 @@ from openrag.modules.chat.models import Citation, Message
 from openrag.modules.chat.service import NO_ANSWER_TEXT
 from openrag.modules.chat.summary_models import ConversationSummaryJob
 from openrag.modules.memory.models import MemoryRecord
+from openrag.modules.models.models import Model
 from tests.conftest import FakeRetriever, FakeStreamer
 
 
@@ -75,6 +76,7 @@ async def make_model_and_chat(
     chat_env: dict[str, Any],
     seeded_superadmin: User,
     admin_headers: dict[str, str],
+    session: AsyncSession,
 ) -> str:
     super_headers = await auth(client, seeded_superadmin.email)
     model_response = await client.post(
@@ -88,6 +90,12 @@ async def make_model_and_chat(
         headers=super_headers,
     )
     assert model_response.status_code == 201, model_response.text
+    model = await session.get(Model, UUID(model_response.json()["id"]))
+    assert model is not None
+    model.probe_status = "passed"
+    model.supports_chat_completion = True
+    model.supports_streaming = True
+    await session.commit()
     workspace_response = await client.patch(
         f"/api/v1/workspaces/{chat_env['workspace'].id}",
         json={"default_model_id": model_response.json()["id"]},
@@ -117,6 +125,7 @@ async def test_full_event_sequence_and_persistence(
         chat_env,
         seeded_superadmin,
         headers,
+        session,
     )
 
     response = await chat_client.post(
@@ -206,6 +215,7 @@ async def test_greeting_streams_directly_without_document_retrieval(
             chat_env,
             seeded_superadmin,
             headers,
+            session,
         )
         response = await client.post(
             f"/api/v1/chats/{chat_id}/messages",
@@ -262,6 +272,7 @@ async def test_explicit_memory_is_selected_without_becoming_document_evidence(
             chat_env,
             seeded_superadmin,
             headers,
+            session,
         )
         session.add(
             MemoryRecord(
@@ -302,6 +313,7 @@ async def test_no_answer_path_is_honest(
     redis_client: Redis,
     test_settings: Settings,
     chat_env: dict[str, Any],
+    session: AsyncSession,
     seeded_user: User,
     seeded_superadmin: User,
 ) -> None:
@@ -322,6 +334,7 @@ async def test_no_answer_path_is_honest(
             chat_env,
             seeded_superadmin,
             headers,
+            session,
         )
         response = await client.post(
             f"/api/v1/chats/{chat_id}/messages",
@@ -358,6 +371,7 @@ async def test_uncited_llm_output_is_not_persisted_as_durable_history(
         chat_env,
         seeded_superadmin,
         headers,
+        session,
     )
 
     response = await chat_client.post(
@@ -405,6 +419,7 @@ async def test_edit_and_regenerate_create_siblings(
         chat_env,
         seeded_superadmin,
         headers,
+        session,
     )
     first = await chat_client.post(
         f"/api/v1/chats/{chat_id}/messages",
@@ -477,6 +492,7 @@ async def test_model_resolution_fails_before_stream_and_supports_override(
         chat_env,
         seeded_superadmin,
         headers,
+        session,
     )
     super_headers = await auth(chat_client, seeded_superadmin.email)
     override = await chat_client.post(
@@ -490,6 +506,12 @@ async def test_model_resolution_fails_before_stream_and_supports_override(
         headers=super_headers,
     )
     override_id = override.json()["id"]
+    override_model = await session.get(Model, UUID(override_id))
+    assert override_model is not None
+    override_model.probe_status = "passed"
+    override_model.supports_chat_completion = True
+    override_model.supports_streaming = True
+    await session.commit()
 
     response = await chat_client.post(
         f"/api/v1/chats/{chat_id}/messages",
@@ -544,6 +566,7 @@ async def test_model_resolution_fails_before_stream_and_supports_override(
 async def test_chat_send_is_rate_limited_per_user(
     chat_client: httpx.AsyncClient,
     chat_env: dict[str, Any],
+    session: AsyncSession,
     seeded_user: User,
     seeded_superadmin: User,
 ) -> None:
@@ -553,6 +576,7 @@ async def test_chat_send_is_rate_limited_per_user(
         chat_env,
         seeded_superadmin,
         headers,
+        session,
     )
 
     for index in range(30):

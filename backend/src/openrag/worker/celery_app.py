@@ -52,6 +52,7 @@ def build_celery() -> Celery:
         task_queues=(
             Queue("default"),
             Queue("interactive"),
+            Queue("models"),
             Queue("events"),
             Queue("evaluations"),
             Queue("ingestion"),
@@ -61,6 +62,7 @@ def build_celery() -> Celery:
         task_routes={
             "events.*": {"queue": "events"},
             "evaluations.*": {"queue": "evaluations"},
+            "models.*": {"queue": "models"},
             "runs.*": {"queue": "runs"},
             "summaries.*": {"queue": "summaries"},
         },
@@ -116,6 +118,11 @@ def build_celery() -> Celery:
                 "task": "evaluations.schedule_due",
                 "schedule": 60.0,
                 "options": {"queue": "evaluations", "expires": 55},
+            },
+            "execute-model-probe": {
+                "task": "models.execute_probe",
+                "schedule": 0.5,
+                "options": {"queue": "models", "expires": 3},
             },
             "refresh-conversation-summary": {
                 "task": "summaries.refresh_next",

@@ -685,6 +685,23 @@ export interface paths {
         patch: operations["patch_model_api_v1_admin_models__model_id__patch"];
         trace?: never;
     };
+    "/api/v1/admin/models/{model_id}/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Probe Model */
+        post: operations["probe_model_api_v1_admin_models__model_id__probe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/models": {
         parameters: {
             query?: never;
@@ -2435,32 +2452,6 @@ export interface components {
             base_url?: string | null;
             /** Api Key */
             api_key?: string | null;
-            /**
-             * Supports Chat Completion
-             * @default true
-             */
-            supports_chat_completion: boolean;
-            /**
-             * Supports Structured Json
-             * @default false
-             */
-            supports_structured_json: boolean;
-            /**
-             * Supports Verifier
-             * @default false
-             */
-            supports_verifier: boolean;
-            /**
-             * Supports Reasoning
-             * @default false
-             */
-            supports_reasoning: boolean;
-            /**
-             * Default Reasoning Effort
-             * @default off
-             * @enum {string}
-             */
-            default_reasoning_effort: "off" | "low" | "medium" | "high";
         };
         /** ModelOut */
         ModelOut: {
@@ -2486,17 +2477,38 @@ export interface components {
             key_fingerprint: string | null;
             /** Supports Chat Completion */
             supports_chat_completion: boolean;
+            /** Supports Streaming */
+            supports_streaming: boolean;
             /** Supports Structured Json */
             supports_structured_json: boolean;
             /** Supports Verifier */
             supports_verifier: boolean;
+            /** Supports Tools */
+            supports_tools: boolean;
+            /** Supports Vision */
+            supports_vision: boolean;
             /** Supports Reasoning */
             supports_reasoning: boolean;
+            /** Context Window */
+            context_window: number | null;
             /**
              * Default Reasoning Effort
              * @enum {string}
              */
             default_reasoning_effort: "off" | "low" | "medium" | "high";
+            /**
+             * Probe Status
+             * @enum {string}
+             */
+            probe_status: "pending" | "passed" | "failed";
+            /** Probe Revision */
+            probe_revision: number;
+            /** Probe Latency Ms */
+            probe_latency_ms: number | null;
+            /** Last Probe Error Code */
+            last_probe_error_code: string | null;
+            /** Last Probed At */
+            last_probed_at: string | null;
         };
         /** ModelPatch */
         ModelPatch: {
@@ -2508,16 +2520,57 @@ export interface components {
             enabled?: boolean | null;
             /** Api Key */
             api_key?: string | null;
-            /** Supports Chat Completion */
-            supports_chat_completion?: boolean | null;
-            /** Supports Structured Json */
-            supports_structured_json?: boolean | null;
-            /** Supports Verifier */
-            supports_verifier?: boolean | null;
-            /** Supports Reasoning */
-            supports_reasoning?: boolean | null;
             /** Default Reasoning Effort */
             default_reasoning_effort?: ("off" | "low" | "medium" | "high") | null;
+        };
+        /** ModelProbeOut */
+        ModelProbeOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Model Id
+             * Format: uuid
+             */
+            model_id: string;
+            /** Revision */
+            revision: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "passed" | "failed" | "stale";
+            /** Supports Chat Completion */
+            supports_chat_completion: boolean;
+            /** Supports Streaming */
+            supports_streaming: boolean;
+            /** Supports Structured Json */
+            supports_structured_json: boolean;
+            /** Supports Tools */
+            supports_tools: boolean;
+            /** Supports Vision */
+            supports_vision: boolean;
+            /** Supports Reasoning */
+            supports_reasoning: boolean;
+            /** Context Window */
+            context_window: number | null;
+            /** Latency Ms */
+            latency_ms: number | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Requested By */
+            requested_by: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Started At */
+            started_at: string | null;
+            /** Completed At */
+            completed_at: string | null;
         };
         /** ModelPublic */
         ModelPublic: {
@@ -4769,6 +4822,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    probe_model_api_v1_admin_models__model_id__probe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                model_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProbeOut"];
                 };
             };
             /** @description Validation Error */

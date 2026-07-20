@@ -21,6 +21,11 @@ export function useAdminModels() {
       if (error) throw new Error('Failed to load models');
       return data;
     },
+    refetchInterval: (query) =>
+      query.state.data?.some((model) => model.probe_status === 'pending')
+        ? 1000
+        : false,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -62,6 +67,21 @@ export function useDeleteModel() {
         params: { path: { model_id: modelId } },
       });
       if (error) throw new Error(problemDetail(error, 'Failed to remove model'));
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useProbeModel() {
+  const invalidate = useInvalidateModels();
+
+  return useMutation({
+    mutationFn: async (modelId: string) => {
+      const { data, error } = await api.POST('/api/v1/admin/models/{model_id}/probe', {
+        params: { path: { model_id: modelId } },
+      });
+      if (error) throw new Error(problemDetail(error, 'Failed to queue model probe'));
+      return data;
     },
     onSuccess: invalidate,
   });

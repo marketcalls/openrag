@@ -53,12 +53,16 @@ versioned specifications and plans under `docs/superpowers/`.
   provenance.
 - Provide curated, capability-validated completion, embedding, reranker, and OCR
   profiles with encrypted credentials and workspace policies.
-- Reasoning effort is a declared model capability with `off`, `low`, `medium`,
-  and `high` values. Persist the resolved effort on each durable user run,
-  reject unsupported non-off effort before provider work, omit `off` from
-  LiteLLM requests, keep utility/evaluator calls independent, and never expose
-  private reasoning traces. Verify provider usage accounting before claiming
-  reasoning tokens are counted.
+- Never trust user-declared completion capabilities. New or reconfigured models
+  stay fail-closed while a revision-fenced background LiteLLM probe measures
+  streaming, structured output, tool calling, vision, and context metadata;
+  persist only bounded booleans, timings, fingerprints, and safe error codes.
+- Reasoning support is measured by the same live LiteLLM probe; administrators
+  may choose `off`, `low`, `medium`, or `high` only after it passes. Persist the
+  resolved effort on each durable user run, reject unsupported non-off effort
+  before provider work, omit `off` from LiteLLM requests, keep utility/evaluator
+  calls independent, and never expose private reasoning traces. Verify provider
+  usage accounting before claiming reasoning tokens are counted.
 - Keep routing and policy OpenRAG-owned. Use Agno only behind a replaceable
   protocol adapter; ordinary grounded questions stay single-pass, and only
   multi-part, metadata-sensitive, or weak-evidence queries enter a read-only

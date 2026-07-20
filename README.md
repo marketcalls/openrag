@@ -29,6 +29,8 @@ OpenRAG is planned to provide:
 - Streaming chat with conversation history, source citations, and document previews
 - Agentic retrieval for multi-step questions using read-only search tools
 - Hosted and local model registration, capability probing, fallback chains, and BYOK
+- Fail-closed, asynchronous LiteLLM probes measure streaming, structured output,
+  tool calling, vision, context metadata, and verifier eligibility before use
 - Encrypted secret storage, quotas, budgets, usage reporting, and audit logs
 - Versioned golden datasets with deterministic metrics, optional verifier
   judging, and budgeted on-demand or recurring evaluation runs
@@ -333,6 +335,19 @@ OPENRAG_EMBEDDING_BACKEND=hash \
   uv run celery -A openrag.worker.celery_app:celery_app \
   worker -Q interactive,default -l info
 ```
+
+For local model registration and connection tests, start the bounded model
+probe queue and scheduler in two additional terminals:
+
+```bash
+uv run celery -A openrag.worker.celery_app:celery_app \
+  worker -Q models -l info --concurrency=2
+uv run celery -A openrag.worker.celery_app:celery_app beat -l info
+```
+
+New or reconfigured models remain unavailable until their measured LiteLLM
+probe passes. The provider key is decrypted only inside the probe worker and is
+never returned by the API or stored in probe results.
 
 On macOS, add `--pool=solo --concurrency=1` to the worker command. Celery's prefork pool can abort when document-parsing libraries initialize macOS frameworks inside a forked child.
 

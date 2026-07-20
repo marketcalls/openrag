@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     run_event_block_ms: int = Field(default=15_000, ge=100, le=60_000)
     run_lease_seconds: int = Field(default=60, ge=15, le=600)
     evaluation_lease_seconds: int = Field(default=300, ge=30, le=600)
+    model_probe_lease_seconds: int = Field(default=120, ge=30, le=600)
     environment: str = "dev"
     release: str = Field(
         default="dev",

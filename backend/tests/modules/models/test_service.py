@@ -8,17 +8,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.core.config import Settings
 from openrag.core.errors import (
     ConflictError,
-    InvalidRequestError,
     NotFoundError,
     SecretsError,
 )
 from openrag.modules.audit.models import AuditEvent
 from openrag.modules.auth.models import User
+from openrag.modules.models.models import ModelProbe
 from openrag.modules.models.service import (
     create_model,
     delete_model,
     list_enabled_models,
     list_models,
+    request_model_probe,
     resolve_model,
     to_model_out,
     update_model,
@@ -75,7 +76,18 @@ async def test_create_stores_key_as_secret(
     ).scalar_one()
     assert b"sk-live-xyz" not in secret.ciphertext
     assert not hasattr(model, "sync_status")
-    assert model.supports_chat_completion is True
+    assert model.probe_status == "pending"
+    assert model.probe_revision == 1
+    assert model.supports_chat_completion is False
+    assert model.supports_streaming is False
+    assert model.supports_tools is False
+    assert model.supports_vision is False
+    probe = (
+        await session.execute(select(ModelProbe).where(ModelProbe.model_id == model.id))
+    ).scalar_one()
+    assert probe.revision == 1
+    assert probe.status == "queued"
+    assert probe.requested_by == seeded_user.id
     actions = [
         event.action
         for event in (await session.execute(select(AuditEvent))).scalars()
@@ -86,9 +98,10 @@ async def test_create_stores_key_as_secret(
     [output] = await to_model_out(session, [model])
     assert output.key_fingerprint == secret.fingerprint
     assert not hasattr(output, "api_key")
+    assert output.probe_status == "pending"
 
 
-async def test_capability_updates_preserve_evaluator_hierarchy(
+async def test_manual_probe_request_is_revisioned_and_invalidates_old_capabilities(
     session: AsyncSession,
     seeded_user: User,
     settings: Settings,
@@ -97,29 +110,28 @@ async def test_capability_updates_preserve_evaluator_hierarchy(
     model = await create_model(
         session,
         ctx,
-        litellm_model_name="gpt-5-mini",
-        display_name="Judge",
+        litellm_model_name="gpt-4o-mini",
+        display_name="GPT-4o mini",
         provider_kind="openai",
         base_url=None,
         api_key="sk-write-only",
         settings=settings,
-        supports_chat_completion=True,
-        supports_structured_json=True,
-        supports_verifier=True,
     )
+    model.supports_chat_completion = True
+    model.supports_streaming = True
+    model.supports_tools = True
+    model.probe_status = "passed"
+    await session.commit()
 
-    with pytest.raises(InvalidRequestError, match="structured JSON"):
-        await update_model(
-            session,
-            ctx,
-            model.id,
-            display_name=None,
-            base_url=None,
-            enabled=None,
-            api_key=None,
-            settings=settings,
-            supports_chat_completion=False,
-        )
+    probe = await request_model_probe(session, ctx, model.id)
+
+    await session.refresh(model)
+    assert probe.revision == 2
+    assert model.probe_revision == 2
+    assert model.probe_status == "pending"
+    assert model.supports_chat_completion is False
+    assert model.supports_streaming is False
+    assert model.supports_tools is False
 
 
 async def test_missing_kek_does_not_leave_a_partial_model(
@@ -235,6 +247,11 @@ async def test_resolve_model_order(
         api_key=None,
         settings=settings,
     )
+    for model in (default, override):
+        model.probe_status = "passed"
+        model.supports_chat_completion = True
+        model.supports_streaming = True
+    await session.commit()
 
     got = await resolve_model(
         session,

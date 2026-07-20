@@ -1,4 +1,4 @@
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import type { ModelOut } from '@/api/types';
@@ -6,11 +6,12 @@ import { TopBar } from '@/components/layout/top-bar';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
+import { StatusPill } from '@/components/ui/status-pill';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { toast } from '@/components/ui/toaster';
 
 import { ModelFormDialog } from './model-form-dialog';
-import { useAdminModels, useDeleteModel, usePatchModel } from './queries';
+import { useAdminModels, useDeleteModel, usePatchModel, useProbeModel } from './queries';
 
 function providerLabel(provider: ModelOut['provider_kind']): string {
   if (provider === 'openai_compatible') return 'OpenAI-compatible';
@@ -18,10 +19,17 @@ function providerLabel(provider: ModelOut['provider_kind']): string {
   return 'Ollama';
 }
 
+function contextLabel(value: number | null): string {
+  if (value === null) return '—';
+  if (value >= 1000) return `${Math.round(value / 1000)}k`;
+  return value.toLocaleString();
+}
+
 export function ModelsPage() {
   const models = useAdminModels();
   const patchModel = usePatchModel();
   const deleteModel = useDeleteModel();
+  const probeModel = useProbeModel();
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<ModelOut | null>(null);
   const [removing, setRemoving] = useState<ModelOut | null>(null);
@@ -55,6 +63,8 @@ export function ModelsPage() {
                   <TH>Key</TH>
                   <TH>Reasoning</TH>
                   <TH>Capabilities</TH>
+                  <TH>Context</TH>
+                  <TH>Connection</TH>
                   <TH>Enabled</TH>
                   <TH><span className="sr-only">Actions</span></TH>
                 </TR>
@@ -79,9 +89,24 @@ export function ModelsPage() {
                     <TD className="text-[11px] text-secondary">
                       {[
                         model.supports_chat_completion ? 'Chat' : null,
+                        model.supports_streaming ? 'Stream' : null,
                         model.supports_structured_json ? 'JSON' : null,
+                        model.supports_tools ? 'Tools' : null,
+                        model.supports_vision ? 'Vision' : null,
                         model.supports_verifier ? 'Judge' : null,
                       ].filter(Boolean).join(' · ') || '—'}
+                    </TD>
+                    <TD className="font-mono text-[11px] text-secondary">
+                      {contextLabel(model.context_window)}
+                    </TD>
+                    <TD>
+                      <div className="space-y-1">
+                        <StatusPill tone={model.probe_status === 'passed' ? 'success' : model.probe_status === 'failed' ? 'danger' : 'warning'}>
+                          {model.probe_status === 'passed' ? 'Probe passed' : model.probe_status === 'failed' ? 'Probe failed' : 'Probe pending'}
+                        </StatusPill>
+                        {model.probe_latency_ms !== null ? <p className="text-[10px] text-muted">{model.probe_latency_ms} ms</p> : null}
+                        {model.last_probe_error_code ? <p className="font-mono text-[10px] text-danger">{model.last_probe_error_code}</p> : null}
+                      </div>
                     </TD>
                     <TD>
                       <input
@@ -103,6 +128,18 @@ export function ModelsPage() {
                     </TD>
                     <TD className="text-right">
                       <div className="flex justify-end gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Test ${model.display_name} connection`}
+                          disabled={probeModel.isPending}
+                          onClick={() => probeModel.mutate(model.id, {
+                            onSuccess: () => toast.success('Model connection test queued'),
+                            onError: (error) => toast.error(error.message),
+                          })}
+                        >
+                          <RefreshCw className={probeModel.isPending ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} aria-hidden />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"

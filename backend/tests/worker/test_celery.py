@@ -25,6 +25,7 @@ def test_celery_config() -> None:
         "evaluations",
         "ingestion",
         "interactive",
+        "models",
         "runs",
         "summaries",
     }
@@ -93,6 +94,12 @@ def test_event_tasks_are_isolated_to_the_events_queue() -> None:
     assert automation_schedule["task"] == "evaluations.schedule_due"
     assert automation_schedule["options"]["queue"] == "evaluations"
     assert "evaluations.schedule_due" in celery_app.tasks
+    assert celery_app.conf.task_routes["models.*"] == {"queue": "models"}
+    assert "models.execute_probe" in celery_app.tasks
+    probe_schedule = celery_app.conf.beat_schedule["execute-model-probe"]
+    assert probe_schedule["task"] == "models.execute_probe"
+    assert probe_schedule["options"]["queue"] == "models"
+    assert probe_schedule["options"]["expires"] <= 3
 
 
 def test_queue_selection_by_size() -> None:

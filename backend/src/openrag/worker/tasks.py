@@ -27,6 +27,7 @@ from openrag.worker.event_runtime import (
     execute_run_once,
     execute_summary_once,
 )
+from openrag.worker.model_probe_runtime import run_model_probe_once
 
 _MAX_RETRIES = 3
 
@@ -146,6 +147,22 @@ def schedule_evaluations_task() -> int:
     """Queue due policies without running provider work in the scheduler."""
 
     return asyncio.run(run_evaluation_scheduler_once())
+
+
+@celery_app.task(
+    bind=True,
+    name="models.execute_probe",
+    ignore_result=True,
+    soft_time_limit=110,
+    time_limit=125,
+)
+def execute_model_probe_task(task: Task) -> str:
+    """Execute at most one revision-fenced model probe on its own queue."""
+
+    hostname = str(getattr(task.request, "hostname", None) or "model-worker")
+    task_id = str(getattr(task.request, "id", None) or "tick")
+    owner = f"model-probe:{hostname}:{task_id}"[:200]
+    return asyncio.run(run_model_probe_once(owner=owner))
 
 
 @celery_app.task(

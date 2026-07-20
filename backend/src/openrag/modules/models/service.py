@@ -1,3 +1,4 @@
+import hashlib
 from typing import cast
 from uuid import UUID
 
@@ -7,10 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.core.config import Settings
 from openrag.core.errors import ConflictError, InvalidRequestError, NotFoundError
 from openrag.modules.audit.service import record_audit
-from openrag.modules.models.models import Model
+from openrag.modules.models.models import Model, ModelProbe
 from openrag.modules.models.reasoning import ReasoningEffort
-from openrag.modules.models.schemas import ModelOut, ProviderKind
+from openrag.modules.models.schemas import ModelOut, ModelProbeStatus, ProviderKind
 from openrag.modules.secrets import service as secrets_service
+from openrag.modules.secrets.models import Secret
 from openrag.modules.tenancy.context import TenantContext
 
 
@@ -96,13 +98,22 @@ async def to_model_out(
             enabled=model.enabled,
             key_fingerprint=fingerprints.get(f"model:{model.id}"),
             supports_chat_completion=model.supports_chat_completion,
+            supports_streaming=model.supports_streaming,
             supports_structured_json=model.supports_structured_json,
             supports_verifier=model.supports_verifier,
+            supports_tools=model.supports_tools,
+            supports_vision=model.supports_vision,
+            context_window=model.context_window,
             supports_reasoning=model.supports_reasoning,
             default_reasoning_effort=cast(
                 ReasoningEffort,
                 model.default_reasoning_effort,
             ),
+            probe_status=cast(ModelProbeStatus, model.probe_status),
+            probe_revision=model.probe_revision,
+            probe_latency_ms=model.probe_latency_ms,
+            last_probe_error_code=model.last_probe_error_code,
+            last_probed_at=model.last_probed_at,
         )
         for model in models
     ]
@@ -118,35 +129,21 @@ async def create_model(
     base_url: str | None,
     api_key: str | None,
     settings: Settings,
-    supports_chat_completion: bool = True,
-    supports_structured_json: bool = False,
-    supports_verifier: bool = False,
-    supports_reasoning: bool = False,
-    default_reasoning_effort: ReasoningEffort = "off",
 ) -> Model:
-    if supports_structured_json and not supports_chat_completion:
-        raise InvalidRequestError(
-            "structured JSON capability requires chat capability"
-        )
-    if supports_verifier and not supports_structured_json:
-        raise InvalidRequestError(
-            "verifier capability requires structured JSON capability"
-        )
-    if default_reasoning_effort != "off" and not supports_reasoning:
-        raise InvalidRequestError(
-            "default reasoning effort requires reasoning support"
-        )
     try:
         model = Model(
             litellm_model_name=litellm_model_name,
             display_name=display_name,
             provider_kind=provider_kind,
             base_url=base_url,
-            supports_chat_completion=supports_chat_completion,
-            supports_structured_json=supports_structured_json,
-            supports_verifier=supports_verifier,
-            supports_reasoning=supports_reasoning,
-            default_reasoning_effort=default_reasoning_effort,
+            supports_chat_completion=False,
+            supports_streaming=False,
+            supports_structured_json=False,
+            supports_verifier=False,
+            supports_tools=False,
+            supports_vision=False,
+            supports_reasoning=False,
+            default_reasoning_effort="off",
         )
         session.add(model)
         await session.flush()
@@ -158,8 +155,9 @@ async def create_model(
             target_type="model",
             target_id=str(model.id),
         )
+        secret: Secret | None = None
         if api_key is not None:
-            await secrets_service.set_secret(
+            secret = await secrets_service.set_secret(
                 session,
                 actor_id=ctx.user_id,
                 name=f"model:{model.id}",
@@ -167,11 +165,126 @@ async def create_model(
                 settings=settings,
                 commit=False,
             )
+        await create_model_probe(
+            session,
+            model,
+            requested_by=ctx.user_id,
+            key_fingerprint=secret.fingerprint if secret is not None else None,
+            increment_revision=False,
+        )
+        await record_audit(
+            session,
+            org_id=None,
+            actor_id=ctx.user_id,
+            action="model.probe_requested",
+            target_type="model",
+            target_id=str(model.id),
+        )
         await session.commit()
     except Exception:
         await session.rollback()
         raise
     return model
+
+
+def _configuration_fingerprint(
+    model: Model,
+    *,
+    key_fingerprint: str | None,
+) -> str:
+    value = "\x1f".join(
+        (
+            "model-probe-v1",
+            str(model.id),
+            model.provider_kind,
+            model.litellm_model_name,
+            model.base_url or "",
+            key_fingerprint or "none",
+        )
+    )
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _reset_measured_capabilities(model: Model) -> None:
+    model.probe_status = "pending"
+    model.probe_latency_ms = None
+    model.last_probe_error_code = None
+    model.supports_chat_completion = False
+    model.supports_streaming = False
+    model.supports_structured_json = False
+    model.supports_verifier = False
+    model.supports_tools = False
+    model.supports_vision = False
+    model.supports_reasoning = False
+    model.default_reasoning_effort = "off"
+    model.context_window = None
+
+
+async def create_model_probe(
+    session: AsyncSession,
+    model: Model,
+    *,
+    requested_by: UUID | None,
+    key_fingerprint: str | None,
+    increment_revision: bool,
+) -> ModelProbe:
+    if increment_revision:
+        model.probe_revision += 1
+    _reset_measured_capabilities(model)
+    probe = ModelProbe(
+        model_id=model.id,
+        requested_by=requested_by,
+        revision=model.probe_revision,
+        configuration_fingerprint=_configuration_fingerprint(
+            model,
+            key_fingerprint=key_fingerprint,
+        ),
+    )
+    session.add(probe)
+    await session.flush()
+    return probe
+
+
+async def request_model_probe(
+    session: AsyncSession,
+    ctx: TenantContext,
+    model_id: UUID,
+) -> ModelProbe:
+    try:
+        model = await get_model(session, model_id)
+        if model.probe_status == "pending":
+            existing = await session.scalar(
+                select(ModelProbe).where(
+                    ModelProbe.model_id == model.id,
+                    ModelProbe.revision == model.probe_revision,
+                    ModelProbe.status.in_(("queued", "running")),
+                )
+            )
+            if existing is not None:
+                return existing
+        key_fingerprint = await session.scalar(
+            select(Secret.fingerprint).where(Secret.name == f"model:{model.id}")
+        )
+        probe = await create_model_probe(
+            session,
+            model,
+            requested_by=ctx.user_id,
+            key_fingerprint=key_fingerprint,
+            increment_revision=True,
+        )
+        await record_audit(
+            session,
+            org_id=None,
+            actor_id=ctx.user_id,
+            action="model.probe_requested",
+            target_type="model",
+            target_id=str(model.id),
+        )
+        await session.commit()
+        return probe
+    except Exception:
+        await session.rollback()
+        raise
 
 
 async def update_model(
@@ -184,61 +297,26 @@ async def update_model(
     enabled: bool | None,
     api_key: str | None,
     settings: Settings,
-    supports_chat_completion: bool | None = None,
-    supports_structured_json: bool | None = None,
-    supports_verifier: bool | None = None,
-    supports_reasoning: bool | None = None,
     default_reasoning_effort: ReasoningEffort | None = None,
 ) -> Model:
     try:
         model = await get_model(session, model_id)
         if display_name is not None:
             model.display_name = display_name
+        probe_required = base_url is not None and base_url != model.base_url
         if base_url is not None:
             model.base_url = base_url
         if enabled is not None:
             model.enabled = enabled
-        next_supports_chat = (
-            model.supports_chat_completion
-            if supports_chat_completion is None
-            else supports_chat_completion
-        )
-        next_supports_json = (
-            model.supports_structured_json
-            if supports_structured_json is None
-            else supports_structured_json
-        )
-        next_supports_verifier = (
-            model.supports_verifier
-            if supports_verifier is None
-            else supports_verifier
-        )
-        if next_supports_json and not next_supports_chat:
-            raise InvalidRequestError(
-                "structured JSON capability requires chat capability"
-            )
-        if next_supports_verifier and not next_supports_json:
-            raise InvalidRequestError(
-                "verifier capability requires structured JSON capability"
-            )
-        model.supports_chat_completion = next_supports_chat
-        model.supports_structured_json = next_supports_json
-        model.supports_verifier = next_supports_verifier
-        next_supports_reasoning = (
-            model.supports_reasoning
-            if supports_reasoning is None
-            else supports_reasoning
-        )
         next_default_effort = (
             model.default_reasoning_effort
             if default_reasoning_effort is None
             else default_reasoning_effort
         )
-        if next_default_effort != "off" and not next_supports_reasoning:
+        if next_default_effort != "off" and not model.supports_reasoning:
             raise InvalidRequestError(
                 "default reasoning effort requires reasoning support"
             )
-        model.supports_reasoning = next_supports_reasoning
         model.default_reasoning_effort = next_default_effort
         await record_audit(
             session,
@@ -248,14 +326,41 @@ async def update_model(
             target_type="model",
             target_id=str(model.id),
         )
+        secret: Secret | None = None
         if api_key is not None:
-            await secrets_service.set_secret(
+            probe_required = True
+            secret = await secrets_service.set_secret(
                 session,
                 actor_id=ctx.user_id,
                 name=f"model:{model.id}",
                 value=api_key,
                 settings=settings,
                 commit=False,
+            )
+        if probe_required:
+            key_fingerprint = (
+                secret.fingerprint
+                if secret is not None
+                else await session.scalar(
+                    select(Secret.fingerprint).where(
+                        Secret.name == f"model:{model.id}"
+                    )
+                )
+            )
+            await create_model_probe(
+                session,
+                model,
+                requested_by=ctx.user_id,
+                key_fingerprint=key_fingerprint,
+                increment_revision=True,
+            )
+            await record_audit(
+                session,
+                org_id=None,
+                actor_id=ctx.user_id,
+                action="model.probe_requested",
+                target_type="model",
+                target_id=str(model.id),
             )
         await session.commit()
     except Exception:

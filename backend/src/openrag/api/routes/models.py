@@ -11,6 +11,7 @@ from openrag.modules.models.schemas import (
     ModelCreate,
     ModelOut,
     ModelPatch,
+    ModelProbeOut,
     ModelPublic,
 )
 from openrag.modules.tenancy.context import (
@@ -56,11 +57,6 @@ async def create_model(
         base_url=body.base_url,
         api_key=body.api_key,
         settings=settings,
-        supports_chat_completion=body.supports_chat_completion,
-        supports_structured_json=body.supports_structured_json,
-        supports_verifier=body.supports_verifier,
-        supports_reasoning=body.supports_reasoning,
-        default_reasoning_effort=body.default_reasoning_effort,
     )
     return (await service.to_model_out(session, [model]))[0]
 
@@ -82,10 +78,6 @@ async def patch_model(
         enabled=body.enabled,
         api_key=body.api_key,
         settings=settings,
-        supports_chat_completion=body.supports_chat_completion,
-        supports_structured_json=body.supports_structured_json,
-        supports_verifier=body.supports_verifier,
-        supports_reasoning=body.supports_reasoning,
         default_reasoning_effort=body.default_reasoning_effort,
     )
     return (await service.to_model_out(session, [model]))[0]
@@ -101,6 +93,21 @@ async def delete_model(
         session,
         context,
         model_id,
+    )
+
+
+@router.post(
+    "/admin/models/{model_id}/probe",
+    status_code=202,
+    response_model=ModelProbeOut,
+)
+async def probe_model(
+    model_id: UUID,
+    session: SessionDep,
+    context: SuperadminDep,
+) -> ModelProbeOut:
+    return ModelProbeOut.model_validate(
+        await service.request_model_probe(session, context, model_id)
     )
 
 

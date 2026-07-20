@@ -19,6 +19,7 @@ export type MessageOut = components['schemas']['MessageNode'];
 export type ModelCreate = components['schemas']['ModelCreate'];
 export type ModelOut = components['schemas']['ModelOut'];
 export type ModelPatch = components['schemas']['ModelPatch'];
+export type ModelProbeOut = components['schemas']['ModelProbeOut'];
 export type ModelPublic = components['schemas']['ModelPublic'];
 export type ReasoningEffort = ModelPublic['default_reasoning_effort'];
 export type EmbeddingProfileCreate = components['schemas']['EmbeddingProfileCreate'];

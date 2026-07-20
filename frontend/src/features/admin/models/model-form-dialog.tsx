@@ -31,10 +31,6 @@ export function ModelFormDialog({
   const [modelId, setModelId] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [supportsChatCompletion, setSupportsChatCompletion] = useState(true);
-  const [supportsStructuredJson, setSupportsStructuredJson] = useState(false);
-  const [supportsVerifier, setSupportsVerifier] = useState(false);
-  const [supportsReasoning, setSupportsReasoning] = useState(false);
   const [defaultReasoningEffort, setDefaultReasoningEffort] =
     useState<ReasoningEffort>('off');
   const editing = model !== null && model !== undefined;
@@ -46,10 +42,6 @@ export function ModelFormDialog({
     setModelId(model?.litellm_model_name ?? '');
     setBaseUrl(model?.base_url ?? '');
     setApiKey('');
-    setSupportsChatCompletion(model?.supports_chat_completion ?? true);
-    setSupportsStructuredJson(model?.supports_structured_json ?? false);
-    setSupportsVerifier(model?.supports_verifier ?? false);
-    setSupportsReasoning(model?.supports_reasoning ?? false);
     setDefaultReasoningEffort(model?.default_reasoning_effort ?? 'off');
   }, [model, open]);
 
@@ -60,10 +52,6 @@ export function ModelFormDialog({
       setModelId('');
       setBaseUrl('');
       setApiKey('');
-      setSupportsChatCompletion(true);
-      setSupportsStructuredJson(false);
-      setSupportsVerifier(false);
-      setSupportsReasoning(false);
       setDefaultReasoningEffort('off');
       create.reset();
       patch.reset();
@@ -79,11 +67,9 @@ export function ModelFormDialog({
         display_name: displayName.trim(),
         ...(NEEDS_BASE_URL.includes(provider) ? { base_url: baseUrl.trim() } : {}),
         ...(NEEDS_KEY.includes(provider) && apiKey ? { api_key: apiKey } : {}),
-        supports_chat_completion: supportsChatCompletion,
-        supports_structured_json: supportsStructuredJson,
-        supports_verifier: supportsVerifier,
-        supports_reasoning: supportsReasoning,
-        default_reasoning_effort: supportsReasoning ? defaultReasoningEffort : 'off',
+        ...(model.supports_reasoning
+          ? { default_reasoning_effort: defaultReasoningEffort }
+          : {}),
       };
       patch.mutate(
         { modelId: model.id, body },
@@ -105,11 +91,6 @@ export function ModelFormDialog({
         ? { base_url: baseUrl.trim() }
         : {}),
       ...(NEEDS_KEY.includes(provider) && apiKey ? { api_key: apiKey } : {}),
-      supports_chat_completion: supportsChatCompletion,
-      supports_structured_json: supportsStructuredJson,
-      supports_verifier: supportsVerifier,
-      supports_reasoning: supportsReasoning,
-      default_reasoning_effort: supportsReasoning ? defaultReasoningEffort : 'off',
     };
 
     create.mutate(body, {
@@ -201,94 +182,29 @@ export function ModelFormDialog({
               ) : null}
             </div>
           ) : null}
-          <fieldset className="rounded-md border border-line bg-subtle/50 p-3">
-            <legend className="px-1 text-[12px] font-semibold text-ink">
-              Model capabilities
-            </legend>
-            <div className="grid gap-2 sm:grid-cols-3">
-              <label className="flex items-center gap-2 text-[12px] text-ink">
-                <input
-                  type="checkbox"
-                  aria-label="Chat completion"
-                  checked={supportsChatCompletion}
-                  onChange={(event) => {
-                    setSupportsChatCompletion(event.target.checked);
-                    if (!event.target.checked) {
-                      setSupportsStructuredJson(false);
-                      setSupportsVerifier(false);
-                    }
-                  }}
-                />
-                Chat completion
-              </label>
-              <label className="flex items-center gap-2 text-[12px] text-ink">
-                <input
-                  type="checkbox"
-                  aria-label="Structured JSON"
-                  checked={supportsStructuredJson}
-                  onChange={(event) => {
-                    setSupportsStructuredJson(event.target.checked);
-                    if (event.target.checked) setSupportsChatCompletion(true);
-                    else setSupportsVerifier(false);
-                  }}
-                />
-                Structured JSON
-              </label>
-              <label className="flex items-center gap-2 text-[12px] text-ink">
-                <input
-                  type="checkbox"
-                  aria-label="Verifier / judge"
-                  checked={supportsVerifier}
-                  onChange={(event) => {
-                    setSupportsVerifier(event.target.checked);
-                    if (event.target.checked) {
-                      setSupportsChatCompletion(true);
-                      setSupportsStructuredJson(true);
-                    }
-                  }}
-                />
-                Verifier / judge
-              </label>
-            </div>
-            <p className="mt-2 text-[11px] text-muted">
-              Verifier models must support structured JSON; structured output requires chat completion.
-            </p>
-          </fieldset>
-          <div className="rounded-md border border-line bg-subtle/50 p-3">
-            <label className="flex items-center gap-2 text-[13px] font-medium text-ink">
-              <input
-                type="checkbox"
-                aria-label="Supports reasoning effort"
-                checked={supportsReasoning}
-                onChange={(event) => {
-                  setSupportsReasoning(event.target.checked);
-                  if (!event.target.checked) setDefaultReasoningEffort('off');
-                }}
-                className="h-4 w-4 accent-[var(--accent)]"
-              />
-              Supports reasoning effort
-            </label>
-            <p className="mt-1 text-[11px] text-muted">
-              Enable only when the provider model accepts LiteLLM reasoning effort.
-            </p>
-            {supportsReasoning ? (
-              <div className="mt-3">
-                <Label htmlFor="model-default-reasoning">Default reasoning effort</Label>
-                <NativeSelect
-                  id="model-default-reasoning"
-                  value={defaultReasoningEffort}
-                  onChange={(event) =>
-                    setDefaultReasoningEffort(event.target.value as ReasoningEffort)
-                  }
-                >
-                  <option value="off">Off</option>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </NativeSelect>
-              </div>
-            ) : null}
+          <div className="rounded-md border border-line bg-subtle/50 p-3 text-[11px] text-secondary">
+            Chat, streaming, structured JSON, tool-calling, vision, context, and verifier capabilities are measured automatically through bounded LiteLLM probes. A model stays unavailable until its connection probe passes.
           </div>
+          {editing && model.supports_reasoning ? (
+            <div className="rounded-md border border-line bg-subtle/50 p-3">
+              <Label htmlFor="model-default-reasoning">Default reasoning effort</Label>
+              <NativeSelect
+                id="model-default-reasoning"
+                value={defaultReasoningEffort}
+                onChange={(event) =>
+                  setDefaultReasoningEffort(event.target.value as ReasoningEffort)
+                }
+              >
+                <option value="off">Off</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </NativeSelect>
+              <p className="mt-1 text-[11px] text-muted">
+                Available because the live LiteLLM probe verified reasoning support.
+              </p>
+            </div>
+          ) : null}
           {create.isError || patch.isError ? (
             <p role="alert" className="text-[12px] text-danger">
               {(create.error ?? patch.error)?.message}

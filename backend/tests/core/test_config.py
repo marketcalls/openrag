@@ -101,3 +101,4 @@ def test_conversation_summary_settings_defaults() -> None:
     assert settings.summary_source_token_budget == 12_000
     assert settings.summary_target_token_budget == 800
     assert settings.summary_lease_seconds == 120
+    assert settings.model_probe_lease_seconds == 120
