@@ -739,6 +739,41 @@ async def _validate_strict_draft(
     citations = _citation_references(answer, sources)
     usage = initial_usage
     refusal_reason = "below_threshold"
+    if answer and not citations:
+        retry_prompt = [
+            prompt[0],
+            {
+                "role": "system",
+                "content": (
+                    "The previous draft failed grounded-answer validation because "
+                    "it did not include valid inline source citations. Regenerate "
+                    "once using only claims explicitly supported by the supplied "
+                    "evidence and cite every material claim with the matching "
+                    "bracketed source number."
+                ),
+            },
+            *prompt[1:],
+        ]
+        citation_retry_parts: list[str] = []
+        citation_retry_usage: LLMUsage | None = None
+        try:
+            async for item in streamer.stream(
+                model=model_name,
+                messages=retry_prompt,
+            ):
+                if isinstance(item, LLMDelta):
+                    citation_retry_parts.append(item.text)
+                else:
+                    citation_retry_usage = item
+        except UpstreamError:
+            citation_retry_parts.clear()
+        usage = _merge_usage(usage, citation_retry_usage)
+        regenerated = "".join(citation_retry_parts)
+        regenerated_citations = _citation_references(regenerated, sources)
+        if regenerated and regenerated_citations:
+            answer = regenerated
+            parts = citation_retry_parts
+            citations = regenerated_citations
     if answer_validator is None or not citations:
         return StrictDraftResult(answer, tuple(parts), usage, citations, refusal_reason)
 

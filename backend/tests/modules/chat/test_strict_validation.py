@@ -87,6 +87,27 @@ async def test_strict_validation_passes_without_regeneration() -> None:
     assert streamer.calls == 0
 
 
+async def test_missing_citations_regenerates_once_with_inline_markers() -> None:
+    streamer = RetryStreamer(["Corrected answer [1]."])
+
+    result = await _validate_strict_draft(
+        answer_validator=None,
+        streamer=streamer,
+        model_name="answer-model",
+        prompt=[{"role": "system", "content": "policy"}, {"role": "user", "content": "q"}],
+        question="What is required?",
+        initial_parts=["Correct answer without a source marker."],
+        initial_usage=LLMUsage(10, 4),
+        sources=[_source()],
+        evidence_texts=("Corrected answer.",),
+    )
+
+    assert result.answer == "Corrected answer [1]."
+    assert result.citations[0].marker == 1
+    assert result.usage == LLMUsage(17, 6)
+    assert streamer.calls == 1
+
+
 async def test_strict_validation_regenerates_once_and_revalidates() -> None:
     failed = AnswerValidation(
         "failed",
