@@ -261,7 +261,7 @@ async def add_message(
     prompt_tokens: int | None = None,
     completion_tokens: int | None = None,
 ) -> Message:
-    message = await _prepare_message(
+    message = await build_message(
         session,
         context,
         chat,
@@ -276,7 +276,7 @@ async def add_message(
     return message
 
 
-async def _prepare_message(
+async def build_message(
     session: AsyncSession,
     context: TenantContext,
     chat: Chat,
@@ -542,7 +542,7 @@ async def _persist_assistant(
                 legacy_sources.append((citation, document, version))
 
         persisted_content = content if citations else NO_ANSWER_TEXT
-        message = await _prepare_message(
+        message = await build_message(
             session,
             context,
             chat,
@@ -660,7 +660,7 @@ async def _persist_conversational_assistant(
         "chat.use",
     )
     try:
-        message = await _prepare_message(
+        message = await build_message(
             session,
             context,
             chat,

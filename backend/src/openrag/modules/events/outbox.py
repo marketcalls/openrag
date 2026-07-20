@@ -12,6 +12,8 @@ from openrag.modules.events.envelopes import (
     DocumentVersionRebuildRequestedV1,
     DocumentVersionReindexRequestedV1,
     RegisteredPayload,
+    RunCancelRequestedV1,
+    RunRequestedV1,
     build_envelope,
     canonical_envelope_bytes,
 )
@@ -36,6 +38,10 @@ def _dedupe_key(
         return (
             f"document-version:{aggregate_id}:reindex:{payload.deployment_id}"
         )
+    if type(payload) is RunRequestedV1:
+        return f"agent-run:{aggregate_id}:requested"
+    if type(payload) is RunCancelRequestedV1:
+        return f"agent-run:{aggregate_id}:cancel-requested"
     return f"document-version:{aggregate_id}:{lifecycle_revision}"
 
 

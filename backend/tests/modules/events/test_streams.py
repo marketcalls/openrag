@@ -6,6 +6,8 @@ from openrag.modules.events.streams import (
     DOCUMENT_EVENTS_GROUP,
     DOCUMENT_EVENTS_STREAM,
     EVENT_TRANSPORT_FIELDS,
+    RUN_COMMANDS_GROUP,
+    RUN_COMMANDS_STREAM,
     ensure_streams,
     stream_for_event_type,
 )
@@ -36,6 +38,14 @@ def test_transport_has_exactly_two_attested_fields() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "event_type",
+    ["run.requested.v1", "run.cancel.requested.v1"],
+)
+def test_run_commands_use_the_run_command_stream(event_type: str) -> None:
+    assert stream_for_event_type(event_type) == RUN_COMMANDS_STREAM
+
+
 class RecordingRedis:
     def __init__(self) -> None:
         self.created: list[tuple[str, str, str, bool]] = []
@@ -54,6 +64,7 @@ class RecordingRedis:
         expected = {
             DOCUMENT_EVENTS_STREAM: DOCUMENT_EVENTS_GROUP,
             DOCUMENT_COMMANDS_STREAM: DOCUMENT_COMMANDS_GROUP,
+            RUN_COMMANDS_STREAM: RUN_COMMANDS_GROUP,
         }
         return [{b"name": expected[name].encode()}]
 
@@ -73,6 +84,12 @@ async def test_stream_provisioning_is_explicit_and_verified() -> None:
         (
             DOCUMENT_COMMANDS_STREAM,
             DOCUMENT_COMMANDS_GROUP,
+            "0-0",
+            True,
+        ),
+        (
+            RUN_COMMANDS_STREAM,
+            RUN_COMMANDS_GROUP,
             "0-0",
             True,
         ),

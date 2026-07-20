@@ -13,6 +13,8 @@ from openrag.modules.events.envelopes import (
     DocumentVersionReindexRequestedV1,
     EventEnvelopeBase,
     EventEnvelopeV1,
+    RunCancelRequestedV1,
+    RunRequestedV1,
     build_envelope,
     canonical_envelope_bytes,
     parse_base_envelope,
@@ -224,6 +226,52 @@ def test_document_start_commands_reject_invalid_attempts_and_extra_data() -> Non
             attempt=0,
             authority_generation_id=EVENT_ID,
         )
+
+
+@pytest.mark.parametrize(
+    ("payload", "event_type"),
+    [
+        (
+            RunRequestedV1(
+                run_id=VERSION_ID,
+                user_id=DOCUMENT_ID,
+                chat_id=EVENT_ID,
+                input_message_id=CORRELATION_ID,
+                client_request_id=ORG_ID,
+                model_id=None,
+            ),
+            "run.requested.v1",
+        ),
+        (
+            RunCancelRequestedV1(
+                run_id=VERSION_ID,
+                user_id=DOCUMENT_ID,
+            ),
+            "run.cancel.requested.v1",
+        ),
+    ],
+)
+def test_run_commands_are_registered_identifier_only_contracts(
+    payload: RunRequestedV1 | RunCancelRequestedV1,
+    event_type: str,
+) -> None:
+    envelope = build_envelope(
+        payload=payload,
+        event_id=EVENT_ID,
+        org_id=ORG_ID,
+        workspace_id=WORKSPACE_ID,
+        aggregate_id=VERSION_ID,
+        lifecycle_revision=1,
+        correlation_id=CORRELATION_ID,
+        occurred_at=datetime(2026, 7, 20, 12, 30, tzinfo=UTC),
+    )
+    encoded = canonical_envelope_bytes(envelope)
+
+    assert envelope.event_type == event_type
+    assert envelope.aggregate_type == "agent_run"
+    assert parse_registered_envelope(encoded) == envelope
+    for forbidden in (b"prompt", b"content", b"credential", b"raw_error"):
+        assert forbidden not in encoded
     with pytest.raises(ValidationError):
         DocumentVersionReindexRequestedV1(
             document_id=DOCUMENT_ID,

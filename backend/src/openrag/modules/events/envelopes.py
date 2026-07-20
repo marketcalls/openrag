@@ -21,6 +21,8 @@ LIFECYCLE_EVENT_TYPE = "document.version.lifecycle.v1"
 INGESTION_REQUESTED_EVENT_TYPE = "document.version.ingestion_requested.v1"
 REBUILD_REQUESTED_EVENT_TYPE = "document.version.rebuild_requested.v1"
 REINDEX_REQUESTED_EVENT_TYPE = "document.version.reindex_requested.v1"
+RUN_REQUESTED_EVENT_TYPE = "run.requested.v1"
+RUN_CANCEL_REQUESTED_EVENT_TYPE = "run.cancel.requested.v1"
 
 
 class DocumentVersionLifecycleV1(BaseModel):
@@ -66,11 +68,35 @@ class DocumentVersionReindexRequestedV1(BaseModel):
     authority_generation_id: UUID
 
 
+class RunRequestedV1(BaseModel):
+    """Identifier-only command authorizing one durable agent run."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_id: UUID
+    user_id: UUID
+    chat_id: UUID
+    input_message_id: UUID
+    client_request_id: UUID
+    model_id: UUID | None = None
+
+
+class RunCancelRequestedV1(BaseModel):
+    """Identifier-only cooperative cancellation command."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_id: UUID
+    user_id: UUID
+
+
 RegisteredPayload = (
     DocumentVersionLifecycleV1
     | DocumentVersionIngestionRequestedV1
     | DocumentVersionRebuildRequestedV1
     | DocumentVersionReindexRequestedV1
+    | RunRequestedV1
+    | RunCancelRequestedV1
 )
 
 
@@ -142,6 +168,10 @@ def _registration(payload: object) -> tuple[str, str]:
         return REBUILD_REQUESTED_EVENT_TYPE, "document_version"
     if type(payload) is DocumentVersionReindexRequestedV1:
         return REINDEX_REQUESTED_EVENT_TYPE, "document_version"
+    if type(payload) is RunRequestedV1:
+        return RUN_REQUESTED_EVENT_TYPE, "agent_run"
+    if type(payload) is RunCancelRequestedV1:
+        return RUN_CANCEL_REQUESTED_EVENT_TYPE, "agent_run"
     raise ValueError("schema_not_registered")
 
 
@@ -224,6 +254,8 @@ def parse_registered_envelope(encoded: bytes) -> EventEnvelopeV1:
         INGESTION_REQUESTED_EVENT_TYPE,
         REBUILD_REQUESTED_EVENT_TYPE,
         REINDEX_REQUESTED_EVENT_TYPE,
+        RUN_REQUESTED_EVENT_TYPE,
+        RUN_CANCEL_REQUESTED_EVENT_TYPE,
     }:
         raise ValueError("schema_not_registered")
     try:

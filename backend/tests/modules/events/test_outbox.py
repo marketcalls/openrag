@@ -10,6 +10,8 @@ from openrag.modules.events.envelopes import (
     DocumentVersionLifecycleV1,
     DocumentVersionRebuildRequestedV1,
     DocumentVersionReindexRequestedV1,
+    RunCancelRequestedV1,
+    RunRequestedV1,
 )
 from openrag.modules.events.outbox import add_registered_event
 
@@ -121,6 +123,46 @@ def test_registered_factory_derives_document_start_dedupe_keys(
         | DocumentVersionRebuildRequestedV1
         | DocumentVersionReindexRequestedV1
     ),
+    expected: str,
+) -> None:
+    session = RecordingSession()
+    values = event_values()
+    values["payload"] = payload
+
+    event = add_registered_event(session, **values)  # type: ignore[arg-type]
+
+    assert event.dedupe_key == expected
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (
+            RunRequestedV1(
+                run_id=UUID("40000000-0000-0000-0000-000000000004"),
+                user_id=UUID("10000000-0000-0000-0000-000000000001"),
+                chat_id=UUID("20000000-0000-0000-0000-000000000002"),
+                input_message_id=UUID(
+                    "30000000-0000-0000-0000-000000000003"
+                ),
+                client_request_id=UUID(
+                    "50000000-0000-0000-0000-000000000005"
+                ),
+                model_id=None,
+            ),
+            "agent-run:40000000-0000-0000-0000-000000000004:requested",
+        ),
+        (
+            RunCancelRequestedV1(
+                run_id=UUID("40000000-0000-0000-0000-000000000004"),
+                user_id=UUID("10000000-0000-0000-0000-000000000001"),
+            ),
+            "agent-run:40000000-0000-0000-0000-000000000004:cancel-requested",
+        ),
+    ],
+)
+def test_registered_factory_derives_agent_run_dedupe_keys(
+    payload: RunRequestedV1 | RunCancelRequestedV1,
     expected: str,
 ) -> None:
     session = RecordingSession()

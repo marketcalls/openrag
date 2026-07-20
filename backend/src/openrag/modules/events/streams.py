@@ -9,6 +9,8 @@ from openrag.modules.events.envelopes import (
     LIFECYCLE_EVENT_TYPE,
     REBUILD_REQUESTED_EVENT_TYPE,
     REINDEX_REQUESTED_EVENT_TYPE,
+    RUN_CANCEL_REQUESTED_EVENT_TYPE,
+    RUN_REQUESTED_EVENT_TYPE,
 )
 
 DOCUMENT_EVENTS_STREAM = "openrag:events:documents"
@@ -17,6 +19,9 @@ DOCUMENT_EVENTS_DLQ_STREAM = "openrag:events:documents:dlq"
 DOCUMENT_COMMANDS_STREAM = "openrag:commands:documents"
 DOCUMENT_COMMANDS_GROUP = "openrag-document-starts-v1"
 DOCUMENT_COMMANDS_DLQ_STREAM = "openrag:commands:documents:dlq"
+RUN_COMMANDS_STREAM = "openrag:commands:runs"
+RUN_COMMANDS_GROUP = "openrag-agent-runners-v1"
+RUN_COMMANDS_DLQ_STREAM = "openrag:commands:runs:dlq"
 EVENT_TRANSPORT_FIELDS = frozenset(
     {b"envelope_bytes", b"envelope_digest"}
 )
@@ -33,6 +38,11 @@ def stream_for_event_type(event_type: str) -> str:
         REBUILD_REQUESTED_EVENT_TYPE,
     }:
         return DOCUMENT_COMMANDS_STREAM
+    if event_type in {
+        RUN_REQUESTED_EVENT_TYPE,
+        RUN_CANCEL_REQUESTED_EVENT_TYPE,
+    }:
+        return RUN_COMMANDS_STREAM
     raise ValueError("schema_not_registered")
 
 
@@ -41,6 +51,8 @@ def stream_for_aggregate_type(aggregate_type: str) -> str:
 
     if aggregate_type == "document_version":
         return DOCUMENT_EVENTS_STREAM
+    if aggregate_type == "agent_run":
+        return RUN_COMMANDS_STREAM
     raise ValueError("schema_not_registered")
 
 
@@ -72,6 +84,7 @@ async def ensure_streams(redis: StreamAdminRedis) -> None:
     topology = (
         (DOCUMENT_EVENTS_STREAM, DOCUMENT_EVENTS_GROUP),
         (DOCUMENT_COMMANDS_STREAM, DOCUMENT_COMMANDS_GROUP),
+        (RUN_COMMANDS_STREAM, RUN_COMMANDS_GROUP),
     )
     for stream, group in topology:
         try:
