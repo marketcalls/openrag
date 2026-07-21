@@ -122,6 +122,7 @@ CLARIFY_TEXT = (
     "or earlier question you mean."
 )
 _TITLE_SPACE_RE = re.compile(r"\s+")
+_MARKDOWN_SPECIAL_RE = re.compile(r"([\\`*_[\]{}()#!|>])")
 _DEFAULT_CHAT_TITLE = "New chat"
 _logger = structlog.get_logger("openrag.chat")
 
@@ -151,6 +152,40 @@ def derive_chat_title(content: str, *, max_chars: int = 80) -> str:
         return normalized
     truncated = normalized[: max_chars - 1].rstrip(" ,.;:-")
     return f"{truncated}…"
+
+
+def _escape_markdown_inline(value: str) -> str:
+    return _MARKDOWN_SPECIAL_RE.sub(r"\\\1", " ".join(value.split()))
+
+
+def _render_document_inventory(
+    items: Sequence[documents_service.DocumentInventoryItem],
+    *,
+    truncated: bool,
+) -> str:
+    if not items:
+        return "No documents are currently available in this workspace."
+    status_labels = {
+        "indexed": "Indexed",
+        "review": "Awaiting review",
+        "processing": "Processing",
+        "queued": "Queued",
+        "failed": "Failed",
+    }
+    lines = [f"Documents currently available in this workspace ({len(items)} shown):"]
+    for item in items:
+        name = _escape_markdown_inline(item.name)
+        version = _escape_markdown_inline(item.version_label)
+        status = status_labels.get(item.status, item.status.replace("_", " ").title())
+        pages = (
+            f"{item.page_count} page{'s' if item.page_count != 1 else ''}"
+            if item.page_count is not None
+            else "page count unavailable"
+        )
+        lines.append(f"- **{name}** — {version} — {status} — {pages}")
+    if truncated:
+        lines.append("- _More documents are available in the Documents page._")
+    return "\n".join(lines)
 
 
 def _encode_chat_cursor(chat: Chat) -> str:
@@ -917,7 +952,16 @@ async def _persist_assistant(
         authority_sources: list[tuple[CitationRef, AuthorizedEvidence]] = []
         policy: GroundingPolicy | None = None
         bindings: ClaimBindingResult | None = None
-        if citations and workspace.document_authority_enabled:
+        authority_identity_complete = bool(citations) and all(
+            citation.document_version_id is not None
+            and citation.evidence_span_id is not None
+            and citation.content_hash is not None
+            for citation in citations
+        )
+        authority_citation_mode = (
+            workspace.document_authority_enabled or authority_identity_complete
+        )
+        if citations and authority_citation_mode:
             now = datetime.now(UTC)
             database_now = now.replace(tzinfo=None)
             policy = await session.scalar(
@@ -1007,7 +1051,7 @@ async def _persist_assistant(
                     authority_sources.append((citation, evidence))
 
         legacy_sources: list[tuple[CitationRef, Document, DocumentVersion]] = []
-        if not workspace.document_authority_enabled:
+        if not authority_citation_mode:
             for citation in citations:
                 document_id = UUID(citation.document_id)
                 row = (
@@ -1046,7 +1090,7 @@ async def _persist_assistant(
             prompt_tokens=usage.prompt_tokens if usage is not None else None,
             completion_tokens=(usage.completion_tokens if usage is not None else None),
         )
-        if citations and workspace.document_authority_enabled:
+        if citations and authority_citation_mode:
             assert policy is not None
             message.answer_status = "grounded"
             message.refusal_reason = None
@@ -1365,6 +1409,38 @@ async def stream_reply(
         )
         return
 
+    if decision.reason_code == "document_inventory":
+        inventory, truncated = await documents_service.list_document_inventory(
+            session,
+            context,
+            workspace_id,
+        )
+        answer = _render_document_inventory(inventory, truncated=truncated)
+        await record_context(decision.route.value, ())
+        current_chat, current_parent = await get_message(
+            session,
+            context,
+            user_message_id,
+        )
+        message = await _persist_conversational_assistant(
+            session,
+            context,
+            current_chat,
+            parent=current_parent,
+            content=answer,
+            model_id=None,
+            usage=None,
+        )
+        yield token_event(answer)
+        yield citations_event([])
+        yield done_event(
+            message_id=str(message.id),
+            prompt_tokens=0,
+            completion_tokens=0,
+            no_answer=False,
+        )
+        return
+
     assert decision.retrieval_query is not None
     yield retrieval_started_event()
     result = await retriever(
@@ -1411,7 +1487,7 @@ async def stream_reply(
             finish_reason = "planner_failed"
         yield agent_completed_event(finish_reason)
     referential_followup = decision.reason_code == "referential_followup"
-    if referential_followup or result.no_answer or len(result.chunks) < retrieval_top_k:
+    if referential_followup:
         identities = await _previous_citation_identities(
             session,
             previous_assistant_id,

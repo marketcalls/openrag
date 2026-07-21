@@ -10,8 +10,11 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from openrag.core.config import get_settings
+from openrag.core.db import naive_utc
 from openrag.modules.auth.models import User
 from openrag.modules.documents.models import Document, DocumentVersion
+from openrag.modules.documents.profiles import active_ingestion_profiles
 from openrag.modules.events.envelopes import INGESTION_REQUESTED_EVENT_TYPE
 from openrag.modules.events.models import OutboxEvent
 
@@ -129,6 +132,14 @@ async def test_upload_list_delete_flow(
         headers=headers,
     )
     assert after_deletion_request.json() == []
+
+    reupload = await client.post(
+        f"/api/v1/workspaces/{workspace_id}/documents",
+        headers=headers,
+        files={"file": ("notes-again.txt", b"the flux capacitor hums", "text/plain")},
+    )
+    assert reupload.status_code == 201, reupload.text
+    assert reupload.json()["id"] != body["id"]
 
 
 async def test_upload_rejects_mime_magic_mismatch_before_record_or_enqueue(
@@ -314,9 +325,10 @@ async def test_legacy_upload_rejects_client_sequence_form_field(
     assert await ingestion_events(session) == []
 
 
-async def test_delete_processing_document_conflicts_without_enqueue(
+async def test_delete_processing_document_cancels_and_schedules_cleanup(
     client: httpx.AsyncClient,
     seeded_user: User,
+    session: AsyncSession,
     stack_env: None,
     captured_enqueues: dict[str, list[tuple[Any, ...]]],
 ) -> None:
@@ -328,13 +340,20 @@ async def test_delete_processing_document_conflicts_without_enqueue(
         files={"file": ("live.txt", b"still processing", "text/plain")},
     )
 
-    response = await client.delete(f"/api/v1/documents/{upload.json()['id']}", headers=headers)
+    document_id = UUID(upload.json()["id"])
+    response = await client.delete(f"/api/v1/documents/{document_id}", headers=headers)
 
-    assert response.status_code == 409
-    assert captured_enqueues["delete"] == []
+    assert response.status_code == 202, response.text
+    assert response.json() == {"status": "deletion scheduled"}
+    assert captured_enqueues["delete"] == [(document_id, seeded_user.id)]
+    version = await session.get(DocumentVersion, document_id)
+    assert version is not None
+    assert version.state == "failed"
+    assert version.provenance_state == "failed"
+    assert version.source_delete_requested_at is not None
 
 
-async def test_legacy_delete_route_refuses_ambiguous_nonlegacy_version_identity(
+async def test_delete_schedules_nonlegacy_failed_version(
     client: httpx.AsyncClient,
     seeded_user: User,
     session: AsyncSession,
@@ -366,7 +385,9 @@ async def test_legacy_delete_route_refuses_ambiguous_nonlegacy_version_identity(
         parser_profile_version="docling/v1",
         ocr_profile_version="none/v1",
         chunking_profile_version="semantic/v1",
-        embedding_profile_version="bge-m3/v1",
+        embedding_profile_version=active_ingestion_profiles(
+            get_settings()
+        ).embedding_profile_version,
         index_profile_version="hybrid/v1",
         state="failed",
         provenance_state="failed",
@@ -378,10 +399,88 @@ async def test_legacy_delete_route_refuses_ambiguous_nonlegacy_version_identity(
 
     response = await client.delete(f"/api/v1/documents/{document.id}", headers=headers)
 
-    assert response.status_code == 409
-    assert captured_enqueues["delete"] == []
+    assert response.status_code == 202
+    assert captured_enqueues["delete"] == [(version.id, seeded_user.id)]
     await session.refresh(version)
-    assert version.source_delete_requested_at is None
+    assert version.source_delete_requested_at is not None
+
+
+async def test_delete_review_document_rejects_and_schedules_cleanup(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    session: AsyncSession,
+    stack_env: None,
+    captured_enqueues: dict[str, list[tuple[Any, ...]]],
+) -> None:
+    headers = await auth(client, seeded_user.email)
+    workspace_id = await make_workspace(client, headers)
+    upload = await client.post(
+        f"/api/v1/workspaces/{workspace_id}/documents",
+        headers=headers,
+        files={"file": ("review.txt", b"ready for review", "text/plain")},
+    )
+    document_id = UUID(upload.json()["id"])
+    version = await session.get(DocumentVersion, document_id)
+    assert version is not None
+    version.state = "review"
+    version.provenance_state = "ready"
+    version.source_page_count = 1
+    await session.commit()
+
+    response = await client.delete(f"/api/v1/documents/{document_id}", headers=headers)
+
+    assert response.status_code == 202
+    assert response.json() == {"status": "deletion scheduled"}
+    assert captured_enqueues["delete"] == [(document_id, seeded_user.id)]
+    await session.refresh(version)
+    assert version.state == "rejected"
+    assert version.rejected_by == seeded_user.id
+    assert version.source_delete_requested_at is not None
+
+
+async def test_delete_retires_approved_document_without_destroying_governed_history(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    session: AsyncSession,
+    stack_env: None,
+    captured_enqueues: dict[str, list[tuple[Any, ...]]],
+) -> None:
+    headers = await auth(client, seeded_user.email)
+    workspace_id = await make_workspace(client, headers)
+    upload = await client.post(
+        f"/api/v1/workspaces/{workspace_id}/documents",
+        headers=headers,
+        files={"file": ("approved.txt", b"approved content", "text/plain")},
+    )
+    document_id = UUID(upload.json()["id"])
+    version = await session.get(DocumentVersion, document_id)
+    document = await session.get(Document, document_id)
+    assert version is not None and document is not None
+    now = naive_utc()
+    version.state = "approved"
+    version.provenance_state = "ready"
+    version.source_page_count = 1
+    version.approved_by = seeded_user.id
+    version.approved_at = now
+    version.decision_at = now
+    document.status = "indexed"
+    document.page_count = 1
+    await session.commit()
+
+    response = await client.delete(f"/api/v1/documents/{document_id}", headers=headers)
+
+    assert response.status_code == 202
+    assert response.json() == {"status": "document retired"}
+    assert captured_enqueues["delete"] == []
+    await session.refresh(document)
+    await session.refresh(version)
+    assert document.status == "deleted"
+    assert version.state == "approved"
+    listing = await client.get(
+        f"/api/v1/workspaces/{workspace_id}/documents",
+        headers=headers,
+    )
+    assert listing.json() == []
 
 
 async def test_non_member_user_gets_403_for_workspace_collection(
@@ -530,7 +629,9 @@ async def test_retry_route_schedules_nonlegacy_version_durably(
         parser_profile_version="docling/v1",
         ocr_profile_version="none/v1",
         chunking_profile_version="semantic/v1",
-        embedding_profile_version="bge-m3/v1",
+        embedding_profile_version=active_ingestion_profiles(
+            get_settings()
+        ).embedding_profile_version,
         index_profile_version="hybrid/v1",
         state="failed",
         provenance_state="failed",
@@ -545,7 +646,7 @@ async def test_retry_route_schedules_nonlegacy_version_durably(
         headers=headers,
     )
 
-    assert response.status_code == 202
+    assert response.status_code == 202, response.text
     events = await ingestion_events(session)
     assert len(events) == 1
     assert events[0].aggregate_id == version.id
@@ -627,7 +728,7 @@ async def test_initial_upload_never_calls_legacy_direct_dispatch(
         files={"file": ("initial.txt", b"initial source", "text/plain")},
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
     document = (await session.execute(select(Document))).scalar_one()
     version = await session.get(DocumentVersion, document.id)
     assert version is not None
@@ -660,7 +761,7 @@ async def test_upload_controlled_version_uses_server_profiles_and_durable_comman
         files={"file": ("manual-v2.txt", b"revision two", "text/plain")},
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
     body = response.json()
     assert body["document_id"] == document_id
     assert body["sequence"] == 2

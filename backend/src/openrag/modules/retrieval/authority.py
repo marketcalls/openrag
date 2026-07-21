@@ -186,6 +186,7 @@ async def revalidate_candidates(
             .where(
                 Document.org_id == context.org_id,
                 Document.workspace_id == workspace_id,
+                or_(Document.status.is_(None), Document.status != "deleted"),
                 DocumentVersion.org_id == context.org_id,
                 DocumentVersion.workspace_id == workspace_id,
                 DocumentVersion.id.in_(version_ids),

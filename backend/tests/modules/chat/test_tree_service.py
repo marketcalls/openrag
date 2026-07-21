@@ -571,12 +571,14 @@ async def test_authority_activation_fails_closed_without_active_policy(
     assert assistant.content == NO_ANSWER_TEXT
 
 
+@pytest.mark.parametrize("authority_enabled", [True, False])
 async def test_authority_answer_revalidates_and_persists_complete_snapshot(
     session: AsyncSession,
     seeded_user: User,
+    authority_enabled: bool,
 ) -> None:
     context, workspace = await make_ctx(session, seeded_user)
-    workspace.document_authority_enabled = True
+    workspace.document_authority_enabled = authority_enabled
     verifier = Model(
         litellm_model_name="openai/verifier",
         display_name="Verifier",

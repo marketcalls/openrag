@@ -3,7 +3,7 @@
 import hashlib
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.db import naive_utc
@@ -24,6 +24,7 @@ async def provision_default_grounding_policy(
     org_id: UUID,
     workspace_id: UUID,
     created_by: UUID,
+    preferred_verifier_model_id: UUID | None = None,
 ) -> GroundingPolicy | None:
     """Bind a workspace to the latest measured verifier, idempotently.
 
@@ -59,37 +60,48 @@ async def provision_default_grounding_policy(
             ),
         )
     )
-    if existing is not None:
-        return existing
-
+    verifier_query = (
+        select(Model, ModelProbe)
+        .join(
+            ModelProbe,
+            (ModelProbe.model_id == Model.id)
+            & (ModelProbe.revision == Model.probe_revision),
+        )
+        .where(
+            Model.enabled.is_(True),
+            Model.probe_status == "passed",
+            Model.supports_chat_completion.is_(True),
+            Model.supports_streaming.is_(True),
+            Model.supports_structured_json.is_(True),
+            Model.supports_verifier.is_(True),
+            ModelProbe.status == "passed",
+        )
+    )
+    preferred_order = (
+        case((Model.id == preferred_verifier_model_id, 1), else_=0).desc()
+        if preferred_verifier_model_id is not None
+        else Model.id.asc()
+    )
     verifier_row = (
         await session.execute(
-            select(Model, ModelProbe)
-            .join(
-                ModelProbe,
-                (ModelProbe.model_id == Model.id) & (ModelProbe.revision == Model.probe_revision),
-            )
-            .where(
-                Model.enabled.is_(True),
-                Model.probe_status == "passed",
-                Model.supports_chat_completion.is_(True),
-                Model.supports_streaming.is_(True),
-                Model.supports_structured_json.is_(True),
-                Model.supports_verifier.is_(True),
-                ModelProbe.status == "passed",
-            )
-            .order_by(
+            verifier_query.order_by(
                 Model.is_utility.desc(),
+                preferred_order,
                 Model.last_probed_at.desc().nulls_last(),
                 Model.id,
-            )
-            .limit(1)
+            ).limit(1)
         )
     ).one_or_none()
     if verifier_row is None:
-        return None
+        return existing
 
     verifier, probe = verifier_row
+    if existing is not None and existing.verifier_model_id == verifier.id:
+        return existing
+    if existing is not None:
+        existing.status = "retired"
+        existing.expires_at = now
+        await session.flush()
     latest_policy_version = await session.scalar(
         select(func.max(GroundingPolicy.policy_version)).where(
             GroundingPolicy.org_id == org_id,

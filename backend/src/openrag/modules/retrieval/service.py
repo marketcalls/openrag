@@ -8,13 +8,18 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from qdrant_client import models
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from openrag.core.config import get_settings
 from openrag.modules.documents.authority_storage import AuthorityCollectionSpec
-from openrag.modules.documents.models import DocumentVersion
+from openrag.modules.documents.lifecycle import LEGACY_VERSION_LABEL
+from openrag.modules.documents.models import (
+    Document,
+    DocumentEvidenceSpan,
+    DocumentVersion,
+)
 from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
 from openrag.modules.embeddings.runtime import resolve_profile_runtime
 from openrag.modules.retrieval.authority import (
@@ -37,6 +42,7 @@ from openrag.modules.retrieval.sufficiency import (
     evaluate_evidence,
 )
 from openrag.modules.tenancy.context import TenantContext
+from openrag.modules.tenancy.models import Workspace
 from openrag.modules.tenancy.service import get_workspace_checked
 
 
@@ -312,6 +318,13 @@ def _document_eligibility(
     eligibility: list[ColumnElement[bool]] = [
         DocumentVersion.org_id == context.org_id,
         DocumentVersion.workspace_id == workspace_id,
+        DocumentVersion.document_id.in_(
+            select(Document.id).where(
+                Document.org_id == context.org_id,
+                Document.workspace_id == workspace_id,
+                or_(Document.status.is_(None), Document.status != "deleted"),
+            )
+        ),
         DocumentVersion.state == "approved",
         DocumentVersion.superseded_by_id.is_(None),
     ]
@@ -437,6 +450,99 @@ async def prepare_retrieval(
         filtered_document_ids=filtered_document_ids,
         current_approved=current_approved,
     )
+
+
+async def prepare_authority_fallback(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+    query: str,
+    top_k: int = 8,
+) -> RetrievalPlan | None:
+    """Bridge migrated workspaces when new uploads live in the active generation."""
+
+    workspace = await get_workspace_checked(session, context, workspace_id)
+    if workspace.document_authority_enabled:
+        return None
+    deployment = await session.scalar(
+        select(EmbeddingDeployment).where(EmbeddingDeployment.status == "active")
+    )
+    if deployment is None:
+        return None
+    eligible_version = await session.scalar(
+        select(DocumentVersion.id)
+        .where(
+            *_document_eligibility(
+                context=context,
+                workspace_id=workspace_id,
+                authority_mode=True,
+                now=datetime.now(UTC),
+            )
+        )
+        .limit(1)
+    )
+    if eligible_version is None:
+        return None
+    profile = await session.get(EmbeddingProfile, deployment.profile_id)
+    if profile is None or not profile.enabled:
+        return None
+    runtime = await resolve_profile_runtime(session, profile, get_settings())
+    return RetrievalPlan(
+        org_id=context.org_id,
+        workspace_id=workspace_id,
+        query=query,
+        top_k=top_k,
+        min_score=workspace.min_score,
+        authority_mode=True,
+        embedding_model=profile.model_name,
+        collection=AuthorityCollectionSpec(
+            generation_id=deployment.generation_id,
+            dense_dimension=runtime.dimension,
+        ).physical_collection,
+        dense_embedder=runtime.embedder,
+        filtered_document_ids=None,
+        current_approved=True,
+    )
+
+
+async def has_governed_evidence(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+) -> bool:
+    """Report whether a migrated workspace can return rich authority evidence."""
+
+    authority_enabled = await session.scalar(
+        select(Workspace.document_authority_enabled).where(
+            Workspace.id == workspace_id,
+            Workspace.org_id == context.org_id,
+        )
+    )
+    if authority_enabled:
+        return True
+    deployment = await session.scalar(
+        select(EmbeddingDeployment.id).where(EmbeddingDeployment.status == "active")
+    )
+    if deployment is None:
+        return False
+    evidence_span_id = await session.scalar(
+        select(DocumentEvidenceSpan.id)
+        .join(
+            DocumentVersion,
+            DocumentVersion.id == DocumentEvidenceSpan.document_version_id,
+        )
+        .where(
+            *_document_eligibility(
+                context=context,
+                workspace_id=workspace_id,
+                authority_mode=True,
+                now=datetime.now(UTC),
+            ),
+            DocumentVersion.version_label != LEGACY_VERSION_LABEL,
+        )
+        .limit(1)
+    )
+    return evidence_span_id is not None
 
 
 async def execute_retrieval(plan: RetrievalPlan) -> ExternalRetrievalResult:
@@ -826,9 +932,37 @@ async def retrieve(
         query,
         top_k,
     )
-    await session.rollback()
     if isinstance(prepared, RetrievalResult):
+        await session.rollback()
         return prepared
+
+    fallback = None
+    if not prepared.authority_mode:
+        fallback = await prepare_authority_fallback(
+            session,
+            context,
+            workspace_id,
+            query,
+            top_k,
+        )
+    await session.rollback()
+
+    # Migrated workspaces can contain recent uploads exclusively in the active
+    # authority generation while older documents remain in the legacy index.
+    # Consult the governed generation first so an accidentally high legacy
+    # similarity score cannot hide current evidence.
+    if fallback is not None:
+        fallback_external = await execute_retrieval(fallback)
+        fallback_result = await finalize_retrieval(
+            session,
+            context,
+            fallback,
+            fallback_external,
+        )
+        if not fallback_result.no_answer:
+            return fallback_result
+        await session.rollback()
+
     external = await execute_retrieval(prepared)
     return await finalize_retrieval(session, context, prepared, external)
 

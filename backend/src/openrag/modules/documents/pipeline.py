@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import math
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 from uuid import UUID, uuid5
 
 import pypdfium2 as pdfium
@@ -20,13 +21,23 @@ from openrag.modules.retrieval.client import COLLECTION, get_qdrant
 from openrag.modules.retrieval.embeddings import DenseEmbedder, embed_sparse
 
 _CHUNK_NAMESPACE = UUID("6c7d9a52-3e1f-4b8a-9c0d-2f5e8b1a7d43")
-_NATIVE_PDF_MIN_PAGES = 20
+_NATIVE_PDF_MIN_PAGES = 8
 _NATIVE_PDF_MIN_PAGE_CHARS = 40
 _NATIVE_PDF_MIN_AVERAGE_CHARS = 200
 
 
 class IngestFailure(Exception):
     """Terminal ingestion failure caused by invalid or unsupported input."""
+
+
+class _PdfImageObject(Protocol):
+    def get_bounds(self) -> tuple[float, float, float, float]: ...
+
+
+class _PdfPage(Protocol):
+    def get_size(self) -> tuple[float, float]: ...
+
+    def get_objects(self, *, filter: list[int]) -> Iterable[_PdfImageObject]: ...
 
 
 @dataclass(frozen=True)
@@ -209,7 +220,8 @@ def _parse_large_text_pdf(
         if len(document) < _NATIVE_PDF_MIN_PAGES:
             return None
         page_text: list[str] = []
-        for page in document:
+        pages_requiring_ocr: list[bool] = []
+        for page_number, page in enumerate(document, start=1):
             text_page = page.get_textpage()
             try:
                 text = "\n".join(
@@ -219,11 +231,17 @@ def _parse_large_text_pdf(
                 )
             finally:
                 text_page.close()
-                page.close()
+            is_cover_page = page_number in {1, len(document)}
+            pages_requiring_ocr.append(
+                len(text) < _NATIVE_PDF_MIN_PAGE_CHARS
+                and _page_has_material_bitmap(page, profile)
+                and (not text or not is_cover_page)
+            )
+            page.close()
             page_text.append(text)
         if (
             not page_text
-            or min(map(len, page_text)) < _NATIVE_PDF_MIN_PAGE_CHARS
+            or any(pages_requiring_ocr)
             or sum(map(len, page_text)) / len(page_text)
             < _NATIVE_PDF_MIN_AVERAGE_CHARS
         ):
@@ -239,12 +257,33 @@ def _parse_large_text_pdf(
                 extraction_method="parser",
             )
             for index, text in enumerate(page_text, start=1)
+            if text
         ]
         if len(blocks) > profile.max_blocks:
             raise IngestFailure("document exceeds block limit")
         return ParsedDocument(blocks=blocks, page_count=len(page_text))
     finally:
         document.close()
+
+
+def _page_has_material_bitmap(page: _PdfPage, profile: ParseProfile) -> bool:
+    """Conservatively detect low-text pages that still require OCR."""
+
+    try:
+        width, height = page.get_size()
+        page_area = float(width) * float(height)
+        if page_area <= 0:
+            return True
+        images = page.get_objects(filter=[pdfium.raw.FPDF_PAGEOBJ_IMAGE])
+        for image in images:
+            left, bottom, right, top = image.get_bounds()
+            visible_width = max(0.0, min(float(right), width) - max(float(left), 0.0))
+            visible_height = max(0.0, min(float(top), height) - max(float(bottom), 0.0))
+            if visible_width * visible_height / page_area >= profile.ocr_bitmap_area_threshold:
+                return True
+    except Exception:
+        return True
+    return False
 
 
 def _source_coordinates(provenance: object | None) -> dict[str, object] | None:

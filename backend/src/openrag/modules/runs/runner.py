@@ -25,7 +25,11 @@ from openrag.modules.operations.facts import (
 )
 from openrag.modules.operations.schemas import ErrorCategory, ErrorOccurrenceCreate
 from openrag.modules.orchestration.runtime import create_model_execution
-from openrag.modules.retrieval.service import backfill_citation_evidence, retrieve
+from openrag.modules.retrieval.service import (
+    backfill_citation_evidence,
+    has_governed_evidence,
+    retrieve,
+)
 from openrag.modules.runs.context import record_run_context
 from openrag.modules.runs.leases import (
     RunLeaseClaim,
@@ -210,6 +214,11 @@ async def _execute_started_run(
             requested_model_id=run.model_id,
             default_model_id=workspace.default_model_id,
         )
+        authority_validation_required = await has_governed_evidence(
+            session,
+            context,
+            workspace.id,
+        )
         execution = await create_model_execution(
             session,
             model,
@@ -217,7 +226,7 @@ async def _execute_started_run(
             session_factory=session_factory,
             context=context,
             workspace_id=workspace.id,
-            document_authority_enabled=workspace.document_authority_enabled,
+            document_authority_enabled=authority_validation_required,
             reasoning_effort=cast(ReasoningEffort, run.reasoning_effort),
         )
         bridge = DurableReplyBridge(

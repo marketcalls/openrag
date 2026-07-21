@@ -28,6 +28,7 @@ from openrag.modules.documents.lifecycle import (
     DocumentVersionDecision,
     DocumentVersionState,
     InvalidDocumentTransition,
+    ProvenanceState,
     ensure_transition,
     normalize_version_label,
 )
@@ -71,6 +72,27 @@ def _is_exact_legacy(version: DocumentVersion) -> bool:
     )
 
 
+def _cancel_unapproved_version_for_deletion(
+    version: DocumentVersion,
+    *,
+    actor_id: UUID,
+    now: datetime,
+) -> None:
+    """Move active unapproved work into a deletion-safe terminal state."""
+
+    if version.state == DocumentVersionState.PROCESSING.value:
+        version.state = DocumentVersionState.FAILED.value
+        version.provenance_state = ProvenanceState.FAILED.value
+        version.processing_error_code = "deletion_requested"
+        version.lifecycle_revision += 1
+    elif version.state == DocumentVersionState.REVIEW.value:
+        version.state = DocumentVersionState.REJECTED.value
+        version.rejected_by = actor_id
+        version.rejected_at = now
+        version.decision_at = now
+        version.lifecycle_revision += 1
+
+
 @dataclass(frozen=True)
 class PreparedUpload:
     org_id: UUID
@@ -92,6 +114,21 @@ class PreparedUpload:
     embedding_profile_version: str
     index_profile_version: str
     authority_generation_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentInventoryItem:
+    document_id: UUID
+    name: str
+    version_label: str
+    status: str
+    page_count: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class LogicalDocumentDeletion:
+    scheduled_version_ids: tuple[UUID, ...]
+    retained_governed_history: bool
 
 
 @dataclass(frozen=True)
@@ -237,8 +274,10 @@ async def authorize_upload_scope(
             duplicate = (
                 await session.execute(
                     select(Document.id).where(
+                        Document.org_id == context.org_id,
                         Document.workspace_id == workspace.id,
                         Document.content_hash == resolved_hash,
+                        or_(Document.status.is_(None), Document.status != "deleted"),
                     )
                 )
             ).scalar_one_or_none()
@@ -319,8 +358,10 @@ async def create_document_record(
     duplicate = (
         await session.execute(
             select(Document.id).where(
+                Document.org_id == context.org_id,
                 Document.workspace_id == workspace.id,
                 Document.content_hash == prepared.content_hash,
+                or_(Document.status.is_(None), Document.status != "deleted"),
             )
         )
     ).scalar_one_or_none()
@@ -589,7 +630,20 @@ async def _persist_prepared_upload(
         await compensate()
         raise
     try:
-        document = await create_document_record(session, context, prepared)
+        if prepared.new_document:
+            document = await create_document_record(session, context, prepared)
+        else:
+            existing_document = await session.scalar(
+                select(Document).where(
+                    Document.id == prepared.document_id,
+                    Document.org_id == context.org_id,
+                    Document.workspace_id == prepared.workspace_id,
+                    or_(Document.status.is_(None), Document.status != "deleted"),
+                )
+            )
+            if existing_document is None:
+                raise NotFoundError("document not found")
+            document = existing_document
         version = await create_version_record(session, context, prepared)
         _persist_ingestion_request(
             session,
@@ -622,16 +676,97 @@ async def list_documents(
         select(Document)
         .where(
             Document.workspace_id == workspace.id,
+            or_(Document.status.is_(None), Document.status != "deleted"),
             exists(
                 select(DocumentVersion.id).where(
                     DocumentVersion.document_id == Document.id,
                     DocumentVersion.source_delete_requested_at.is_(None),
+                    ~DocumentVersion.state.in_(("obsolete", "superseded")),
                 )
             ),
         )
         .order_by(Document.created_at.desc(), Document.id.desc())
     )
     return list((await session.execute(statement)).scalars())
+
+
+async def list_document_inventory(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+    *,
+    limit: int = 50,
+) -> tuple[list[DocumentInventoryItem], bool]:
+    """Return a bounded, authoritative catalog matching the document library."""
+
+    if not 1 <= limit <= 200:
+        raise ValueError("document inventory limit must be between 1 and 200")
+    workspace = await get_workspace_checked(session, context, workspace_id, "document.read")
+    ranked = (
+        select(
+            DocumentVersion.document_id.label("document_id"),
+            DocumentVersion.version_label.label("version_label"),
+            DocumentVersion.source_page_count.label("source_page_count"),
+            func.row_number()
+            .over(
+                partition_by=DocumentVersion.document_id,
+                order_by=(
+                    DocumentVersion.sequence.desc(),
+                    DocumentVersion.id.desc(),
+                ),
+            )
+            .label("version_rank"),
+        )
+        .where(
+            DocumentVersion.org_id == context.org_id,
+            DocumentVersion.workspace_id == workspace.id,
+            DocumentVersion.source_delete_requested_at.is_(None),
+            ~DocumentVersion.state.in_(("obsolete", "superseded")),
+        )
+        .subquery()
+    )
+    rows = (
+        await session.execute(
+            select(
+                Document.id,
+                Document.name,
+                Document.status,
+                Document.page_count,
+                ranked.c.version_label,
+                ranked.c.source_page_count,
+            )
+            .join(ranked, ranked.c.document_id == Document.id)
+            .where(
+                Document.org_id == context.org_id,
+                Document.workspace_id == workspace.id,
+                or_(Document.status.is_(None), Document.status != "deleted"),
+                ranked.c.version_rank == 1,
+            )
+            .order_by(func.lower(Document.name), Document.id)
+            .limit(limit + 1)
+        )
+    ).all()
+    truncated = len(rows) > limit
+    return (
+        [
+            DocumentInventoryItem(
+                document_id=document_id,
+                name=name,
+                version_label=version_label,
+                status=status or "unknown",
+                page_count=page_count or source_page_count,
+            )
+            for (
+                document_id,
+                name,
+                status,
+                page_count,
+                version_label,
+                source_page_count,
+            ) in rows[:limit]
+        ],
+        truncated,
+    )
 
 
 async def get_document_checked(
@@ -1276,6 +1411,118 @@ async def request_document_deletion(
             )
         await session.commit()
         return candidate
+    except Exception:
+        await session.rollback()
+        raise
+
+
+async def request_logical_document_deletion(
+    session: AsyncSession,
+    context: TenantContext,
+    document_id: UUID,
+) -> LogicalDocumentDeletion:
+    """Retire one logical document and schedule safe source cleanup where allowed.
+
+    Approved or otherwise governed versions remain as immutable audit records. Draft,
+    rejected, and failed versions without governed history are cleaned asynchronously.
+    """
+
+    try:
+        document = await session.scalar(
+            select(Document)
+            .where(
+                Document.id == document_id,
+                Document.org_id == context.org_id,
+            )
+            .with_for_update()
+        )
+        if document is None:
+            raise NotFoundError("document not found")
+        await _authorize_object_workspace(
+            session,
+            context,
+            document.workspace_id,
+            "document.upload",
+        )
+        versions = list(
+            (
+                await session.execute(
+                    select(DocumentVersion)
+                    .where(
+                        DocumentVersion.org_id == context.org_id,
+                        DocumentVersion.document_id == document.id,
+                    )
+                    .order_by(DocumentVersion.sequence, DocumentVersion.id)
+                    .with_for_update()
+                )
+            ).scalars()
+        )
+        if not versions:
+            raise ConflictError("document has no version history")
+        governed_ids = set(
+            (
+                await session.execute(
+                    select(DocumentVersionDecisionRecord.document_version_id).where(
+                        DocumentVersionDecisionRecord.org_id == context.org_id,
+                        DocumentVersionDecisionRecord.document_version_id.in_(
+                            [version.id for version in versions]
+                        ),
+                        DocumentVersionDecisionRecord.decision.in_(
+                            (
+                                DocumentVersionDecision.APPROVED.value,
+                                DocumentVersionDecision.SUPERSEDED.value,
+                                DocumentVersionDecision.OBSOLETE.value,
+                            )
+                        ),
+                    )
+                )
+            ).scalars()
+        )
+        now = naive_utc()
+        scheduled: list[UUID] = []
+        retained_governed_history = False
+        for version in versions:
+            _cancel_unapproved_version_for_deletion(
+                version,
+                actor_id=context.user_id,
+                now=now,
+            )
+            governed = (
+                version.approved_by is not None
+                or version.approved_at is not None
+                or version.id in governed_ids
+            )
+            if version.state in _DELETABLE_STATES and not governed:
+                if version.source_delete_requested_at is None:
+                    version.source_delete_requested_at = now
+                    version.source_delete_requested_by = context.user_id
+                    await record_audit(
+                        session,
+                        org_id=context.org_id,
+                        actor_id=context.user_id,
+                        action="document.version.deletion_requested",
+                        target_type="document_version",
+                        target_id=str(version.id),
+                    )
+                scheduled.append(version.id)
+            else:
+                retained_governed_history = True
+
+        document.status = "deleted"
+        document.error = None
+        await record_audit(
+            session,
+            org_id=context.org_id,
+            actor_id=context.user_id,
+            action="document.retired",
+            target_type="document",
+            target_id=str(document.id),
+        )
+        await session.commit()
+        return LogicalDocumentDeletion(
+            scheduled_version_ids=tuple(scheduled),
+            retained_governed_history=retained_governed_history,
+        )
     except Exception:
         await session.rollback()
         raise

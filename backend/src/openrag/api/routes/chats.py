@@ -27,6 +27,7 @@ from openrag.modules.orchestration.runtime import (
     ModelExecution,
     create_model_execution,
 )
+from openrag.modules.retrieval.service import has_governed_evidence
 from openrag.modules.tenancy import service as tenancy_service
 from openrag.modules.tenancy.context import (
     TenantContext,
@@ -66,6 +67,11 @@ async def _execution(
             answer_validator=None,
             analytics_composer=None,
         )
+    authority_validation_required = await has_governed_evidence(
+        session,
+        context,
+        workspace.id,
+    )
     return await create_model_execution(
         session,
         model,
@@ -73,7 +79,7 @@ async def _execution(
         session_factory=request.app.state.session_factory,
         context=context,
         workspace_id=workspace.id,
-        document_authority_enabled=workspace.document_authority_enabled,
+        document_authority_enabled=authority_validation_required,
     )
 
 

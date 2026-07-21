@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '@/api/client';
+import { problemDetail } from '@/api/problem';
 import type { DocumentOut } from '@/api/types';
 
 import { shouldPoll } from './status';
@@ -28,7 +29,7 @@ export function useDeleteDocument(workspaceId: string | null) {
       const { error } = await api.DELETE('/api/v1/documents/{document_id}', {
         params: { path: { document_id: documentId } },
       });
-      if (error) throw new Error('Failed to delete document');
+      if (error) throw new Error(problemDetail(error, 'Failed to delete document'));
     },
     onSuccess: () =>
       void queryClient.invalidateQueries({ queryKey: ['documents', workspaceId] }),

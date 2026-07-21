@@ -106,6 +106,35 @@ def test_analytical_request_remains_grounded() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "provide list of docs",
+        "list documents",
+        "show me all uploaded files",
+        "what documents are uploaded?",
+        "which documents do I have access to?",
+    ],
+)
+def test_document_inventory_queries_use_authoritative_catalog(query: str) -> None:
+    decision = decide_route(query, history=[])
+
+    assert decision.route is QueryRoute.RAG
+    assert decision.reason_code == "document_inventory"
+    assert decision.retrieval_query is None
+
+
+def test_document_content_list_request_still_uses_retrieval() -> None:
+    decision = decide_route(
+        "list the safety requirements in the uploaded document",
+        history=[],
+    )
+
+    assert decision.route is QueryRoute.RAG
+    assert decision.reason_code == "substantive_default"
+    assert decision.retrieval_query is not None
+
+
 def test_contextual_rewrite_is_bounded_without_truncating_current_query() -> None:
     current = "tell me more about that"
     decision = decide_route(

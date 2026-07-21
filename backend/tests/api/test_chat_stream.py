@@ -245,6 +245,59 @@ async def test_greeting_streams_directly_without_document_retrieval(
     assert assistant.answer_status is None
 
 
+async def test_document_inventory_uses_database_catalog_without_model_or_retrieval(
+    engine: AsyncEngine,
+    redis_client: Redis,
+    test_settings: Settings,
+    chat_env: dict[str, Any],
+    session: AsyncSession,
+    seeded_user: User,
+    seeded_superadmin: User,
+) -> None:
+    class RetrievalMustNotRun:
+        async def __call__(self, *args: object, **kwargs: object) -> None:
+            raise AssertionError("document inventory must not use vector retrieval")
+
+    streamer = FakeStreamer()
+    app = create_app(
+        session_factory=build_session_factory(engine),
+        redis_client=redis_client,
+        retriever=RetrievalMustNotRun(),
+        llm_streamer=streamer,
+    )
+    app.dependency_overrides[get_settings] = lambda: test_settings
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        headers = await auth(client, seeded_user.email)
+        chat_id = await make_model_and_chat(
+            client,
+            chat_env,
+            seeded_superadmin,
+            headers,
+            session,
+        )
+        response = await client.post(
+            f"/api/v1/chats/{chat_id}/messages",
+            json={"content": "provide list of docs"},
+            headers=headers,
+        )
+
+    assert response.status_code == 200
+    events = parse_sse(response.text)
+    assert events[0] == (
+        "route_selected",
+        {"route": "rag", "reason_code": "document_inventory"},
+    )
+    answer = "".join(data["delta"] for event, data in events if event == "token")
+    assert "report.pdf" in answer
+    assert "Legacy 1" in answer
+    assert "Indexed" in answer
+    assert streamer.calls == []
+    assert next(data for event, data in events if event == "done")["no_answer"] is False
+
+
 async def test_explicit_memory_is_selected_without_becoming_document_evidence(
     engine: AsyncEngine,
     redis_client: Redis,

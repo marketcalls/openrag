@@ -49,8 +49,8 @@ def _default_runner(runtime: ModelRuntime) -> AnalyticsRunner:
         api_key=runtime.api_key,
         api_base=runtime.api_base,
         max_tokens=min(runtime.max_output_tokens, 4_096),
-        temperature=None,
-        top_p=None,
+        temperature=None,  # type: ignore[arg-type]  # Agno accepts provider omission.
+        top_p=None,  # type: ignore[arg-type]  # Agno accepts provider omission.
         retries=0,
         request_params={"timeout": 45.0},
     )

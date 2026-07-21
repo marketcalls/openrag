@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.api.deps import get_session
 from openrag.core.config import get_settings
-from openrag.core.errors import ConflictError
 from openrag.modules.documents import activity, service
 from openrag.modules.documents.schemas import (
     DocumentDetailOut,
@@ -224,27 +223,20 @@ async def delete_document(
     session: SessionDep,
     context: ContextDep,
 ) -> dict[str, str]:
-    document = await service.get_document_checked(
+    requested = await service.request_logical_document_deletion(
         session,
         context,
         document_id,
-        permission="document.upload",
     )
-    versions = await service.list_versions(
-        session, context, document.id, permission="document.upload"
-    )
-    if len(versions) != 1:
-        raise ConflictError("document delete route cannot target ambiguous version history")
-    version = versions[0]
-    if not (
-        version.id == document.id
-        and version.document_id == document.id
-        and version.sequence == 1
-    ):
-        raise ConflictError("document delete route cannot target ambiguous version history")
-    requested = await service.request_document_deletion(session, context, version.id)
-    enqueue_delete(requested.id, context.user_id)
-    return {"status": "deletion scheduled"}
+    for version_id in requested.scheduled_version_ids:
+        enqueue_delete(version_id, context.user_id)
+    return {
+        "status": (
+            "document retired"
+            if requested.retained_governed_history
+            else "deletion scheduled"
+        )
+    }
 
 
 @router.post("/document-versions/{version_id}/retry", status_code=202)

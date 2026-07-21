@@ -3,13 +3,10 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from openrag.core.config import Settings
-from openrag.core.db import naive_utc
 from openrag.modules.chat.llm import LLMStreamer
-from openrag.modules.grounding.models import GroundingPolicy
 from openrag.modules.grounding.service import provision_default_grounding_policy
 from openrag.modules.models.models import Model
 from openrag.modules.models.reasoning import ReasoningEffort
@@ -99,29 +96,13 @@ async def create_model_execution(
     )
     answer_validator: BoundAnswerValidator | None = None
     if document_authority_enabled:
-        now = naive_utc()
-        policy = await session.scalar(
-            select(GroundingPolicy).where(
-                GroundingPolicy.org_id == context.org_id,
-                GroundingPolicy.workspace_id == workspace_id,
-                GroundingPolicy.status == "active",
-                or_(
-                    GroundingPolicy.effective_at.is_(None),
-                    GroundingPolicy.effective_at <= now,
-                ),
-                or_(
-                    GroundingPolicy.expires_at.is_(None),
-                    GroundingPolicy.expires_at > now,
-                ),
-            )
+        policy = await provision_default_grounding_policy(
+            session,
+            org_id=context.org_id,
+            workspace_id=workspace_id,
+            created_by=context.user_id,
+            preferred_verifier_model_id=model.id,
         )
-        if policy is None:
-            policy = await provision_default_grounding_policy(
-                session,
-                org_id=context.org_id,
-                workspace_id=workspace_id,
-                created_by=context.user_id,
-            )
         if policy is not None:
             verifier_model = await session.get(Model, policy.verifier_model_id)
             validator: StrictAnswerValidator | None = None

@@ -171,3 +171,57 @@ def test_large_text_native_pdf_uses_fast_path_and_keeps_every_page(
     assert [block.page for block in parsed.blocks] == list(range(1, 21))
     assert parsed.ocr_pages == ()
     assert all(block.extraction_method == "parser" for block in parsed.blocks)
+
+
+def test_medium_native_pdf_fast_path_allows_blank_vector_back_cover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeTextPage:
+        def __init__(self, text: str) -> None:
+            self._text = text
+
+        def get_text_range(self) -> str:
+            return self._text
+
+        def close(self) -> None:
+            return None
+
+    class FakePage:
+        def __init__(self, text: str) -> None:
+            self._text = text
+
+        def get_size(self) -> tuple[int, int]:
+            return (612, 792)
+
+        def get_textpage(self) -> FakeTextPage:
+            return FakeTextPage(self._text)
+
+        def get_objects(self, *, filter: list[int]) -> list[object]:
+            del filter
+            return []
+
+        def close(self) -> None:
+            return None
+
+    class FakeDocument:
+        pages = ["Native searchable text " * 20 for _ in range(12)] + [""]
+
+        def __len__(self) -> int:
+            return len(self.pages)
+
+        def __getitem__(self, index: int) -> FakePage:
+            return FakePage(self.pages[index])
+
+        def __iter__(self):
+            return iter(FakePage(text) for text in self.pages)
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(pipeline.pdfium, "PdfDocument", lambda _data: FakeDocument())
+
+    parsed = parse_document(b"%PDF-fake", "team-guide.pdf")
+
+    assert parsed.page_count == 13
+    assert [block.page for block in parsed.blocks] == list(range(1, 13))
+    assert parsed.ocr_pages == ()

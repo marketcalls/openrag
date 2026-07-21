@@ -74,6 +74,53 @@ async def test_default_policy_binds_latest_measured_verifier_idempotently(
     assert first.status == "active"
     assert first.calibration_sample_count == 0
 
+    selected = Model(
+        litellm_model_name="openai/gpt-4o-mini-selected-grounding-test",
+        display_name="Selected verifier",
+        provider_kind="openai",
+        enabled=True,
+        supports_chat_completion=True,
+        supports_streaming=True,
+        supports_structured_json=True,
+        supports_verifier=True,
+        supports_tools=False,
+        supports_vision=False,
+        supports_reasoning=False,
+        probe_status="passed",
+        probe_revision=1,
+    )
+    session.add(selected)
+    await session.flush()
+    session.add(
+        ModelProbe(
+            model_id=selected.id,
+            requested_by=user.id,
+            revision=1,
+            configuration_fingerprint="b" * 64,
+            status="passed",
+            attempts=1,
+            supports_chat_completion=True,
+            supports_streaming=True,
+            supports_structured_json=True,
+        )
+    )
+    await session.flush()
+
+    rotated = await provision_default_grounding_policy(
+        session,
+        org_id=organization.id,
+        workspace_id=workspace.id,
+        created_by=user.id,
+        preferred_verifier_model_id=selected.id,
+    )
+
+    assert rotated is not None
+    assert rotated.id != first.id
+    assert rotated.policy_version == 2
+    assert rotated.verifier_model_id == selected.id
+    assert rotated.status == "active"
+    assert first.status == "retired"
+
 
 async def test_default_policy_is_not_fabricated_without_a_measured_verifier(
     session: AsyncSession,

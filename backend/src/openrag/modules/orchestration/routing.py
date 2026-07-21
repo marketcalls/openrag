@@ -53,6 +53,17 @@ _THREAD_META = tuple(
         r"what have we discussed",
     )
 )
+_DOCUMENT_INVENTORY = tuple(
+    re.compile(pattern)
+    for pattern in (
+        r"(?:please )?(?:provide|give|show)(?: me)? (?:a )?(?:list of )?"
+        r"(?:all )?(?:uploaded |available )?(?:docs|documents|files)",
+        r"(?:list|show)(?: me)? (?:all )?(?:uploaded |available )?"
+        r"(?:docs|documents|files)",
+        r"what (?:docs|documents|files) (?:are|have been) uploaded",
+        r"which (?:docs|documents|files) do i have access to",
+    )
+)
 _REFERENTIAL_FOLLOWUPS = tuple(
     re.compile(pattern)
     for pattern in (
@@ -151,6 +162,8 @@ def decide_route(
         return RouteDecision(QueryRoute.DIRECT, "openrag_help", None)
     if _matches_any(route_text, _THREAD_META):
         return RouteDecision(QueryRoute.CONVERSATION, "thread_meta", None)
+    if _matches_any(route_text, _DOCUMENT_INVENTORY):
+        return RouteDecision(QueryRoute.RAG, "document_inventory", None)
 
     if _matches_any(route_text, _REFERENTIAL_FOLLOWUPS):
         previous = _last_user_turn(history)
