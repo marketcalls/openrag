@@ -278,6 +278,7 @@ async def list_users(
         .where(
             User.org_id == context.org_id,
             User.is_platform_superadmin.is_(False),
+            User.deleted_at.is_(None),
         )
         .order_by(User.email)
     )
@@ -294,6 +295,7 @@ async def get_user(
             select(User).where(
                 User.id == user_id,
                 User.org_id == context.org_id,
+                User.deleted_at.is_(None),
             )
         )
     ).scalar_one_or_none()
@@ -327,6 +329,39 @@ async def set_user_active(
         )
     await session.commit()
     return user
+
+
+async def soft_delete_user(
+    session: AsyncSession,
+    context: TenantContext,
+    user_id: UUID,
+) -> None:
+    """Revoke access and tombstone PII while retaining referenced audit history."""
+
+    user = await get_user(session, context, user_id)
+    await tenancy_service.ensure_can_deactivate_user(
+        session,
+        org_id=context.org_id,
+        user_id=user.id,
+    )
+    now = naive_utc()
+    user.active = False
+    user.deleted_at = now
+    user.email = f"deleted-{user.id.hex}@deleted.invalid"
+    await session.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+    await record_audit(
+        session,
+        org_id=context.org_id,
+        actor_id=context.user_id,
+        action="user.deleted",
+        target_type="user",
+        target_id=str(user.id),
+    )
+    await session.commit()
 
 
 async def user_to_out(

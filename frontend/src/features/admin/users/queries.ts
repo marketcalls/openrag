@@ -30,6 +30,19 @@ export function usePatchUser() {
   });
 }
 
+export function useDeleteUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (userId: string) => {
+      const { error } = await api.DELETE('/api/v1/users/{user_id}', {
+        params: { path: { user_id: userId } },
+      });
+      if (error) throw new Error(problemDetail(error, 'Failed to delete user'));
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['users'] }),
+  });
+}
+
 export function useInvite() {
   return useMutation({
     mutationFn: async (body: InvitationCreate) => {

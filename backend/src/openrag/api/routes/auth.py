@@ -97,18 +97,19 @@ async def logout(
 @router.post("/invitations", status_code=202, response_model=InvitationOut)
 async def create_invitation(
     body: InvitationCreate,
+    response: Response,
     session: SessionDep,
     context: AdminDep,
 ) -> InvitationOut:
-    # Delivery is deliberately out-of-band. Never expose the actionable token
-    # through this administrator-facing API.
-    await service.create_invitation(
+    raw_token = await service.create_invitation(
         session,
         context,
         email=body.email,
         role_id=body.role_id,
     )
-    return InvitationOut()
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return InvitationOut(accept_path=f"/accept-invite?token={raw_token}")
 
 
 @router.post(

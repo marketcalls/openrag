@@ -4,6 +4,7 @@ import pytest
 from docx import Document as DocxBuilder
 from PIL import Image, ImageDraw
 
+from openrag.modules.documents import pipeline
 from openrag.modules.documents.pipeline import (
     IngestFailure,
     ParseProfile,
@@ -127,3 +128,46 @@ def test_pdf_rendered_pixel_budget_is_rejected_before_conversion() -> None:
             "huge-media-box.pdf",
             ParseProfile(max_page_pixels=1_000_000, render_dpi=200),
         )
+
+
+def test_large_text_native_pdf_uses_fast_path_and_keeps_every_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeTextPage:
+        def get_text_range(self) -> str:
+            return "Native searchable text " * 20
+
+        def close(self) -> None:
+            return None
+
+    class FakePage:
+        def get_size(self) -> tuple[int, int]:
+            return (612, 792)
+
+        def get_textpage(self) -> FakeTextPage:
+            return FakeTextPage()
+
+        def close(self) -> None:
+            return None
+
+    class FakeDocument:
+        def __len__(self) -> int:
+            return 20
+
+        def __getitem__(self, _index: int) -> FakePage:
+            return FakePage()
+
+        def __iter__(self):
+            return iter(FakePage() for _ in range(20))
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(pipeline.pdfium, "PdfDocument", lambda _data: FakeDocument())
+
+    parsed = parse_document(b"%PDF-fake", "long-guide.pdf")
+
+    assert parsed.page_count == 20
+    assert [block.page for block in parsed.blocks] == list(range(1, 21))
+    assert parsed.ocr_pages == ()
+    assert all(block.extraction_method == "parser" for block in parsed.blocks)

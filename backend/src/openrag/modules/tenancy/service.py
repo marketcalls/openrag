@@ -321,6 +321,7 @@ async def replace_user_role_bindings(
                 User.id == user_id,
                 User.org_id == context.org_id,
                 User.is_platform_superadmin.is_(False),
+                User.deleted_at.is_(None),
             )
             .with_for_update()
         )
@@ -576,6 +577,7 @@ async def add_member(
             select(User).where(
                 User.id == user_id,
                 User.org_id == context.org_id,
+                User.deleted_at.is_(None),
             )
         )
     ).scalar_one_or_none()

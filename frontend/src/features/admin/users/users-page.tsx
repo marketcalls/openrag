@@ -1,4 +1,4 @@
-import { Coins, FolderKey, KeyRound, UserPlus } from 'lucide-react';
+import { Coins, FolderKey, KeyRound, Trash2, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 
 import type { UserOut } from '@/api/types';
@@ -13,7 +13,7 @@ import { hasPermission } from '@/lib/jwt';
 import { useClaims } from '@/lib/use-claims';
 
 import { InviteDialog } from './invite-dialog';
-import { usePatchUser, useUsers } from './queries';
+import { useDeleteUser, usePatchUser, useUsers } from './queries';
 import { RoleBindingsDialog } from './role-bindings-dialog';
 import { WorkspaceAccessDialog } from './workspace-access-dialog';
 import { OrgQuotaDialog } from '../quotas/org-quota-dialog';
@@ -23,11 +23,13 @@ export function UsersPage() {
   const claims = useClaims();
   const users = useUsers();
   const patchUser = usePatchUser();
+  const deleteUserMutation = useDeleteUser();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [confirmUser, setConfirmUser] = useState<UserOut | null>(null);
   const [accessUser, setAccessUser] = useState<UserOut | null>(null);
   const [roleUser, setRoleUser] = useState<UserOut | null>(null);
   const [quotaUser, setQuotaUser] = useState<UserOut | null>(null);
+  const [deleteUser, setDeleteUser] = useState<UserOut | null>(null);
   const [orgQuotaOpen, setOrgQuotaOpen] = useState(false);
   const canManageRoles = claims ? hasPermission(claims, 'role.manage') : false;
   const canManageWorkspaces = claims ? hasPermission(claims, 'workspace.manage') : false;
@@ -77,6 +79,16 @@ export function UsersPage() {
                           <Button size="sm" aria-label={`Manage token budget for ${user.email}`} onClick={() => setQuotaUser(user)}><Coins className="h-3.5 w-3.5" aria-hidden /> Tokens</Button>
                           {canManageWorkspaces ? <Button size="sm" onClick={() => setAccessUser(user)}><FolderKey className="h-3.5 w-3.5" aria-hidden /> Workspace access</Button> : null}
                           <Button size="sm" onClick={() => setConfirmUser(user)}>{user.active ? 'Deactivate' : 'Reactivate'}</Button>
+                          {claims?.platform_superadmin ? (
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              aria-label={`Delete ${user.email}`}
+                              onClick={() => setDeleteUser(user)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" aria-hidden /> Delete
+                            </Button>
+                          ) : null}
                         </div>
                       ) : <span className="text-[11px] text-muted">Platform-managed</span>}
                     </TD>
@@ -105,6 +117,30 @@ export function UsersPage() {
                 setConfirmUser(null);
               }}
             >Confirm</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={deleteUser !== null} onOpenChange={(open) => !open && setDeleteUser(null)}>
+        <DialogContent
+          title="Delete user"
+          description={`${deleteUser?.email ?? 'This user'} will immediately lose access. Historical audit records remain intact, and the email can be invited again.`}
+        >
+          <DialogFooter>
+            <Button onClick={() => setDeleteUser(null)}>Cancel</Button>
+            <Button
+              variant="danger"
+              disabled={deleteUserMutation.isPending}
+              onClick={() => {
+                if (!deleteUser) return;
+                deleteUserMutation.mutate(deleteUser.id, {
+                  onSuccess: () => {
+                    toast.success('User deleted');
+                    setDeleteUser(null);
+                  },
+                  onError: (error) => toast.error(error.message),
+                });
+              }}
+            >{deleteUserMutation.isPending ? 'Deleting…' : 'Delete user'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

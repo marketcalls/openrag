@@ -175,8 +175,24 @@ async def test_invitation_does_not_enumerate_foreign_tenant_email(
     ]
 
     assert {response.status_code for response in responses} == {202}
-    assert {response.text for response in responses} == {'{"accepted":true}'}
-    assert all("token" not in response.text for response in responses)
+    bodies = [response.json() for response in responses]
+    assert all(body["accepted"] is True for body in bodies)
+    assert all(
+        body["accept_path"].startswith("/accept-invite?token=") for body in bodies
+    )
+    assert len({len(body["accept_path"]) for body in bodies}) == 1
+    assert all(
+        email not in response.text
+        for response, email in zip(
+            responses,
+            (
+                foreign_user.email,
+                seeded_user.email,
+                "unknown@foreign.example.com",
+            ),
+            strict=True,
+        )
+    )
     invitations = list(
         (
             await session.execute(

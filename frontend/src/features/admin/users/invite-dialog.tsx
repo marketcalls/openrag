@@ -1,4 +1,4 @@
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, Copy } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ export function InviteDialog({
   const roles = useRoles();
   const [email, setEmail] = useState('');
   const [roleId, setRoleId] = useState('');
+  const [copied, setCopied] = useState(false);
   const assignableRoles = useMemo(
     () => (roles.data ?? []).filter((role) => role.is_assignable && role.key !== 'platform_superadmin'),
     [roles.data],
@@ -36,6 +37,7 @@ export function InviteDialog({
       invite.reset();
       setEmail('');
       setRoleId('');
+      setCopied(false);
     }
     onOpenChange(next);
   };
@@ -45,20 +47,38 @@ export function InviteDialog({
     if (roleId) invite.mutate({ email: email.trim(), role_id: roleId });
   };
 
+  const acceptUrl = invite.data?.accept_path
+    ? new URL(invite.data.accept_path, window.location.origin).toString()
+    : '';
+
   return (
     <Dialog open={open} onOpenChange={close}>
       <DialogContent
         title="Invite a user"
-        description="Assign an organization role. OpenRAG sends the one-time credential through the configured secure delivery channel."
+        description="Assign an organization role and create a secure, one-time link for the user."
       >
         {invite.isSuccess ? (
           <div className="border-y border-line py-5 text-center">
             <CheckCircle2 className="mx-auto h-7 w-7 text-success" aria-hidden />
-            <h3 className="mt-2 text-[14px] font-semibold text-ink">Invitation queued</h3>
+            <h3 className="mt-2 text-[14px] font-semibold text-ink">Invitation ready</h3>
             <p className="mt-1 text-[12px] leading-relaxed text-secondary">
-              If the address is eligible, delivery will continue out of band. No invitation secret is shown here.
+              Share this link securely. It is shown only once and expires in 72 hours. After acceptance, use Tokens to set the user's monthly quota.
             </p>
-            <DialogFooter><Button variant="primary" onClick={() => close(false)}>Done</Button></DialogFooter>
+            <div className="mt-4 text-left">
+              <Label htmlFor="invite-link">One-time invite link</Label>
+              <Input id="invite-link" readOnly value={acceptUrl} />
+            </div>
+            <DialogFooter>
+              <Button
+                onClick={() => {
+                  void navigator.clipboard.writeText(acceptUrl).then(() => setCopied(true));
+                }}
+              >
+                <Copy className="h-3.5 w-3.5" aria-hidden />
+                {copied ? 'Copied' : 'Copy invite link'}
+              </Button>
+              <Button variant="primary" onClick={() => close(false)}>Done</Button>
+            </DialogFooter>
           </div>
         ) : (
           <form onSubmit={onSubmit} className="space-y-3">
@@ -94,7 +114,7 @@ export function InviteDialog({
             <DialogFooter>
               <Button onClick={() => close(false)}>Cancel</Button>
               <Button type="submit" variant="primary" disabled={!roleId || invite.isPending}>
-                {invite.isPending ? 'Queuing…' : 'Send invite'}
+                {invite.isPending ? 'Creating…' : 'Create invite link'}
               </Button>
             </DialogFooter>
           </form>

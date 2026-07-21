@@ -7,13 +7,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.api.deps import get_session
 from openrag.modules.auth import service
 from openrag.modules.auth.schemas import UserOut, UserPatch
-from openrag.modules.tenancy.context import TenantContext, require_permission
+from openrag.modules.tenancy.context import (
+    TenantContext,
+    require_permission,
+    require_platform_superadmin,
+)
 
 router = APIRouter(prefix="/users", tags=["users"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 AdminDep = Annotated[
     TenantContext,
     Depends(require_permission("user.manage")),
+]
+SuperadminDep = Annotated[
+    TenantContext,
+    Depends(require_platform_superadmin()),
 ]
 
 
@@ -42,3 +50,12 @@ async def patch_user(
             body.active,
         )
     return await service.user_to_out(session, user)
+
+
+@router.delete("/{user_id}", status_code=204)
+async def delete_user(
+    user_id: UUID,
+    session: SessionDep,
+    context: SuperadminDep,
+) -> None:
+    await service.soft_delete_user(session, context, user_id)

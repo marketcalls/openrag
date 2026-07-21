@@ -26,6 +26,7 @@ class InvitationCreate(BaseModel):
 
 class InvitationOut(BaseModel):
     accepted: bool = True
+    accept_path: str = Field(min_length=32, max_length=256)
 
 
 class InvitationAccept(BaseModel):

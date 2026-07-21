@@ -20,6 +20,9 @@ from openrag.modules.retrieval.client import COLLECTION, get_qdrant
 from openrag.modules.retrieval.embeddings import DenseEmbedder, embed_sparse
 
 _CHUNK_NAMESPACE = UUID("6c7d9a52-3e1f-4b8a-9c0d-2f5e8b1a7d43")
+_NATIVE_PDF_MIN_PAGES = 20
+_NATIVE_PDF_MIN_PAGE_CHARS = 40
+_NATIVE_PDF_MIN_AVERAGE_CHARS = 200
 
 
 class IngestFailure(Exception):
@@ -193,6 +196,57 @@ def _preflight_pdf(data: bytes, profile: ParseProfile) -> None:
         document.close()
 
 
+def _parse_large_text_pdf(
+    data: bytes,
+    profile: ParseProfile,
+) -> ParsedDocument | None:
+    """Fast-path long, fully text-native PDFs while preserving OCR for mixed scans."""
+
+    if profile.ocr_mode != "auto":
+        return None
+    document = pdfium.PdfDocument(data)
+    try:
+        if len(document) < _NATIVE_PDF_MIN_PAGES:
+            return None
+        page_text: list[str] = []
+        for page in document:
+            text_page = page.get_textpage()
+            try:
+                text = "\n".join(
+                    line.strip()
+                    for line in text_page.get_text_range().splitlines()
+                    if line.strip()
+                )
+            finally:
+                text_page.close()
+                page.close()
+            page_text.append(text)
+        if (
+            not page_text
+            or min(map(len, page_text)) < _NATIVE_PDF_MIN_PAGE_CHARS
+            or sum(map(len, page_text)) / len(page_text)
+            < _NATIVE_PDF_MIN_AVERAGE_CHARS
+        ):
+            return None
+        if sum(map(len, page_text)) > profile.max_output_chars:
+            raise IngestFailure("document exceeds extracted text limit")
+        blocks = [
+            PageBlock(
+                page=index,
+                text=text,
+                kind="text",
+                section_path=("Document",),
+                extraction_method="parser",
+            )
+            for index, text in enumerate(page_text, start=1)
+        ]
+        if len(blocks) > profile.max_blocks:
+            raise IngestFailure("document exceeds block limit")
+        return ParsedDocument(blocks=blocks, page_count=len(page_text))
+    finally:
+        document.close()
+
+
 def _source_coordinates(provenance: object | None) -> dict[str, object] | None:
     bbox = getattr(provenance, "bbox", None)
     if bbox is None:
@@ -275,6 +329,9 @@ def parse_document(
     heading_labels = {DocItemLabel.TITLE, DocItemLabel.SECTION_HEADER}
     if suffix == ".pdf":
         _preflight_pdf(data, profile)
+        native_pdf = _parse_large_text_pdf(data, profile)
+        if native_pdf is not None:
+            return native_pdf
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temporary:
         temporary.write(data)
         temporary_path = Path(temporary.name)

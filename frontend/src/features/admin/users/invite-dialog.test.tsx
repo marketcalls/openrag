@@ -39,7 +39,7 @@ function renderDialog(fetchMock: ReturnType<typeof vi.fn>) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-test('submits an opaque assignable role id and shows only the generic 202 result', async () => {
+test('submits an opaque role id and shows a one-time copyable invite link', async () => {
   const requests: Request[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     if (!(input instanceof Request)) throw new Error('Expected Request');
@@ -47,19 +47,28 @@ test('submits an opaque assignable role id and shows only the generic 202 result
     if (input.method === 'GET' && input.url.endsWith('/api/v1/roles')) {
       return Response.json(roles);
     }
-    return Response.json({ accepted: true }, { status: 202 });
+    return Response.json(
+      { accepted: true, accept_path: '/accept-invite?token=demo-once' },
+      { status: 202 },
+    );
   });
   const user = userEvent.setup();
+  const writeText = vi.spyOn(navigator.clipboard, 'writeText');
   renderDialog(fetchMock);
 
   await screen.findByRole('option', { name: 'User' });
   expect(screen.queryByRole('option', { name: 'Platform Superadmin' })).not.toBeInTheDocument();
   await user.type(screen.getByLabelText('Email'), 'new@acme.com');
   await user.selectOptions(screen.getByLabelText('Role'), USER_ROLE_ID);
-  await user.click(screen.getByRole('button', { name: 'Send invite' }));
+  await user.click(screen.getByRole('button', { name: 'Create invite link' }));
 
-  expect(await screen.findByText('Invitation queued')).toBeInTheDocument();
-  expect(screen.queryByText(/invite\?token=/)).not.toBeInTheDocument();
+  expect(await screen.findByText('Invitation ready')).toBeInTheDocument();
+  const link = screen.getByLabelText('One-time invite link');
+  expect(link).toHaveValue('http://localhost:3000/accept-invite?token=demo-once');
+  await user.click(screen.getByRole('button', { name: 'Copy invite link' }));
+  expect(writeText).toHaveBeenCalledWith(
+    'http://localhost:3000/accept-invite?token=demo-once',
+  );
   await waitFor(() => expect(requests.some((request) => request.method === 'POST')).toBe(true));
   const post = requests.find((request) => request.method === 'POST');
   if (!post) throw new Error('Expected invitation POST');
@@ -80,7 +89,7 @@ test('renders an authorization error and keeps the invitation form', async () =>
 
   await screen.findByRole('option', { name: 'User' });
   await user.type(screen.getByLabelText('Email'), 'new@acme.com');
-  await user.click(screen.getByRole('button', { name: 'Send invite' }));
+  await user.click(screen.getByRole('button', { name: 'Create invite link' }));
 
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'You no longer have permission to invite users.',

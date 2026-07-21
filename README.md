@@ -443,10 +443,23 @@ docker compose -f deploy/compose.yaml run --rm migrate \
 ```
 
 After migration, use **Users** to manage accounts and **Roles** to manage
-capabilities. Invitation requests deliberately return only a generic accepted
-response. The raw one-time token is never returned to an administrator; an
-out-of-band email/worker delivery adapter is still required before invitations
-can be completed in a production deployment.
+capabilities. The demo-friendly user flow does not require an email provider:
+
+1. A superadmin opens **Users → Invite**, enters an email, and selects a role.
+2. OpenRAG displays a one-time acceptance link. Copy it immediately and share
+   it with the intended user through a secure channel.
+3. The user opens the link, chooses a password, and signs in.
+4. Use **Users → Roles** to change the user's effective organization roles and
+   **Users → Tokens** to set a monthly token quota.
+5. A platform superadmin can permanently remove access with **Delete**. OpenRAG
+   retains audit references, revokes refresh tokens, removes personal email from
+   the deleted account, and permits the address to be invited again.
+
+The raw invitation token is returned only once to the authorized administrator
+over a `no-store` response, expires after 72 hours, and is stored in PostgreSQL
+only as a SHA-256 hash. Treat the copied link like a temporary password. A
+production deployment can replace this manual handoff with a secure delivery
+adapter without changing invitation acceptance semantics.
 
 Follow application logs:
 

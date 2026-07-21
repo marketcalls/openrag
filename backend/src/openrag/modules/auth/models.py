@@ -16,6 +16,7 @@ class User(UUIDPk, Base):
     password_hash: Mapped[str]
     is_platform_superadmin: Mapped[bool] = mapped_column(default=False)
     active: Mapped[bool] = mapped_column(default=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(default=None, index=True)
 
 
 class RefreshToken(UUIDPk, Base):

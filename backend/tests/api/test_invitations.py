@@ -1,9 +1,11 @@
+from urllib.parse import parse_qs, urlparse
+
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.modules.auth import service
-from openrag.modules.auth.models import User
+from openrag.modules.auth.models import Invitation, User
 from openrag.modules.tenancy.authorization import resolve_authorization
 from openrag.modules.tenancy.context import TenantContext
 from openrag.modules.tenancy.models import Role
@@ -70,3 +72,44 @@ async def test_invite_requires_admin(
         json={"email": "x@x.com", "role": "user"},
     )
     assert response.status_code == 401
+
+
+async def test_admin_receives_one_time_manual_invite_link(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    session: AsyncSession,
+) -> None:
+    role = (
+        await session.execute(
+            select(Role).where(
+                Role.org_id == seeded_user.org_id,
+                Role.key == "user",
+            )
+        )
+    ).scalar_one()
+    headers = await auth(client, seeded_user.email)
+
+    response = await client.post(
+        "/api/v1/auth/invitations",
+        json={"email": "manual-share@acme.com", "role_id": str(role.id)},
+        headers=headers,
+    )
+
+    assert response.status_code == 202
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json()["accepted"] is True
+    accept_path = response.json()["accept_path"]
+    assert accept_path.startswith("/accept-invite?token=")
+    raw_token = parse_qs(urlparse(accept_path).query)["token"][0]
+    invitation = (
+        await session.execute(
+            select(Invitation).where(Invitation.email == "manual-share@acme.com")
+        )
+    ).scalar_one()
+    assert invitation.token_hash != raw_token
+
+    accepted = await client.post(
+        "/api/v1/auth/invitations/accept",
+        json={"token": raw_token, "password": "newpw12345"},
+    )
+    assert accepted.status_code == 201

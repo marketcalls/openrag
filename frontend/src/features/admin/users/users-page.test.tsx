@@ -41,11 +41,11 @@ const users = [
 
 const base64 = (value: object) =>
   btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const tokenFor = (permissions: string[]) =>
+const tokenFor = (permissions: string[], platformSuperadmin = false) =>
   `${base64({ alg: 'HS256' })}.${base64({
     sub: '550e8400-e29b-41d4-a716-446655440040',
     org: '6ba7b810-9dad-41d1-80b4-00c04fd430c8',
-    platform_superadmin: false,
+    platform_superadmin: platformSuperadmin,
     permissions,
     exp: 4_102_444_800,
   })}.signature`;
@@ -53,8 +53,9 @@ const tokenFor = (permissions: string[]) =>
 function renderPage(
   fetchMock: ReturnType<typeof vi.fn>,
   permissions = ['user.manage', 'role.manage'],
+  platformSuperadmin = false,
 ) {
-  act(() => setAccessToken(tokenFor(permissions)));
+  act(() => setAccessToken(tokenFor(permissions, platformSuperadmin)));
   vi.stubGlobal('fetch', fetchMock);
   render(
     <QueryClientProvider
@@ -200,4 +201,36 @@ test('admin can inspect real usage and set a per-user token override', async () 
   );
   if (!put) throw new Error('Expected user quota PUT');
   expect(await put.clone().json()).toEqual({ monthly_tokens: 75_000 });
+});
+
+test('platform superadmin can confirm and delete an organization user', async () => {
+  const requests: Request[] = [];
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    if (!(input instanceof Request)) throw new Error('Expected Request');
+    requests.push(input);
+    if (input.method === 'GET' && input.url.endsWith('/api/v1/users')) {
+      return Response.json(users);
+    }
+    if (input.method === 'DELETE') return new Response(null, { status: 204 });
+    return Response.json(roles);
+  });
+  const user = userEvent.setup();
+  renderPage(fetchMock, ['user.manage', 'role.manage'], true);
+
+  await screen.findByText('engineer@acme.com');
+  await user.click(
+    screen.getByRole('button', { name: 'Delete engineer@acme.com' }),
+  );
+  expect(screen.getByText(/historical audit records remain intact/i)).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Delete user' }));
+
+  await waitFor(() =>
+    expect(
+      requests.some(
+        (request) =>
+          request.method === 'DELETE' &&
+          request.url.endsWith(`/api/v1/users/${USER_ID}`),
+      ),
+    ).toBe(true),
+  );
 });
