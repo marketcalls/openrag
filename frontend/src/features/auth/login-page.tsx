@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 import { AuthCard } from './auth-card';
+import { DemoAccessCard, JUDGE_DEMO } from './demo-access';
 import { useLogin } from './mutations';
 
 export function LoginPage() {
@@ -19,6 +20,13 @@ export function LoginPage() {
 
   return (
     <AuthCard title="Sign in">
+      <DemoAccessCard
+        compact
+        onUseCredentials={() => {
+          setEmail(JUDGE_DEMO.email);
+          setPassword(JUDGE_DEMO.password);
+        }}
+      />
       <form onSubmit={onSubmit} className="space-y-3">
         <div>
           <Label htmlFor="email">Email</Label>

@@ -12,6 +12,7 @@ from openrag.modules.documents.enrichment_jobs import (
 )
 from openrag.modules.evaluations import service as evaluations_service
 from openrag.modules.evaluations.automation import workspace_configuration_fingerprint
+from openrag.modules.grounding.service import provision_default_grounding_policy
 from openrag.modules.models import service as models_service
 from openrag.modules.tenancy.authorization import ensure_workspace_access
 from openrag.modules.tenancy.context import TenantContext
@@ -433,6 +434,12 @@ async def create_workspace(
     )
     session.add(workspace)
     await session.flush()
+    await provision_default_grounding_policy(
+        session,
+        org_id=context.org_id,
+        workspace_id=workspace.id,
+        created_by=context.user_id,
+    )
     await record_audit(
         session,
         org_id=context.org_id,

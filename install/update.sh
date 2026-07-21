@@ -19,6 +19,12 @@
 
 set -euo pipefail
 
+# See install.sh for why: without this, every rebuild gets a fresh
+# provenance/SBOM attestation and a new image digest even with zero source
+# changes, forcing Compose to recreate every container on the shared backend
+# image on every run of this script.
+export BUILDX_NO_DEFAULT_ATTESTATIONS=1
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 COMPOSE_FILE="deploy/compose.yaml"
@@ -139,7 +145,30 @@ fi
 log "Applying any pending database migrations"
 docker compose -f "$COMPOSE_FILE" "${COMPOSE_PROFILE_ARGS[@]}" run --rm migrate
 
-log "Restarting the OpenRAG stack"
+log "Restarting the API (isolated from workers so it isn't CPU-starved during its own cold start)"
+# See install.sh for why: bringing every service up in one `up -d` launches
+# 8 Celery workers at the same moment as the API, all importing the same
+# heavy ML stack. On a modest host that can starve the API long enough to
+# fail its health check, which then permanently blocks `web`
+# (depends_on: api healthy) until someone restarts things by hand.
+docker compose -f "$COMPOSE_FILE" "${COMPOSE_PROFILE_ARGS[@]}" up -d \
+  postgres redis event-redis qdrant minio migrate bootstrap authority-provisioner api
+
+api_ready=0
+for _ in $(seq 1 60); do
+  status="$(docker inspect openrag-api-1 --format '{{.State.Health.Status}}' 2>/dev/null || echo unknown)"
+  [[ "$status" == "healthy" ]] && { api_ready=1; break; }
+  [[ "$status" == "unhealthy" ]] && break
+  sleep 5
+done
+if [[ $api_ready -ne 1 ]]; then
+  warn "api did not become healthy; inspect it before continuing:"
+  warn "  docker compose -f ${COMPOSE_FILE} logs --tail=200 api"
+  warn "roll back with: git reset --hard ${CURRENT_SHA} && docker compose -f ${COMPOSE_FILE} ${COMPOSE_PROFILE_ARGS[*]} up -d --build"
+  exit 1
+fi
+
+log "Restarting workers and the web frontend"
 docker compose -f "$COMPOSE_FILE" "${COMPOSE_PROFILE_ARGS[@]}" up -d
 
 log "Waiting for the API to report ready"

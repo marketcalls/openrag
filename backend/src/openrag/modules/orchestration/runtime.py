@@ -10,6 +10,7 @@ from openrag.core.config import Settings
 from openrag.core.db import naive_utc
 from openrag.modules.chat.llm import LLMStreamer
 from openrag.modules.grounding.models import GroundingPolicy
+from openrag.modules.grounding.service import provision_default_grounding_policy
 from openrag.modules.models.models import Model
 from openrag.modules.models.reasoning import ReasoningEffort
 from openrag.modules.orchestration.agent_gather import (
@@ -114,6 +115,13 @@ async def create_model_execution(
                 ),
             )
         )
+        if policy is None:
+            policy = await provision_default_grounding_policy(
+                session,
+                org_id=context.org_id,
+                workspace_id=workspace_id,
+                created_by=context.user_id,
+            )
         if policy is not None:
             verifier_model = await session.get(Model, policy.verifier_model_id)
             validator: StrictAnswerValidator | None = None

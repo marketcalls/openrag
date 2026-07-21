@@ -927,11 +927,13 @@ async def _generation_for_version_profile(
     version: DocumentVersion,
 ) -> UUID:
     settings = get_settings()
+    # Legacy retry recovery only needs the authority generation fence. Resolve
+    # it before touching newer profile settings so old rows remain recoverable
+    # even with a minimal/replayed settings snapshot.
+    if version.embedding_profile_version == LEGACY_EMBEDDING_PROFILE_VERSION:
+        return settings.authority_generation_id
     configured = active_ingestion_profiles(settings)
-    if version.embedding_profile_version in {
-        LEGACY_EMBEDDING_PROFILE_VERSION,
-        configured.embedding_profile_version,
-    }:
+    if version.embedding_profile_version == configured.embedding_profile_version:
         return settings.authority_generation_id
     prefix = "embedding/v1/"
     if not version.embedding_profile_version.startswith(prefix):

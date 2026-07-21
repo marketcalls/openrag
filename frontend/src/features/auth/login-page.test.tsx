@@ -63,3 +63,17 @@ test('shows problem detail on an authentication failure', async () => {
   await user.click(screen.getByRole('button', { name: 'Sign in' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('invalid credentials');
 });
+
+test('fills the hosted judge demo credentials', async () => {
+  const user = userEvent.setup();
+  renderPage();
+
+  await user.click(screen.getByRole('button', { name: 'Fill demo credentials' }));
+
+  expect(screen.getByLabelText('Email')).toHaveValue('demo@openalgo.in');
+  expect(screen.getByLabelText('Password')).toHaveValue('DemoOpen1234#');
+  expect(screen.getByRole('link', { name: /Open hosted demo/i })).toHaveAttribute(
+    'href',
+    'https://ragdemo.openalgo.in/login',
+  );
+});

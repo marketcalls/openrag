@@ -41,7 +41,7 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['Manrope', 'system-ui', 'sans-serif'],
         mono: ['ui-monospace', 'JetBrains Mono', 'monospace'],
       },
       boxShadow: {

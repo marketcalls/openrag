@@ -1,9 +1,10 @@
 import { lazy, Suspense } from 'react';
-import { createBrowserRouter, Navigate } from 'react-router-dom';
+import { createBrowserRouter } from 'react-router-dom';
 
 import { AppShell } from '@/components/layout/app-shell';
 import { AcceptInvitePage } from '@/features/auth/accept-invite-page';
 import { LoginPage } from '@/features/auth/login-page';
+import { HomePage } from '@/features/landing/home-page';
 import { Spinner } from '@/components/ui/spinner';
 
 import { RequireAuth } from './require-auth';
@@ -182,6 +183,7 @@ function RolesRoute() {
 
 export const router = createBrowserRouter(
   [
+    { path: '/', element: <HomePage /> },
     { path: '/login', element: <LoginPage /> },
     { path: '/invite', element: <AcceptInvitePage /> },
     {
@@ -191,7 +193,6 @@ export const router = createBrowserRouter(
         {
           element: <AppShell />,
           children: [
-            { path: '/', element: <Navigate to="/chat" replace /> },
             { path: '/chat', element: <ChatRoute /> },
             { path: '/chat/:chatId', element: <ChatRoute /> },
             { path: '/documents', element: <DocumentsRoute /> },

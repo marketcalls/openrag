@@ -21,6 +21,7 @@ from openrag.modules.documents.models import (
     DocumentVersionDecisionRecord,
     IngestJob,
 )
+from openrag.modules.documents.profiles import active_ingestion_profiles
 from openrag.modules.documents.service import (
     create_from_upload,
     get_document_checked,
@@ -890,6 +891,14 @@ async def test_retry_resets_only_processing_fields_and_emits_atomic_events(
     )
     version_id = version.id
     version.processing_error_code = "parser_failed"
+    # The retry contract is about lifecycle fields; use the complete active
+    # governed profile contract instead of an arbitrary, unregistered profile.
+    configured = active_ingestion_profiles(get_settings())
+    version.parser_profile_version = configured.parser_profile_version
+    version.ocr_profile_version = configured.ocr_profile_version
+    version.chunking_profile_version = configured.chunking_profile_version
+    version.embedding_profile_version = configured.embedding_profile_version
+    version.index_profile_version = configured.index_profile_version
     profiles = (
         version.parser_profile_version,
         version.ocr_profile_version,

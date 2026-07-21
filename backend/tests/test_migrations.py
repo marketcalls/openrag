@@ -42,6 +42,9 @@ ANSWER_QUALITY_REVISION = "d1e3f5a7b9c2"
 UTILITY_MODEL_REVISION = "e4f6a8c0d2b3"
 DOCUMENT_ENRICHMENT_REVISION = "f5a7b9c1d3e4"
 MESSAGE_ARTIFACT_REVISION = "a7c9e1f3b5d8"
+USAGE_QUOTA_REVISION = "f9b1d3e5a7c2"
+CITATION_TRIGGER_REVISION = "a0c2e4f6b8d1"
+CURRENT_HEAD_REVISION = CITATION_TRIGGER_REVISION
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -781,7 +784,7 @@ def test_migration_graph_has_one_current_head(
 ) -> None:
     config, _engine, _ids = authority_db
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [MESSAGE_ARTIFACT_REVISION]
+    assert script.get_heads() == [CURRENT_HEAD_REVISION]
     assert script.get_revision(AUTHORITY_REVISION).down_revision == RBAC_REVISION
     assert script.get_revision(DELETION_REVISION).down_revision == AUTHORITY_REVISION
     assert script.get_revision(STAGE_REVISION).down_revision == OUTBOX_REVISION
@@ -823,6 +826,34 @@ def test_migration_graph_has_one_current_head(
         script.get_revision(MESSAGE_ARTIFACT_REVISION).down_revision
         == DOCUMENT_ENRICHMENT_REVISION
     )
+    assert (
+        script.get_revision(USAGE_QUOTA_REVISION).down_revision
+        == MESSAGE_ARTIFACT_REVISION
+    )
+    assert (
+        script.get_revision(CITATION_TRIGGER_REVISION).down_revision
+        == USAGE_QUOTA_REVISION
+    )
+
+
+def test_current_citation_trigger_uses_measured_model_probe_state(
+    authority_db: tuple[Config, Engine, SimpleNamespace],
+) -> None:
+    config, engine, _ids = authority_db
+    command.upgrade(config, "head")
+
+    with engine.connect() as connection:
+        definition = connection.execute(
+            text(
+                "SELECT pg_get_functiondef("
+                "'openrag_validate_citation_write()'::regprocedure)"
+            )
+        ).scalar_one()
+
+    assert "verifier.sync_status" not in definition
+    assert "verifier.probe_status='passed'" in definition
+    assert "verifier.supports_chat_completion" in definition
+    assert "verifier.supports_streaming" in definition
 
 
 def test_message_artifact_migration_is_scoped_immutable_and_cascades(
@@ -1967,7 +1998,7 @@ def test_authority_upgrade_aborts_before_mutation_for_orphan_citation(
 
     with pytest.raises(RuntimeError, match="orphan or invalid legacy citation"):
         command.upgrade(config, AUTHORITY_REVISION)
-    assert ScriptDirectory.from_config(config).get_current_head() == MESSAGE_ARTIFACT_REVISION
+    assert ScriptDirectory.from_config(config).get_current_head() == CURRENT_HEAD_REVISION
     with engine.connect() as connection:
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()

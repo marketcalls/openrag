@@ -30,11 +30,14 @@ required:
 - **Password:** `DemoOpen1234#`
 
 This is a shared demo account, not an isolated sandbox per judge — please
-avoid deleting other judges' workspaces or documents. Once signed in, follow
-steps 1–5 under [Judge quick start](#judge-quick-start) below (register a
-model, create a workspace, upload
-[`frontend/e2e/fixtures/sample.pdf`](frontend/e2e/fixtures/sample.pdf), and
-chat against it) starting from step 1, since the stack is already running.
+avoid deleting other judges' workspaces or documents. A tested LiteLLM model
+is already configured, so no API key is required. Once signed in, create a
+workspace, upload
+[`frontend/e2e/fixtures/sample.pdf`](frontend/e2e/fixtures/sample.pdf), wait
+for **Awaiting approval**, approve it, and ask: “What is the internal launch
+codename for the OpenRAG payroll project?” The grounded answer is
+`ZEBRA-COMET-7` with a page-level citation. You can also explore an existing
+demo workspace instead of uploading another copy.
 The instance stays available, free of charge and without restriction, through
 the end of the Judging Period.
 
@@ -45,10 +48,14 @@ repository to reproduce the deployment on another domain:
 
 ```bash
 sudo ./install/install.sh \
-  --domain your-domain.example.com \
-  --admin-email you@example.com \
-  --admin-password 'a-long-random-password'
+  --domain ragdemo.openalgo.in \
+  --admin-email demo@openalgo.in \
+  --admin-password 'DemoOpen1234#'
 ```
+
+These intentionally public credentials are only for the hackathon VPS demo.
+Use a unique administrator email and a long randomly generated password for any
+private or production deployment, and rotate the demo password after judging.
 
 It installs Docker if missing, starts the stack with the semantic `tei`
 embedding profile, writes an nginx site for the given domain, and requests a

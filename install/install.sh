@@ -20,6 +20,15 @@
 
 set -euo pipefail
 
+# BuildKit attaches a fresh provenance/SBOM attestation to every build by
+# default, so re-running `docker compose build` on completely unchanged
+# source still produces a new image digest. Compose then recreates every
+# container sharing that image tag (12+ backend services here) even when
+# nothing changed, which is expensive and, on a single-vCPU host, can starve
+# the API's own startup. Disabling default attestations makes a no-op build
+# an actual no-op.
+export BUILDX_NO_DEFAULT_ATTESTATIONS=1
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 COMPOSE_FILE="deploy/compose.yaml"
@@ -143,10 +152,15 @@ log "Preparing data directory and event-bus secret"
 install -d -m 700 data
 if [[ ! -f data/event_redis_password ]]; then
   openssl rand -hex -out data/event_redis_password 32
-  chmod 600 data/event_redis_password
 else
-  log "data/event_redis_password already exists; leaving it unchanged"
+  log "data/event_redis_password already exists; leaving its contents unchanged"
 fi
+# Compose bind-mounts this file as-is (its host owner/mode carry straight into
+# the container), but api/worker run as the non-root 'openrag' user. A
+# root-only 0600 file is unreadable to them and crashes the API at startup
+# with 'event_redis_password_file_unreadable'. The containing data/ directory
+# is already 700 root-only, so 0644 here does not weaken host-level exposure.
+chmod 644 data/event_redis_password
 
 log "Preparing .env"
 if [[ ! -f .env ]]; then
@@ -187,7 +201,32 @@ fi
 log "Building images (backend and frontend images are each built once and shared)"
 docker compose -f "$COMPOSE_FILE" "${COMPOSE_PROFILE_ARGS[@]}" build api web
 
-log "Starting the OpenRAG stack (this can take several minutes on first run)"
+log "Starting infrastructure and the API (this can take several minutes on first run)"
+# Starting every service in one `up -d` makes Compose launch all ~13
+# containers at once, including 8 Celery workers that each import the same
+# heavy ML stack (torch, docling, agno) as the API. On a modest host that
+# starves the API of CPU during its own cold start for long enough to fail
+# its health check and go 'unhealthy' -- which then permanently blocks `web`
+# (depends_on: api healthy) until someone intervenes by hand. Starting the
+# API on its own first, with no worker competing for CPU, avoids that.
+docker compose -f "$COMPOSE_FILE" "${COMPOSE_PROFILE_ARGS[@]}" up -d \
+  postgres redis event-redis qdrant minio migrate bootstrap authority-provisioner api
+
+log "Waiting for the API to become healthy before starting workers"
+api_ready=0
+for _ in $(seq 1 60); do
+  status="$(docker inspect openrag-api-1 --format '{{.State.Health.Status}}' 2>/dev/null || echo unknown)"
+  [[ "$status" == "healthy" ]] && { api_ready=1; break; }
+  [[ "$status" == "unhealthy" ]] && break
+  sleep 5
+done
+if [[ $api_ready -ne 1 ]]; then
+  warn "api did not become healthy; inspect it before continuing:"
+  warn "  docker compose -f ${COMPOSE_FILE} logs --tail=200 api"
+  die "aborting before starting workers and web against an unhealthy api."
+fi
+
+log "Starting workers and the web frontend"
 docker compose -f "$COMPOSE_FILE" "${COMPOSE_PROFILE_ARGS[@]}" up -d
 
 log "Waiting for the API to report ready"

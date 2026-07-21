@@ -32,3 +32,50 @@
     color: var(--text);
   }
 }
+
+@layer components {
+  .openrag-grid {
+    position: relative;
+  }
+
+  .openrag-grid::before {
+    position: absolute;
+    inset: 0;
+    content: '';
+    pointer-events: none;
+    background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--border) 48%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, var(--border) 48%, transparent) 1px, transparent 1px),
+      radial-gradient(circle at 72% 28%, color-mix(in srgb, var(--text) 5%, transparent), transparent 32%);
+    background-size: 54px 54px, 54px 54px, 100% 100%;
+    mask-image: linear-gradient(to bottom, black 0%, black 78%, transparent 100%);
+  }
+
+  .openrag-grid > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .home-reveal {
+    opacity: 0;
+    animation: home-rise 650ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  }
+
+  .home-reveal-1 { animation-delay: 40ms; }
+  .home-reveal-2 { animation-delay: 110ms; }
+  .home-reveal-3 { animation-delay: 180ms; }
+  .home-reveal-4 { animation-delay: 250ms; }
+  .home-reveal-5 { animation-delay: 320ms; }
+}
+
+@keyframes home-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-reveal {
+    opacity: 1;
+    animation: none;
+  }
+}
