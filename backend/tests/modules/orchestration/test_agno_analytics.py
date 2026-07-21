@@ -77,6 +77,7 @@ def test_default_composer_is_bounded_stateless_and_schema_only() -> None:
 
     assert runner.model.max_tokens == 4_096  # type: ignore[attr-defined]
     assert runner.model.temperature is None  # type: ignore[attr-defined]
+    assert runner.model.top_p is None  # type: ignore[attr-defined]
     assert runner.model.retries == 0  # type: ignore[attr-defined]
     assert runner.model.request_params == {"timeout": 45.0}  # type: ignore[attr-defined]
     assert runner.tools == []  # type: ignore[attr-defined]

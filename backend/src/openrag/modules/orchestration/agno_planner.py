@@ -54,6 +54,7 @@ def _default_runner(
         api_base=runtime.api_base,
         max_tokens=min(runtime.max_output_tokens, 512),
         temperature=None,
+        top_p=None,
         retries=0,
         request_params={"timeout": 30.0},
     )
