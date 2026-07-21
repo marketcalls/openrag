@@ -1,5 +1,6 @@
 import hashlib
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -25,6 +26,8 @@ from openrag.modules.documents.service import (
     get_document_checked,
     list_documents,
 )
+from openrag.modules.documents.uploads import QuarantinedUpload
+from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
 from openrag.modules.events.envelopes import (
     INGESTION_REQUESTED_EVENT_TYPE,
     DocumentVersionLifecycleV1,
@@ -183,6 +186,73 @@ async def test_duplicate_content_conflicts(
         )
 
 
+async def test_legacy_upload_targets_active_embedding_generation(
+    session: AsyncSession,
+    stack_env: None,
+    tmp_path: Path,
+) -> None:
+    context, workspace = await seed_workspace(session, "upload-active-generation")
+    digest = "b" * 64
+    generation_id = uuid4()
+    profile = EmbeddingProfile(
+        name="Active upload profile",
+        name_key="active upload profile",
+        provider_kind="hash",
+        model_name="openrag-hash-v2",
+        dimension=1024,
+        max_input_tokens=8192,
+        batch_size=32,
+        config_digest=digest,
+        created_by=context.user_id,
+    )
+    session.add(profile)
+    await session.flush()
+    session.add(
+        EmbeddingDeployment(
+            profile_id=profile.id,
+            generation_id=generation_id,
+            status="active",
+            requested_by=context.user_id,
+            activated_by=context.user_id,
+            activated_at=naive_utc(),
+            total_versions=0,
+            completed_versions=0,
+            failed_versions=0,
+            scan_complete=True,
+        )
+    )
+    await session.commit()
+
+    source = tmp_path / "active.txt"
+    source.write_bytes(b"active generation")
+    document = await service.create_from_quarantined_upload(
+        session,
+        context,
+        workspace.id,
+        QuarantinedUpload(
+            filename="active.txt",
+            mime="text/plain",
+            size_bytes=source.stat().st_size,
+            content_hash=hashlib.sha256(source.read_bytes()).hexdigest(),
+            path=source,
+        ),
+    )
+
+    version = await session.get(DocumentVersion, document.id)
+    assert version is not None
+    assert version.version_label == "Initial 1"
+    assert version.embedding_profile_version == f"embedding/v1/{digest}"
+    command = (
+        await session.scalars(
+            select(OutboxEvent).where(
+                OutboxEvent.aggregate_id == document.id,
+                OutboxEvent.event_type == INGESTION_REQUESTED_EVENT_TYPE,
+            )
+        )
+    ).one()
+    assert command.payload["payload"]["authority_generation_id"] == str(generation_id)
+
+
 async def test_non_member_cannot_upload_or_list(
     session: AsyncSession,
     stack_env: None,
@@ -234,7 +304,7 @@ async def test_list_and_get_checked(
 async def test_approve_supersedes_incumbent_and_writes_atomic_content_free_records(
     session: AsyncSession,
 ) -> None:
-    context, _document, candidate, incumbent = await seed_review_version(
+    context, document, candidate, incumbent = await seed_review_version(
         session, "approve-atomic", incumbent=True
     )
     assert incumbent is not None
@@ -247,7 +317,10 @@ async def test_approve_supersedes_incumbent_and_writes_atomic_content_free_recor
     )
 
     await session.refresh(incumbent)
+    await session.refresh(document)
     assert approved.state == "approved"
+    assert document.status == "indexed"
+    assert document.page_count == candidate.source_page_count
     assert approved.lifecycle_revision == 2
     assert approved.approved_by == context.user_id
     assert incumbent.state == "superseded"

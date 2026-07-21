@@ -1,4 +1,4 @@
-import { FolderKey, KeyRound, UserPlus } from 'lucide-react';
+import { Coins, FolderKey, KeyRound, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 
 import type { UserOut } from '@/api/types';
@@ -16,6 +16,8 @@ import { InviteDialog } from './invite-dialog';
 import { usePatchUser, useUsers } from './queries';
 import { RoleBindingsDialog } from './role-bindings-dialog';
 import { WorkspaceAccessDialog } from './workspace-access-dialog';
+import { OrgQuotaDialog } from '../quotas/org-quota-dialog';
+import { UserQuotaDialog } from '../quotas/user-quota-dialog';
 
 export function UsersPage() {
   const claims = useClaims();
@@ -25,6 +27,8 @@ export function UsersPage() {
   const [confirmUser, setConfirmUser] = useState<UserOut | null>(null);
   const [accessUser, setAccessUser] = useState<UserOut | null>(null);
   const [roleUser, setRoleUser] = useState<UserOut | null>(null);
+  const [quotaUser, setQuotaUser] = useState<UserOut | null>(null);
+  const [orgQuotaOpen, setOrgQuotaOpen] = useState(false);
   const canManageRoles = claims ? hasPermission(claims, 'role.manage') : false;
   const canManageWorkspaces = claims ? hasPermission(claims, 'workspace.manage') : false;
 
@@ -42,7 +46,7 @@ export function UsersPage() {
     <>
       <TopBar
         title="Users"
-        actions={canManageRoles ? <Button variant="primary" size="sm" onClick={() => setInviteOpen(true)}><UserPlus className="h-3.5 w-3.5" aria-hidden /> Invite</Button> : null}
+        actions={canManageRoles ? <div className="flex gap-2"><Button size="sm" onClick={() => setOrgQuotaOpen(true)}><Coins className="h-3.5 w-3.5" aria-hidden /> Token budget</Button><Button variant="primary" size="sm" onClick={() => setInviteOpen(true)}><UserPlus className="h-3.5 w-3.5" aria-hidden /> Invite</Button></div> : null}
       />
       <main className="flex-1 overflow-y-auto p-3 sm:p-5">
         <div className="mx-auto max-w-5xl">
@@ -70,6 +74,7 @@ export function UsersPage() {
                       {!user.is_platform_superadmin ? (
                         <div className="flex flex-wrap justify-end gap-1.5">
                           {canManageRoles ? <Button size="sm" aria-label={`Manage roles for ${user.email}`} onClick={() => setRoleUser(user)}><KeyRound className="h-3.5 w-3.5" aria-hidden /> Roles</Button> : null}
+                          <Button size="sm" aria-label={`Manage token budget for ${user.email}`} onClick={() => setQuotaUser(user)}><Coins className="h-3.5 w-3.5" aria-hidden /> Tokens</Button>
                           {canManageWorkspaces ? <Button size="sm" onClick={() => setAccessUser(user)}><FolderKey className="h-3.5 w-3.5" aria-hidden /> Workspace access</Button> : null}
                           <Button size="sm" onClick={() => setConfirmUser(user)}>{user.active ? 'Deactivate' : 'Reactivate'}</Button>
                         </div>
@@ -86,6 +91,8 @@ export function UsersPage() {
       <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
       {roleUser ? <RoleBindingsDialog user={roleUser} open onOpenChange={(open) => !open && setRoleUser(null)} /> : null}
       {accessUser ? <WorkspaceAccessDialog user={accessUser} open onOpenChange={(open) => !open && setAccessUser(null)} /> : null}
+      <OrgQuotaDialog open={orgQuotaOpen} onOpenChange={setOrgQuotaOpen} />
+      <UserQuotaDialog user={quotaUser} onOpenChange={(open) => !open && setQuotaUser(null)} />
       <Dialog open={confirmUser !== null} onOpenChange={(open) => !open && setConfirmUser(null)}>
         <DialogContent title={confirmUser?.active ? 'Deactivate user' : 'Reactivate user'} description={confirmUser?.active ? `${confirmUser.email} will immediately lose access.` : `${confirmUser?.email ?? ''} will regain access.`}>
           <DialogFooter>

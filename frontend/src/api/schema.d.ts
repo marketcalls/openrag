@@ -1095,6 +1095,59 @@ export interface paths {
         patch: operations["patch_user_api_v1_users__user_id__patch"];
         trace?: never;
     };
+    "/api/v1/usage/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Usage Me */
+        get: operations["usage_me_api_v1_usage_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/usage/org/quota": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Org Quota */
+        get: operations["get_org_quota_api_v1_usage_org_quota_get"];
+        /** Put Org Quota */
+        put: operations["put_org_quota_api_v1_usage_org_quota_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{user_id}/quota": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get User Quota */
+        get: operations["get_user_quota_api_v1_users__user_id__quota_get"];
+        /** Put User Quota */
+        put: operations["put_user_quota_api_v1_users__user_id__quota_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces": {
         parameters: {
             query?: never;
@@ -2951,6 +3004,32 @@ export interface components {
              */
             default_reasoning_effort: "off" | "low" | "medium" | "high";
         };
+        /** OrgQuotaIn */
+        OrgQuotaIn: {
+            /** Monthly Tokens */
+            monthly_tokens: number;
+            /** Default User Monthly Tokens */
+            default_user_monthly_tokens?: number | null;
+            /**
+             * Reset Day
+             * @default 1
+             */
+            reset_day: number;
+        };
+        /** OrgQuotaOut */
+        OrgQuotaOut: {
+            /**
+             * Org Id
+             * Format: uuid
+             */
+            org_id: string;
+            /** Monthly Tokens */
+            monthly_tokens: number;
+            /** Default User Monthly Tokens */
+            default_user_monthly_tokens: number | null;
+            /** Reset Day */
+            reset_day: number;
+        };
         /** PermissionCatalogOut */
         PermissionCatalogOut: {
             /**
@@ -3327,6 +3406,26 @@ export interface components {
             /** Value */
             value: string;
         };
+        /** UsageMeterOut */
+        UsageMeterOut: {
+            /** Used Tokens */
+            used_tokens: number;
+            /** Allocated Tokens */
+            allocated_tokens: number | null;
+            /** Org Used Tokens */
+            org_used_tokens: number;
+            /** Org Allocated Tokens */
+            org_allocated_tokens: number | null;
+            /**
+             * Resets At
+             * Format: date-time
+             */
+            resets_at: string;
+            /** Warning */
+            warning: boolean;
+            /** Blocked */
+            blocked: boolean;
+        };
         /** UserOut */
         UserOut: {
             /**
@@ -3350,6 +3449,30 @@ export interface components {
         UserPatch: {
             /** Active */
             active?: boolean | null;
+        };
+        /** UserQuotaIn */
+        UserQuotaIn: {
+            /** Monthly Tokens */
+            monthly_tokens?: number | null;
+        };
+        /** UserQuotaOut */
+        UserQuotaOut: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Monthly Tokens */
+            monthly_tokens: number | null;
+            /** Used Tokens */
+            used_tokens: number;
+            /** Allocated Tokens */
+            allocated_tokens: number | null;
+            /**
+             * Resets At
+             * Format: date-time
+             */
+            resets_at: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -6045,6 +6168,143 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UserOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    usage_me_api_v1_usage_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageMeterOut"];
+                };
+            };
+        };
+    };
+    get_org_quota_api_v1_usage_org_quota_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgQuotaOut"] | null;
+                };
+            };
+        };
+    };
+    put_org_quota_api_v1_usage_org_quota_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrgQuotaIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgQuotaOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_user_quota_api_v1_users__user_id__quota_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserQuotaOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_user_quota_api_v1_users__user_id__quota_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserQuotaIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

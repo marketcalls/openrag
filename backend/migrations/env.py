@@ -23,6 +23,7 @@ import openrag.modules.operations.models  # noqa: F401
 import openrag.modules.runs.models  # noqa: F401
 import openrag.modules.secrets.models  # noqa: F401
 import openrag.modules.tenancy.models  # noqa: F401
+import openrag.modules.usage.models  # noqa: F401
 from openrag.core.config import get_settings
 from openrag.core.db import Base
 

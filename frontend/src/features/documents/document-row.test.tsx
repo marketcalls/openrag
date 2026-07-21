@@ -24,7 +24,14 @@ test('shows only the safe document processing error code', async () => {
   render(
     <Table>
       <TBody>
-        <DocumentRow document={failedDocument()} deleting={false} onDelete={() => undefined} />
+        <DocumentRow
+          document={failedDocument()}
+          deleting={false}
+          onDelete={() => undefined}
+          canApprove={false}
+          approving={false}
+          onApprove={() => undefined}
+        />
       </TBody>
     </Table>,
   );
@@ -33,4 +40,27 @@ test('shows only the safe document processing error code', async () => {
 
   expect(await screen.findByText('processing_failed')).toBeInTheDocument();
   expect(screen.queryByText(/traceback|password=/i)).not.toBeInTheDocument();
+});
+
+test('shows an approval action only for authorized review documents', async () => {
+  const user = userEvent.setup();
+  const approve = vi.fn();
+  render(
+    <Table>
+      <TBody>
+        <DocumentRow
+          document={{ ...failedDocument(), status: 'review', error_code: null }}
+          deleting={false}
+          onDelete={() => undefined}
+          canApprove
+          approving={false}
+          onApprove={approve}
+        />
+      </TBody>
+    </Table>,
+  );
+
+  expect(screen.getByText('Awaiting approval')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Approve invoice.pdf' }));
+  expect(approve).toHaveBeenCalledOnce();
 });

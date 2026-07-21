@@ -150,3 +150,54 @@ test('workspace.manage independently enables workspace access controls', async (
   expect(screen.getByRole('button', { name: 'Workspace access' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Manage roles for/ })).not.toBeInTheDocument();
 });
+
+test('admin can inspect real usage and set a per-user token override', async () => {
+  const requests: Request[] = [];
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    if (!(input instanceof Request)) throw new Error('Expected Request');
+    requests.push(input);
+    if (input.method === 'GET' && input.url.endsWith('/api/v1/users')) {
+      return Response.json(users);
+    }
+    if (input.method === 'GET' && input.url.endsWith(`/api/v1/users/${USER_ID}/quota`)) {
+      return Response.json({
+        user_id: USER_ID,
+        monthly_tokens: null,
+        used_tokens: 12_345,
+        allocated_tokens: 100_000,
+        resets_at: '2026-08-01T00:00:00',
+      });
+    }
+    if (input.method === 'GET') return Response.json(roles);
+    return new Response(null, { status: 204 });
+  });
+  const user = userEvent.setup();
+  renderPage(fetchMock);
+
+  await screen.findByText('engineer@acme.com');
+  await user.click(
+    screen.getByRole('button', {
+      name: 'Manage token budget for engineer@acme.com',
+    }),
+  );
+  expect(await screen.findByText(/Used 12,345 \/ 100,000 tokens/)).toBeInTheDocument();
+  await user.type(screen.getByLabelText('Monthly token override'), '75000');
+  await user.click(screen.getByRole('button', { name: 'Save budget' }));
+
+  await waitFor(() =>
+    expect(
+      requests.some(
+        (request) =>
+          request.method === 'PUT' &&
+          request.url.endsWith(`/api/v1/users/${USER_ID}/quota`),
+      ),
+    ).toBe(true),
+  );
+  const put = requests.find(
+    (request) =>
+      request.method === 'PUT' &&
+      request.url.endsWith(`/api/v1/users/${USER_ID}/quota`),
+  );
+  if (!put) throw new Error('Expected user quota PUT');
+  expect(await put.clone().json()).toEqual({ monthly_tokens: 75_000 });
+});

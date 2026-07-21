@@ -200,16 +200,40 @@ async def authorize_upload_scope(
         else:
             raise ConflictError("validated upload identity is required")
         if document is None:
-            display, key = LEGACY_VERSION_LABEL, LEGACY_VERSION_KEY
             logical_id = uuid4()
             version_id = logical_id
-            profiles = (
-                LEGACY_PARSER_PROFILE_VERSION,
-                LEGACY_OCR_PROFILE_VERSION,
-                LEGACY_CHUNKING_PROFILE_VERSION,
-                LEGACY_EMBEDDING_PROFILE_VERSION,
-                LEGACY_INDEX_PROFILE_VERSION,
+            supplied_profiles = (
+                parser_profile_version,
+                ocr_profile_version,
+                chunking_profile_version,
+                embedding_profile_version,
+                index_profile_version,
             )
+            if any(value is not None for value in supplied_profiles):
+                display, key = normalize_version_label("Initial 1")
+                profiles = tuple(
+                    _validate_profile(value, field)
+                    for value, field in zip(
+                        supplied_profiles,
+                        (
+                            "parser profile",
+                            "OCR profile",
+                            "chunking profile",
+                            "embedding profile",
+                            "index profile",
+                        ),
+                        strict=True,
+                    )
+                )
+            else:
+                display, key = LEGACY_VERSION_LABEL, LEGACY_VERSION_KEY
+                profiles = (
+                    LEGACY_PARSER_PROFILE_VERSION,
+                    LEGACY_OCR_PROFILE_VERSION,
+                    LEGACY_CHUNKING_PROFILE_VERSION,
+                    LEGACY_EMBEDDING_PROFILE_VERSION,
+                    LEGACY_INDEX_PROFILE_VERSION,
+                )
             duplicate = (
                 await session.execute(
                     select(Document.id).where(
@@ -360,9 +384,8 @@ async def create_version_record(
     if prepared.new_document and (
         sequence != 1
         or prepared.version_id != prepared.document_id
-        or prepared.version_label != LEGACY_VERSION_LABEL
     ):
-        raise ConflictError("invalid legacy upload identity")
+        raise ConflictError("invalid initial upload identity")
     version = DocumentVersion(
         id=prepared.version_id,
         org_id=context.org_id,
@@ -433,6 +456,10 @@ async def create_from_quarantined_upload(
 ) -> Document:
     """Persist a validated quarantine file without loading it into memory."""
 
+    profiles, authority_generation_id = await _active_ingestion_target(
+        session,
+        get_settings(),
+    )
     prepared = await authorize_upload_scope(
         session,
         context,
@@ -441,6 +468,12 @@ async def create_from_quarantined_upload(
         mime=upload.mime,
         size_bytes=upload.size_bytes,
         content_hash=upload.content_hash,
+        parser_profile_version=profiles.parser_profile_version,
+        ocr_profile_version=profiles.ocr_profile_version,
+        chunking_profile_version=profiles.chunking_profile_version,
+        embedding_profile_version=profiles.embedding_profile_version,
+        index_profile_version=profiles.index_profile_version,
+        authority_generation_id=authority_generation_id,
     )
 
     async def write_source(storage: ObjectStorage, key: str) -> None:
@@ -1014,6 +1047,22 @@ async def approve_version(
         candidate.approved_by = context.user_id
         candidate.approved_at = now
         candidate.decision_at = now
+        document = await session.scalar(
+            select(Document)
+            .where(
+                Document.id == candidate.document_id,
+                Document.org_id == context.org_id,
+            )
+            .with_for_update()
+        )
+        if document is None:
+            raise NotFoundError("document not found")
+        # Keep the transitional document-list projection honest. Ingestion
+        # stops at review; approval is the point at which the already-built
+        # evidence becomes retrieval eligible and the UI may call it indexed.
+        document.status = "indexed"
+        document.error = None
+        document.page_count = candidate.source_page_count
         _persist_decision(
             session,
             candidate,

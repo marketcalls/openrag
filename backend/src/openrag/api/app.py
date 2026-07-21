@@ -27,6 +27,7 @@ from openrag.api.routes.rag_operations import router as rag_operations_router
 from openrag.api.routes.roles import router as roles_router
 from openrag.api.routes.runs import router as runs_router
 from openrag.api.routes.search import router as search_router
+from openrag.api.routes.usage import router as usage_router
 from openrag.api.routes.users import router as users_router
 from openrag.api.routes.workspaces import router as workspaces_router
 from openrag.core.config import get_settings
@@ -222,5 +223,6 @@ def create_app(
     app.include_router(runs_router, prefix="/api/v1")
     app.include_router(search_router, prefix="/api/v1")
     app.include_router(users_router, prefix="/api/v1")
+    app.include_router(usage_router, prefix="/api/v1")
     app.include_router(workspaces_router, prefix="/api/v1")
     return app

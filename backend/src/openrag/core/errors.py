@@ -43,6 +43,11 @@ class RateLimitExceeded(OpenRAGError):
     title = "Too many requests"
 
 
+class QuotaExceeded(OpenRAGError):
+    status_code = 429
+    title = "Token quota exhausted"
+
+
 class PayloadTooLarge(OpenRAGError):
     status_code = 413
     title = "Payload too large"

@@ -100,6 +100,18 @@ versioned specifications and plans under `docs/superpowers/`.
   cross-session memory.
 - Present analytical answers with safe OpenUI-inspired KPI cards, charts,
   tables, explainers, provenance, and citations.
+- Analytical presentation is supplemental to a citation-validated grounded
+  answer. Generate it only for the `analytics` route with a measured structured
+  output model; composition failure or insufficient evidence must yield no
+  artifact and must never weaken or upgrade the authoritative answer.
+- Accept only the immutable, tenant-scoped `analytics.v1` contract: 49,152 UTF-8
+  bytes, 8 KPI cards, 12 blocks, 50 chart categories, 8 series, 200 table rows,
+  12 columns, and 5 follow-ups. Every KPI/block must use persisted citation
+  markers. Reject unknown fields/kinds, executable content, URLs, malformed
+  shapes, non-finite numbers, and invalid markers on both backend and frontend.
+- Render live and historical artifacts through the same closed React registry;
+  provide accessible chart data tables and formula-safe local CSV/JSON exports.
+  Never log artifact payloads, evidence, prompts, or provider details.
 - Provide superadmin RAG performance, evaluation, indexing, model/profile,
   centralized log, error, trace, capacity, latency, quality, citation, and cost
   views.

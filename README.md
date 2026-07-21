@@ -4,6 +4,134 @@ OpenRAG is an open, self-hosted platform for building secure AI assistants over 
 
 OpenRAG is under active development. The repository currently includes a working FastAPI backend, React frontend, authentication and invitations, multi-tenant workspaces, asynchronous document ingestion, hybrid retrieval, streamed cited chat, and model/user administration.
 
+## OpenAI Build Week submission
+
+**Track:** Work & Productivity
+
+**Repository:** <https://github.com/marketcalls/openrag>
+**Supported judge platform:** Docker Desktop or Docker Engine with Compose v2 on
+macOS or Linux (Windows through WSL2)
+
+OpenRAG turns private company documents into a governed, agentic knowledge
+assistant. The submitted build uses GPT-5.6 through the in-process LiteLLM
+Python library and was built collaboratively with Codex during the July 13–21,
+2026 submission period. It demonstrates streamed answers, follow-up context,
+hybrid retrieval, OCR ingestion, page-level citations, safe analytical tables
+and charts, configurable completion and embedding models, RBAC, token budgets,
+and RAG operations/evaluation views.
+
+### Hosted demo instance (fastest path for judges)
+
+A live instance is running for judging and testing, with no local setup
+required:
+
+- **URL:** <https://ragdemo.openalgo.in>
+- **Email:** `demo@openalgo.in`
+- **Password:** `DemoOpen1234#`
+
+This is a shared demo account, not an isolated sandbox per judge — please
+avoid deleting other judges' workspaces or documents. Once signed in, follow
+steps 1–5 under [Judge quick start](#judge-quick-start) below (register a
+model, create a workspace, upload
+[`frontend/e2e/fixtures/sample.pdf`](frontend/e2e/fixtures/sample.pdf), and
+chat against it) starting from step 1, since the stack is already running.
+The instance stays available, free of charge and without restriction, through
+the end of the Judging Period.
+
+The instance is deployed with [`install/install.sh`](install/install.sh),
+which stands up the same Docker Compose stack described below behind nginx
+and Let's Encrypt on a single Ubuntu host. Run it from a clone of this
+repository to reproduce the deployment on another domain:
+
+```bash
+sudo ./install/install.sh \
+  --domain your-domain.example.com \
+  --admin-email you@example.com \
+  --admin-password 'a-long-random-password'
+```
+
+It installs Docker if missing, starts the stack with the semantic `tei`
+embedding profile, writes an nginx site for the given domain, and requests a
+TLS certificate with certbot. Run `./install/install.sh --help` for all
+options (including `--skip-nginx` / `--skip-tls` for environments that
+already terminate TLS elsewhere).
+
+### Judge quick start
+
+This is the shortest clean-machine path. It does not require Python, Node, or a
+locally installed database—only Git, Docker, and an OpenAI API key with access
+to the GPT-5.6 model used for judging.
+
+```bash
+git clone https://github.com/marketcalls/openrag.git
+cd openrag
+cp .env.example .env
+install -d -m 700 data
+openssl rand -hex -out data/event_redis_password 32
+chmod 600 data/event_redis_password
+docker compose -f deploy/compose.yaml up -d --build
+docker compose -f deploy/compose.yaml ps
+curl --fail http://localhost:8000/readyz
+```
+
+On macOS, if `install` is unavailable, use `mkdir -p data`, create the password
+file with `openssl rand -hex 32 > data/event_redis_password`, and then run
+`chmod 600 data/event_redis_password`.
+
+Open <http://localhost:5173> and sign in with the development judge account:
+
+- **Email:** `root@openrag.internal`
+- **Password:** `changeme123`
+
+Then complete this one-time setup in the UI:
+
+1. Open **Models**, choose **Add model**, select **OpenAI via LiteLLM**, enter a
+   display name, the GPT-5.6 model ID available to the judge account (the demo
+   build uses `gpt-5.6-luna`), and the API key. The key is write-only and
+   envelope-encrypted. Wait for the live capability probe to pass.
+2. Open the workspace switcher, choose **New workspace**, then use the adjacent
+   settings button to select the model as the workspace default.
+3. Open **Documents** and upload
+   [`frontend/e2e/fixtures/sample.pdf`](frontend/e2e/fixtures/sample.pdf). Wait
+   for **Awaiting approval**, choose **Approve**, and wait for **Indexed**.
+4. Open **Chat** and ask: `What is the internal launch codename?` The answer
+   should stream and cite the uploaded PDF. Ask `Put that in a table` to show
+   follow-up context and safe structured presentation.
+5. Open **Users → Token budget** to set organization and per-user monthly token
+   allocations; the chat header now reports real prompt + completion usage.
+
+If any service is not healthy, the fastest diagnosis is:
+
+```bash
+docker compose -f deploy/compose.yaml logs --tail=200 \
+  migrate bootstrap api run-worker ingestion-worker event-worker web
+```
+
+No provider secret is bundled in the repository or image. Judges may remove the
+stack with `docker compose -f deploy/compose.yaml down`; add `-v` only if all
+local evaluation data may be deleted.
+
+### How Codex and GPT-5.6 were used
+
+The product direction and final decisions came from the project owner: rename
+the product to OpenRAG, use only the LiteLLM library for model access, enforce
+grounded citations and enterprise permissions, and prioritize a polished,
+testable self-hosted workflow. Codex accelerated implementation by:
+
+- comparing local RAGFlow, AnythingLLM, OpenUI, and earlier RAGHub patterns;
+- building the async ingestion, durable streaming, follow-up memory, retrieval,
+  model catalog/probing, evaluation, analytics, RBAC, and quota slices;
+- tracing live PostgreSQL, Redis, Qdrant, worker, and browser failures to root
+  causes and adding regression tests before each fix; and
+- continuously running focused backend/frontend tests, type checks, lint,
+  migrations, and live health/smoke checks before reviewed commits were pushed.
+
+GPT-5.6 is both the featured completion model in the demo and the model used
+with Codex for the core build session. Dated commits on July 18–21 distinguish
+the hackathon work. The Devpost submission must also include the `/feedback`
+Codex Session ID from that primary build thread, plus a public YouTube demo under
+three minutes with audio explaining both Codex and GPT-5.6 usage.
+
 ## Why OpenRAG
 
 Businesses want to use generative AI with internal documents, but production deployments must solve more than document search. They need to protect sensitive data, respect user permissions, avoid dependence on one model provider, operate at large corpus sizes, and produce answers that people can verify.

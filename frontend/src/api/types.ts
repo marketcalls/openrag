@@ -3,6 +3,9 @@
 import type { components } from './schema';
 
 export type UserOut = components['schemas']['UserOut'];
+export type UserQuotaOut = components['schemas']['UserQuotaOut'];
+export type OrgQuotaOut = components['schemas']['OrgQuotaOut'];
+export type UsageMeterOut = components['schemas']['UsageMeterOut'];
 export type InvitationCreate = components['schemas']['InvitationCreate'];
 export type PermissionCatalogOut = components['schemas']['PermissionCatalogOut'];
 export type PermissionCode = PermissionCatalogOut['code'];

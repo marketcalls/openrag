@@ -17,3 +17,7 @@ playwright-report/
 test-results/
 
 .superpowers/
+
+# Local submission notes and credentials (never commit secrets).
+rules.md
+.cred

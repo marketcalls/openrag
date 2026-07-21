@@ -423,7 +423,14 @@ async def create_workspace(
 ) -> Workspace:
     if not context.authorization.has("workspace.manage"):
         raise WorkspaceAccessDenied("workspace not found or not accessible")
-    workspace = Workspace(org_id=context.org_id, name=name)
+    # New workspaces use the governed authority collection end to end. The
+    # model-level false default remains for migrated workspaces that have not
+    # completed a controlled reindex/cutover yet.
+    workspace = Workspace(
+        org_id=context.org_id,
+        name=name,
+        document_authority_enabled=True,
+    )
     session.add(workspace)
     await session.flush()
     await record_audit(

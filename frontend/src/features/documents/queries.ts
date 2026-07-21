@@ -34,3 +34,22 @@ export function useDeleteDocument(workspaceId: string | null) {
       void queryClient.invalidateQueries({ queryKey: ['documents', workspaceId] }),
   });
 }
+
+export function useApproveDocument(workspaceId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (versionId: string) => {
+      const { data, error } = await api.POST(
+        '/api/v1/document-versions/{version_id}/approve',
+        {
+          params: { path: { version_id: versionId } },
+          body: { reason: 'Approved from the document library' },
+        },
+      );
+      if (error) throw new Error('Failed to approve document');
+      return data;
+    },
+    onSuccess: () =>
+      void queryClient.invalidateQueries({ queryKey: ['documents', workspaceId] }),
+  });
+}

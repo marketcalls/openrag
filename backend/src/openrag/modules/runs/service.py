@@ -24,6 +24,7 @@ from openrag.modules.runs.models import AgentRun
 from openrag.modules.runs.schemas import RunCreate, RunRegenerate
 from openrag.modules.tenancy import service as tenancy_service
 from openrag.modules.tenancy.context import TenantContext
+from openrag.modules.usage import service as usage_service
 
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
@@ -100,6 +101,12 @@ async def accept_run(
             "chat.use",
         )
         return _same_chat(existing, chat_id)
+
+    await usage_service.check_quota(
+        session,
+        org_id=context.org_id,
+        user_id=context.user_id,
+    )
 
     chat = (
         await session.execute(
@@ -224,6 +231,12 @@ async def accept_regeneration(
         if existing.chat_id != chat.id or existing.input_message_id != assistant.parent_message_id:
             raise ConflictError("client request id already used")
         return AcceptedRun(run=existing, created=False)
+
+    await usage_service.check_quota(
+        session,
+        org_id=context.org_id,
+        user_id=context.user_id,
+    )
 
     workspace = await tenancy_service.get_workspace(
         session,

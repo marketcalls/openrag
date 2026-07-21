@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '@/api/client';
-import type { WorkspacePatch } from '@/api/types';
+import type { WorkspaceOut, WorkspacePatch } from '@/api/types';
 
 export function useWorkspaces() {
   return useQuery({
@@ -22,7 +22,16 @@ export function useCreateWorkspace() {
       if (error) throw new Error('Failed to create workspace');
       return data;
     },
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
+    onSuccess: (workspace) => {
+      // Publish the created row before the caller selects it. Without this
+      // synchronous cache update, WorkspaceProvider sees an ID absent from the
+      // stale list and immediately falls back to the previous workspace.
+      queryClient.setQueryData<WorkspaceOut[]>(['workspaces'], (current) => {
+        if (current?.some((item) => item.id === workspace.id)) return current;
+        return [...(current ?? []), workspace];
+      });
+      void queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+    },
   });
 }
 

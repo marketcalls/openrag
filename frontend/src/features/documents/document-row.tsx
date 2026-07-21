@@ -1,4 +1,4 @@
-import { Trash2 } from 'lucide-react';
+import { Check, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import type { DocumentOut } from '@/api/types';
@@ -14,10 +14,16 @@ export function DocumentRow({
   document,
   onDelete,
   deleting,
+  canApprove,
+  approving,
+  onApprove,
 }: {
   document: DocumentOut;
   onDelete: () => void;
   deleting: boolean;
+  canApprove: boolean;
+  approving: boolean;
+  onApprove: () => void;
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const { tone, label } = statusPresentation(document);
@@ -49,6 +55,16 @@ export function DocumentRow({
       </TD>
       <TD className="text-muted">{new Date(document.created_at).toLocaleDateString()}</TD>
       <TD className="text-right">
+        {document.status === 'review' && canApprove ? (
+          <Button
+            size="sm"
+            aria-label={`Approve ${document.filename ?? 'untitled document'}`}
+            disabled={approving}
+            onClick={onApprove}
+          >
+            <Check className="h-3.5 w-3.5" aria-hidden /> Approve
+          </Button>
+        ) : null}
         <Button
           variant="ghost"
           size="icon"

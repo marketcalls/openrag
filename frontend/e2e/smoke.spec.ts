@@ -8,6 +8,7 @@ const EMAIL = process.env.E2E_EMAIL ?? 'root@openrag.internal';
 const PASSWORD = process.env.E2E_PASSWORD ?? 'changeme123';
 const FIXTURE = fileURLToPath(new URL('./fixtures/sample.pdf', import.meta.url));
 const QUESTION = 'What is the internal launch codename for the OpenRAG payroll project?';
+const WORKSPACE_NAME = `E2E Smoke ${Date.now()}`;
 
 async function login(page: Page): Promise<void> {
   await page.goto('/login');
@@ -36,17 +37,11 @@ async function ensureModel(page: Page): Promise<void> {
 async function ensureWorkspace(page: Page): Promise<void> {
   await page.goto('/chat');
   await page.getByRole('button', { name: 'Switch workspace' }).click();
-  const existing = page.getByRole('menuitem', { name: /E2E Workspace/ });
-  if (await existing.isVisible().catch(() => false)) {
-    await existing.click();
-    return;
-  }
-
   await page.getByRole('menuitem', { name: 'New workspace' }).click();
-  await page.getByLabel('Name').fill('E2E Workspace');
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(WORKSPACE_NAME);
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByRole('button', { name: 'Switch workspace' })).toContainText(
-    'E2E Workspace',
+    WORKSPACE_NAME,
   );
 }
 
@@ -59,8 +54,13 @@ test('upload, index, cite, and branch a streamed answer', async ({ page }) => {
   const fileChooserPromise = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: 'Upload documents' }).click();
   await (await fileChooserPromise).setFiles(FIXTURE);
-  const row = page.getByRole('row', { name: /sample\.pdf/ });
+  const row = page.getByRole('row', { name: /sample\.pdf/ }).first();
   await expect(row).toBeVisible({ timeout: 30_000 });
+  await expect(async () => {
+    await page.reload();
+    await expect(row.getByText('Awaiting approval')).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 180_000, intervals: [2_500] });
+  await row.getByRole('button', { name: /Approve sample\.pdf/ }).click();
   await expect(row.getByText('Indexed')).toBeVisible({ timeout: 180_000 });
 
   await page.goto('/chat');

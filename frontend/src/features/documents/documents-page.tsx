@@ -5,10 +5,12 @@ import { Spinner } from '@/components/ui/spinner';
 import { Table, TBody, TH, THead, TR } from '@/components/ui/table';
 import { toast } from '@/components/ui/toaster';
 import { useWorkspace } from '@/features/workspaces/workspace-context';
+import { hasPermission } from '@/lib/jwt';
+import { useClaims } from '@/lib/use-claims';
 
 import { DocumentRow } from './document-row';
 import { Dropzone } from './dropzone';
-import { useDeleteDocument, useDocuments } from './queries';
+import { useApproveDocument, useDeleteDocument, useDocuments } from './queries';
 import { uploadDocuments } from './upload';
 
 interface UploadItem {
@@ -19,8 +21,11 @@ interface UploadItem {
 
 export function DocumentsPage() {
   const { workspaceId } = useWorkspace();
+  const claims = useClaims();
   const documents = useDocuments(workspaceId);
   const deleteDocument = useDeleteDocument(workspaceId);
+  const approveDocument = useApproveDocument(workspaceId);
+  const canApprove = claims ? hasPermission(claims, 'document.approve') : false;
   const [uploads, setUploads] = useState<UploadItem[]>([]);
 
   const onFiles = (files: File[]) => {
@@ -89,6 +94,14 @@ export function DocumentsPage() {
                     key={document.id}
                     document={document}
                     deleting={deleteDocument.isPending}
+                    canApprove={canApprove}
+                    approving={approveDocument.isPending}
+                    onApprove={() =>
+                      approveDocument.mutate(document.id, {
+                        onSuccess: () => toast.success('Document approved and searchable'),
+                        onError: (error) => toast.error(error.message),
+                      })
+                    }
                     onDelete={() =>
                       deleteDocument.mutate(document.id, {
                         onError: (error) => toast.error(error.message),

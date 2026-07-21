@@ -8,6 +8,12 @@ export function statusPresentation(document: Pick<DocumentOut, 'status'>): {
   switch (document.status) {
     case 'indexed':
       return { tone: 'success', label: 'Indexed' };
+    case 'review':
+      return { tone: 'warning', label: 'Awaiting approval' };
+    case 'rejected':
+      return { tone: 'danger', label: 'Rejected' };
+    case 'obsolete':
+      return { tone: 'warning', label: 'Obsolete' };
     case 'failed':
       return { tone: 'danger', label: 'Failed' };
     default:
