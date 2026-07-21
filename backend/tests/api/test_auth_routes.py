@@ -178,7 +178,7 @@ async def test_invitation_does_not_enumerate_foreign_tenant_email(
     bodies = [response.json() for response in responses]
     assert all(body["accepted"] is True for body in bodies)
     assert all(
-        body["accept_path"].startswith("/accept-invite?token=") for body in bodies
+        body["accept_path"].startswith("/invite?token=") for body in bodies
     )
     assert len({len(body["accept_path"]) for body in bodies}) == 1
     assert all(

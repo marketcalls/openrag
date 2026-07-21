@@ -8,7 +8,6 @@ from openrag.api.deps import get_session
 from openrag.core.config import get_settings
 from openrag.core.errors import ConflictError
 from openrag.modules.documents import activity, service
-from openrag.modules.documents.lifecycle import LEGACY_VERSION_KEY, LEGACY_VERSION_LABEL
 from openrag.modules.documents.schemas import (
     DocumentDetailOut,
     DocumentOut,
@@ -235,16 +234,14 @@ async def delete_document(
         session, context, document.id, permission="document.upload"
     )
     if len(versions) != 1:
-        raise ConflictError("legacy delete route cannot target versioned content")
+        raise ConflictError("document delete route cannot target ambiguous version history")
     version = versions[0]
     if not (
         version.id == document.id
         and version.document_id == document.id
         and version.sequence == 1
-        and version.version_label == LEGACY_VERSION_LABEL
-        and version.version_key == LEGACY_VERSION_KEY
     ):
-        raise ConflictError("legacy delete route cannot target versioned content")
+        raise ConflictError("document delete route cannot target ambiguous version history")
     requested = await service.request_document_deletion(session, context, version.id)
     enqueue_delete(requested.id, context.user_id)
     return {"status": "deletion scheduled"}

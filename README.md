@@ -374,6 +374,12 @@ Open [http://localhost:5173](http://localhost:5173) and use the bootstrap email 
 
 Go to **Superadmin → Models**, register a hosted or local completion model and its write-only credential, and wait for its measured probe to pass. Designate one measured model as the utility model for bounded background AI work. Then create a workspace, select its default model, and optionally enable **Enrich approved documents** in workspace settings. Enrichment runs asynchronously and never holds ingestion in **Processing**. Upload a document, wait until its status is **Indexed**, and start a chat.
 
+Credentials are write-only and stored separately for each model. A
+`provider_authentication_failed` probe means that model record has an invalid
+credential; edit it, enter a valid provider key, save, and probe again. A
+passing model with a different key fingerprint does not automatically share
+its encrypted credential with other model records.
+
 ### 4. Choose an embedding mode
 
 The default `hash` embedder avoids a model download and is intended only for installation smoke tests. It is lexical rather than semantic, so generic questions such as “tell me about the invoice” may not match invoice text reliably.
@@ -457,7 +463,8 @@ capabilities. The demo-friendly user flow does not require an email provider:
 
 The raw invitation token is returned only once to the authorized administrator
 over a `no-store` response, expires after 72 hours, and is stored in PostgreSQL
-only as a SHA-256 hash. Treat the copied link like a temporary password. A
+only as a SHA-256 hash. Creating another link for the same email immediately
+revokes its older pending links. Treat the copied link like a temporary password. A
 production deployment can replace this manual handoff with a secure delivery
 adapter without changing invitation acceptance semantics.
 

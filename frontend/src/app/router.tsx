@@ -186,6 +186,7 @@ export const router = createBrowserRouter(
     { path: '/', element: <HomePage /> },
     { path: '/login', element: <LoginPage /> },
     { path: '/invite', element: <AcceptInvitePage /> },
+    { path: '/accept-invite', element: <AcceptInvitePage /> },
     {
       element: <RequireAuth />,
       errorElement: <RouteErrorPage />,

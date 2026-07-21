@@ -164,13 +164,41 @@ async def create_invitation(
     if role is None:
         raise NotFoundError("role not found")
 
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_id)"),
+        {"lock_id": _email_lock_id(email)},
+    )
+    now = naive_utc()
+    pending = list(
+        (
+            await session.execute(
+                select(Invitation)
+                .where(
+                    Invitation.org_id == context.org_id,
+                    Invitation.email == email,
+                    Invitation.accepted_at.is_(None),
+                )
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    for previous in pending:
+        previous.accepted_at = now
+        await record_audit(
+            session,
+            org_id=context.org_id,
+            actor_id=context.user_id,
+            action="invitation.revoked",
+            target_type="invitation",
+            target_id=str(previous.id),
+        )
     raw_token = secrets.token_urlsafe(32)
     invitation = Invitation(
         org_id=context.org_id,
         email=email,
         role_id=role.id,
         token_hash=_hash(raw_token),
-        expires_at=naive_utc() + timedelta(hours=ttl_hours),
+        expires_at=now + timedelta(hours=ttl_hours),
     )
     session.add(invitation)
     await session.flush()

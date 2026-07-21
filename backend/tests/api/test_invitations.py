@@ -99,7 +99,7 @@ async def test_admin_receives_one_time_manual_invite_link(
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["accepted"] is True
     accept_path = response.json()["accept_path"]
-    assert accept_path.startswith("/accept-invite?token=")
+    assert accept_path.startswith("/invite?token=")
     raw_token = parse_qs(urlparse(accept_path).query)["token"][0]
     invitation = (
         await session.execute(
@@ -112,4 +112,45 @@ async def test_admin_receives_one_time_manual_invite_link(
         "/api/v1/auth/invitations/accept",
         json={"token": raw_token, "password": "newpw12345"},
     )
+    assert accepted.status_code == 201
+
+
+async def test_new_manual_link_revokes_older_pending_link_for_same_email(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    session: AsyncSession,
+) -> None:
+    role = (
+        await session.execute(
+            select(Role).where(
+                Role.org_id == seeded_user.org_id,
+                Role.key == "user",
+            )
+        )
+    ).scalar_one()
+    headers = await auth(client, seeded_user.email)
+
+    first = await client.post(
+        "/api/v1/auth/invitations",
+        json={"email": "replace-link@acme.com", "role_id": str(role.id)},
+        headers=headers,
+    )
+    second = await client.post(
+        "/api/v1/auth/invitations",
+        json={"email": "replace-link@acme.com", "role_id": str(role.id)},
+        headers=headers,
+    )
+    first_token = parse_qs(urlparse(first.json()["accept_path"]).query)["token"][0]
+    second_token = parse_qs(urlparse(second.json()["accept_path"]).query)["token"][0]
+
+    revoked = await client.post(
+        "/api/v1/auth/invitations/accept",
+        json={"token": first_token, "password": "newpw12345"},
+    )
+    accepted = await client.post(
+        "/api/v1/auth/invitations/accept",
+        json={"token": second_token, "password": "newpw12345"},
+    )
+
+    assert revoked.status_code == 401
     assert accepted.status_code == 201

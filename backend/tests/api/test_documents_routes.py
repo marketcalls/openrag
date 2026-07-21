@@ -111,6 +111,7 @@ async def test_upload_list_delete_flow(
     version = (
         await session.execute(select(DocumentVersion).where(DocumentVersion.id == body["id"]))
     ).scalar_one()
+    assert version.version_label == "Initial 1"
     version.state = "failed"
     await session.commit()
 
@@ -123,6 +124,11 @@ async def test_upload_list_delete_flow(
     await session.refresh(version)
     assert version.source_delete_requested_at is not None
     assert version.source_deleted_at is None
+    after_deletion_request = await client.get(
+        f"/api/v1/workspaces/{workspace_id}/documents",
+        headers=headers,
+    )
+    assert after_deletion_request.json() == []
 
 
 async def test_upload_rejects_mime_magic_mismatch_before_record_or_enqueue(

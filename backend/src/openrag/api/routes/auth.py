@@ -109,7 +109,7 @@ async def create_invitation(
     )
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
-    return InvitationOut(accept_path=f"/accept-invite?token={raw_token}")
+    return InvitationOut(accept_path=f"/invite?token={raw_token}")
 
 
 @router.post(

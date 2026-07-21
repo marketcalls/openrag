@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.core.config import Settings, get_settings
@@ -620,7 +620,15 @@ async def list_documents(
     workspace = await get_workspace_checked(session, context, workspace_id, "document.read")
     statement = (
         select(Document)
-        .where(Document.workspace_id == workspace.id)
+        .where(
+            Document.workspace_id == workspace.id,
+            exists(
+                select(DocumentVersion.id).where(
+                    DocumentVersion.document_id == Document.id,
+                    DocumentVersion.source_delete_requested_at.is_(None),
+                )
+            ),
+        )
         .order_by(Document.created_at.desc(), Document.id.desc())
     )
     return list((await session.execute(statement)).scalars())

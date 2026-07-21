@@ -48,7 +48,7 @@ test('submits an opaque role id and shows a one-time copyable invite link', asyn
       return Response.json(roles);
     }
     return Response.json(
-      { accepted: true, accept_path: '/accept-invite?token=demo-once' },
+      { accepted: true, accept_path: '/invite?token=demo-once' },
       { status: 202 },
     );
   });
@@ -64,10 +64,10 @@ test('submits an opaque role id and shows a one-time copyable invite link', asyn
 
   expect(await screen.findByText('Invitation ready')).toBeInTheDocument();
   const link = screen.getByLabelText('One-time invite link');
-  expect(link).toHaveValue('http://localhost:3000/accept-invite?token=demo-once');
+  expect(link).toHaveValue('http://localhost:3000/invite?token=demo-once');
   await user.click(screen.getByRole('button', { name: 'Copy invite link' }));
   expect(writeText).toHaveBeenCalledWith(
-    'http://localhost:3000/accept-invite?token=demo-once',
+    'http://localhost:3000/invite?token=demo-once',
   );
   await waitFor(() => expect(requests.some((request) => request.method === 'POST')).toBe(true));
   const post = requests.find((request) => request.method === 'POST');
