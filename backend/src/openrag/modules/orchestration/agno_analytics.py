@@ -49,7 +49,7 @@ def _default_runner(runtime: ModelRuntime) -> AnalyticsRunner:
         api_key=runtime.api_key,
         api_base=runtime.api_base,
         max_tokens=min(runtime.max_output_tokens, 4_096),
-        temperature=0,
+        temperature=None,
         retries=0,
         request_params={"timeout": 45.0},
     )

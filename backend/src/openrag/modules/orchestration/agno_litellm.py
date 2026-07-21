@@ -32,7 +32,7 @@ def _default_agent(runtime: ModelRuntime) -> AgentRunner:
         api_key=runtime.api_key,
         api_base=runtime.api_base,
         max_tokens=runtime.max_output_tokens,
-        temperature=0.1,
+        temperature=None,
         retries=0,
         request_params=request_params,
     )

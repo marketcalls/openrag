@@ -216,7 +216,6 @@ def _request(runtime: ModelRuntime) -> dict[str, object]:
         "api_key": runtime.api_key,
         "base_url": runtime.api_base,
         "timeout": _PROBE_TIMEOUT_SECONDS,
-        "temperature": 0,
         "max_tokens": min(runtime.max_output_tokens, _PROBE_MAX_TOKENS),
     }
 

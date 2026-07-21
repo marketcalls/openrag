@@ -93,6 +93,7 @@ async def test_probe_measures_stream_json_tools_vision_and_context_without_globa
     assert all(call["api_key"] == "write-only-secret" for call in calls)
     assert all(call["base_url"] == "https://models.example.test/v1" for call in calls)
     assert all(int(call["max_tokens"]) <= 32 for call in calls)
+    assert all("temperature" not in call for call in calls)
 
 
 async def test_probe_fails_closed_with_safe_error_code_and_no_optional_calls() -> None:

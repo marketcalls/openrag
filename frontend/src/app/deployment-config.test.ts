@@ -6,4 +6,6 @@ test('nginx serves SPA routes and proxies the OpenRAG API', () => {
   expect(config).toContain('try_files $uri $uri/ /index.html');
   expect(config).toContain('proxy_pass http://api:8000');
   expect(config).toContain('location /api/');
+  expect(config).toContain('client_max_body_size 101m');
+  expect(config).toContain('proxy_request_buffering off');
 });

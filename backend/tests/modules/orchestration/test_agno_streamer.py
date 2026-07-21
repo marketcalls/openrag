@@ -42,6 +42,7 @@ def runtime() -> ModelRuntime:
 def test_reasoning_effort_is_forwarded_only_when_enabled() -> None:
     off_agent = _default_agent(runtime())
     assert off_agent.model.request_params == {"timeout": 120.0}
+    assert off_agent.model.temperature is None
 
     high_agent = _default_agent(
         ModelRuntime(
@@ -56,6 +57,7 @@ def test_reasoning_effort_is_forwarded_only_when_enabled() -> None:
         "timeout": 120.0,
         "reasoning_effort": "high",
     }
+    assert high_agent.model.temperature is None
 
 
 async def collect(streamer: AgnoLiteLLMStreamer) -> list[LLMDelta | LLMUsage]:
