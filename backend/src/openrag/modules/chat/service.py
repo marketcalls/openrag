@@ -55,6 +55,7 @@ from openrag.modules.chat.prompting import (
     parse_citation_markers,
 )
 from openrag.modules.chat.quality import schedule_answer_quality_audit
+from openrag.modules.chat.refusals import normalize_refusal_reason
 from openrag.modules.chat.schemas import ChatTreeOut, CitationOut, MessageNode
 from openrag.modules.chat.summaries import (
     history_after_summary,
@@ -1061,7 +1062,7 @@ async def _persist_assistant(
             message.refusal_reason = None
         else:
             message.answer_status = "refused"
-            message.refusal_reason = refusal_reason
+            message.refusal_reason = normalize_refusal_reason(refusal_reason)
         await session.flush()
         schedule_branch_summary(
             session,

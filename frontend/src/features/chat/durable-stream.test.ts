@@ -154,6 +154,38 @@ test('drops an invalid durable artifact but preserves the grounded answer', asyn
   expect(events.map((event) => event.type)).toEqual(['token', 'citations', 'done']);
 });
 
+test('recovers a failed terminal status when the event stream is unavailable', async () => {
+  const requests: Request[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (request: Request) => {
+      requests.push(request);
+      if (request.url.endsWith('/events/r1')) return sseResponse([]);
+      return new Response(
+        JSON.stringify({
+          run_id: 'r1',
+          status: 'failed',
+          error_code: 'retrieval_failed',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }),
+  );
+  const events: ChatSseEvent[] = [];
+
+  await streamDurableRun(
+    { run_id: 'r1', events_url: '/events/r1' },
+    (event) => events.push(event),
+    new AbortController().signal,
+  );
+
+  expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
+    '/events/r1',
+    '/api/v1/runs/r1',
+  ]);
+  expect(events).toEqual([{ type: 'error', detail: 'retrieval_failed' }]);
+});
+
 test('regeneration preserves the selected model and reasoning effort', async () => {
   const requests: Request[] = [];
   vi.stubGlobal(

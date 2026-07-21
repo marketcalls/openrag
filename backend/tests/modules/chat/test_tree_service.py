@@ -567,7 +567,7 @@ async def test_authority_activation_fails_closed_without_active_policy(
     )
 
     assert assistant.answer_status == "refused"
-    assert assistant.refusal_reason == "grounding_policy_unavailable"
+    assert assistant.refusal_reason == "incomplete_provenance"
     assert assistant.content == NO_ANSWER_TEXT
 
 

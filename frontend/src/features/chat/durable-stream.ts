@@ -72,6 +72,56 @@ async function problemDetail(response: Response): Promise<string> {
   return `Request failed (${response.status})`;
 }
 
+async function recoverTerminalStatus(
+  runId: string,
+  onEvent: (event: ChatSseEvent) => void,
+  signal: AbortSignal,
+): Promise<boolean> {
+  let response: Response;
+  try {
+    response = await authFetch(
+      new Request(new URL(`/api/v1/runs/${runId}`, window.location.origin), {
+        method: 'GET',
+        credentials: 'include',
+        signal,
+      }),
+    );
+  } catch {
+    return false;
+  }
+  if (!response.ok) return false;
+  const value = objectValue(await response.json());
+  if (value?.status === 'failed') {
+    onEvent({
+      type: 'error',
+      detail: typeof value.error_code === 'string' ? value.error_code : 'Run failed',
+    });
+    return true;
+  }
+  if (value?.status === 'cancelled') {
+    onEvent({ type: 'error', detail: 'Run cancelled' });
+    return true;
+  }
+  if (value?.status === 'completed') {
+    if (typeof value.assistant_message_id !== 'string') {
+      onEvent({ type: 'error', detail: 'Run completed without a message' });
+      return true;
+    }
+    onEvent({
+      type: 'done',
+      done: {
+        message_id: value.assistant_message_id,
+        prompt_tokens: typeof value.prompt_tokens === 'number' ? value.prompt_tokens : 0,
+        completion_tokens:
+          typeof value.completion_tokens === 'number' ? value.completion_tokens : 0,
+        no_answer: false,
+      },
+    });
+    return true;
+  }
+  return false;
+}
+
 export async function acceptDurableRun(
   chatId: string,
   body: {
@@ -288,6 +338,7 @@ export async function streamDurableRun(
       if (signal.aborted) return;
     }
     if (terminal) return;
+    if (await recoverTerminalStatus(accepted.run_id, onEvent, signal)) return;
     reconnects += 1;
   }
   if (!signal.aborted) onEvent({ type: 'error', detail: 'Stream interrupted' });
