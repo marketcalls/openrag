@@ -355,14 +355,25 @@ async def prepare_retrieval(
         select(EmbeddingDeployment).where(EmbeddingDeployment.status == "active")
     )
     now = datetime.now(UTC)
-    authority_mode = deployment is not None
+    authority_mode = workspace.document_authority_enabled
+    if authority_mode and deployment is None:
+        decision = evaluate_evidence(
+            query,
+            [],
+            SufficiencyPolicy(min_dense_score=workspace.min_score),
+        )
+        return RetrievalResult(
+            chunks=[],
+            no_answer=True,
+            decision=decision,
+        )
     eligibility = _document_eligibility(
         context=context,
         workspace_id=workspace_id,
         authority_mode=authority_mode,
         now=now,
     )
-    if deployment is None:
+    if not authority_mode:
         approved_document_ids = tuple(
             (
                 await session.execute(select(DocumentVersion.document_id).where(*eligibility))
@@ -386,12 +397,13 @@ async def prepare_retrieval(
                 no_answer=True,
                 decision=decision,
             )
-    if deployment is None:
+    if not authority_mode:
         collection = COLLECTION
         dense_embedder = get_dense_embedder()
         filtered_document_ids: tuple[UUID, ...] | None = approved_document_ids
         current_approved: bool | None = None
     else:
+        assert deployment is not None
         profile = await session.get(EmbeddingProfile, deployment.profile_id)
         if profile is None or not profile.enabled:
             decision = evaluate_evidence(

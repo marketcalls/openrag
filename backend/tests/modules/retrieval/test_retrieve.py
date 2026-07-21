@@ -11,6 +11,7 @@ from openrag.core.db import naive_utc
 from openrag.core.errors import WorkspaceAccessDenied
 from openrag.modules.auth.models import User
 from openrag.modules.documents.models import Document, DocumentVersion
+from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
 from openrag.modules.retrieval.authority import AuthorizedEvidence
 from openrag.modules.retrieval.client import COLLECTION, get_qdrant
 from openrag.modules.retrieval.embeddings import embed_sparse, get_dense_embedder
@@ -178,6 +179,86 @@ async def test_retrieve_returns_matching_chunk(
     assert result.chunks[0].text.startswith("the flux capacitor")
     assert result.chunks[0].page == 1
     assert result.chunks[0].chunk_index == 0
+
+
+async def test_active_embedding_generation_does_not_hide_legacy_workspace(
+    session: AsyncSession,
+    qdrant_collection: None,
+) -> None:
+    context, workspace = await seed_workspace(session, "retrieval-legacy-cutover")
+    await upsert_texts(
+        session,
+        context,
+        workspace,
+        ["invoice total is five lakh ninety thousand"],
+    )
+    profile = EmbeddingProfile(
+        name="Empty authority generation",
+        name_key="empty authority generation",
+        provider_kind="hash",
+        model_name="openrag-hash-v2",
+        dimension=1024,
+        max_input_tokens=8192,
+        batch_size=32,
+        config_digest="a" * 64,
+        created_by=context.user_id,
+    )
+    session.add(profile)
+    await session.flush()
+    session.add(
+        EmbeddingDeployment(
+            profile_id=profile.id,
+            generation_id=uuid4(),
+            status="active",
+            requested_by=context.user_id,
+            activated_by=context.user_id,
+            activated_at=naive_utc(),
+            total_versions=0,
+            completed_versions=0,
+            failed_versions=0,
+            scan_complete=True,
+        )
+    )
+    await session.commit()
+
+    result = await retrieve(
+        session,
+        context,
+        workspace.id,
+        "invoice total",
+        top_k=1,
+    )
+
+    assert result.no_answer is False
+    assert result.chunks[0].text == "invoice total is five lakh ninety thousand"
+
+
+async def test_authority_workspace_fails_closed_without_active_generation(
+    session: AsyncSession,
+    qdrant_collection: None,
+) -> None:
+    context, workspace = await seed_workspace(session, "retrieval-authority-locked")
+    await upsert_texts(
+        session,
+        context,
+        workspace,
+        ["legacy content must not bypass authority"],
+    )
+    workspace.document_authority_enabled = True
+    await session.commit()
+
+    result = await retrieve(
+        session,
+        context,
+        workspace.id,
+        "legacy content",
+        top_k=1,
+    )
+
+    assert result.no_answer is True
+    assert result.chunks == []
+    assert result.decision is not None
+    assert result.decision.reason_code == "no_eligible_evidence"
 
 
 async def test_legacy_citation_backfill_rehydrates_exact_approved_chunk(
