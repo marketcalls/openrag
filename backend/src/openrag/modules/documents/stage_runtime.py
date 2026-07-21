@@ -32,7 +32,11 @@ from openrag.modules.documents.models import (
     DocumentVersionProjection,
     IngestStageAttempt,
 )
-from openrag.modules.documents.pipeline import IngestFailure, ParseProfile
+from openrag.modules.documents.pipeline import (
+    IngestFailure,
+    IngestTransientFailure,
+    ParseProfile,
+)
 from openrag.modules.documents.provenance import persist_page_provenance
 from openrag.modules.documents.stage_adapters import (
     AuthorityPlan,
@@ -646,6 +650,16 @@ async def run_claimed_stage_once(
             claim,
             error_code=_terminal_error_code(claim.stage),
             terminal=True,
+        )
+    except IngestTransientFailure:
+        _logger.warning(
+            "durable document parser will retry transient failure",
+            extra={"stage": claim.stage, "attempt_id": str(claim.attempt_id)},
+        )
+        return await retry_stage(
+            session_factory,
+            claim,
+            error_code="PARSER_TRANSIENT_FAILURE",
         )
     except Exception:
         _logger.exception(

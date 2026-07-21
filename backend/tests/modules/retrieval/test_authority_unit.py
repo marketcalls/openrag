@@ -123,5 +123,5 @@ def test_qdrant_payload_parser_accepts_only_complete_bounded_identity() -> None:
 
 def test_authority_retrieval_keeps_room_for_enrichment_duplicates() -> None:
     assert retrieval_candidate_limit(top_k=8, authority_mode=True) == 32
-    assert retrieval_candidate_limit(top_k=8, authority_mode=False) == 8
+    assert retrieval_candidate_limit(top_k=8, authority_mode=False) == 32
     assert retrieval_candidate_limit(top_k=32, authority_mode=True) == MAX_CANDIDATES

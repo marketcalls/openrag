@@ -4,8 +4,11 @@ from uuid import UUID
 import pytest
 
 from openrag.modules.retrieval.service import (
+    RetrievedChunk,
     RetrievedEvidence,
     attach_dense_scores,
+    query_requires_document_diversity,
+    select_final_chunks,
     select_final_evidence,
 )
 
@@ -72,6 +75,62 @@ def test_final_selection_deduplicates_content_and_caps_section_coverage() -> Non
         items[0].evidence_span_id,
         items[2].evidence_span_id,
         items[4].evidence_span_id,
+    ]
+
+
+def test_broad_query_selection_represents_multiple_documents_before_filling() -> None:
+    first_document = UUID("81000000-0000-0000-0000-000000000001")
+    second_document = UUID("81000000-0000-0000-0000-000000000002")
+    third_document = UUID("81000000-0000-0000-0000-000000000003")
+    ranked = [
+        RetrievedChunk(first_document, 1, 0, "Invoice A header", 0.99),
+        RetrievedChunk(first_document, 1, 1, "Invoice A total", 0.98),
+        RetrievedChunk(first_document, 1, 2, "Invoice A terms", 0.97),
+        RetrievedChunk(second_document, 1, 0, "Invoice B", 0.80),
+        RetrievedChunk(third_document, 1, 0, "Invoice C", 0.79),
+    ]
+
+    selected = select_final_chunks(
+        ranked,
+        top_k=4,
+        prefer_document_diversity=True,
+    )
+
+    assert [item.document_id for item in selected[:3]] == [
+        first_document,
+        second_document,
+        third_document,
+    ]
+    assert selected[3] == ranked[1]
+
+
+def test_broad_query_detection_is_bounded_to_collection_requests() -> None:
+    assert query_requires_document_diversity("What are the list of invoices?") is True
+    assert query_requires_document_diversity("Compare all safety policies") is True
+    assert query_requires_document_diversity("What is the total on invoice 104?") is False
+
+
+def test_authority_evidence_can_prioritize_document_coverage() -> None:
+    first_document = UUID("81000000-0000-0000-0000-000000000001")
+    second_document = UUID("81000000-0000-0000-0000-000000000002")
+    items = [
+        evidence(1, document_id=first_document),
+        evidence(2, document_id=first_document),
+        evidence(3, document_id=second_document),
+    ]
+
+    selected = select_final_evidence(
+        items,
+        top_k=3,
+        max_per_document=3,
+        max_per_section=3,
+        prefer_document_diversity=True,
+    )
+
+    assert [item.document_id for item in selected] == [
+        first_document,
+        second_document,
+        first_document,
     ]
 
 

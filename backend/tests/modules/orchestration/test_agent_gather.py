@@ -21,7 +21,11 @@ from openrag.modules.orchestration.retrieval_tools import (
     RetrievalToolExecutor,
 )
 from openrag.modules.orchestration.runtime import build_agent_gatherer_factory
-from openrag.modules.retrieval.service import RetrievalResult, RetrievedEvidence
+from openrag.modules.retrieval.service import (
+    RetrievalResult,
+    RetrievedChunk,
+    RetrievedEvidence,
+)
 from openrag.modules.tenancy.context import TenantContext
 
 
@@ -180,6 +184,56 @@ async def test_gather_never_upgrades_weak_evidence_without_a_passing_score() -> 
     completed = events[-1]
     assert isinstance(completed, AgentGatherCompleted)
     assert completed.result.no_answer is True
+
+
+async def test_gather_preserves_sufficient_legacy_result_when_planner_adds_nothing() -> None:
+    """A bounded agent loop must not discard already-authorized legacy evidence."""
+
+    org_id = uuid4()
+    workspace_id = uuid4()
+    document_id = uuid4()
+
+    class Backend:
+        async def search(self, query: str, metadata: object) -> tuple[AuthorizedToolEvidence, ...]:
+            raise AssertionError((query, metadata))
+
+        async def get_document(self, document_id: object) -> tuple[AuthorizedToolEvidence, ...]:
+            raise AssertionError(document_id)
+
+    async def planner(_state: AgentLoopState) -> AgentAction:
+        return AgentAction.finish()
+
+    initial_result = RetrievalResult(
+        chunks=[
+            RetrievedChunk(
+                document_id=document_id,
+                page=1,
+                chunk_index=0,
+                text="Invoice number INV-104",
+                score=0.8,
+            )
+        ],
+        no_answer=False,
+    )
+    gatherer = AgentGatherer(
+        planner,
+        RetrievalToolExecutor(Backend(), org_id=org_id, workspace_id=workspace_id),
+    )
+
+    events = [
+        event
+        async for event in gatherer.stream(
+            query="List the invoices",
+            initial_result=initial_result,
+            top_k=8,
+            min_score=0.35,
+        )
+    ]
+
+    completed = events[-1]
+    assert isinstance(completed, AgentGatherCompleted)
+    assert completed.finish_reason == "planner_finished"
+    assert completed.result == initial_result
 
 
 def test_runtime_factory_is_gated_by_measured_structured_output_support() -> None:

@@ -371,14 +371,16 @@ services:
       event-redis:
         condition: service_healthy
     healthcheck:
+      # Starting a fresh application runtime here repeatedly imports the OCR
+      # and embedding stack. On small hosts that probe can exceed its timeout
+      # and compete with document parsing. Docker already detects process exit;
+      # this lightweight probe verifies PID 1 is still the intended worker.
       test:
-        - CMD
-        - /app/.venv/bin/python
-        - -m
-        - openrag.worker.event_runtime
-        - ready
+        - CMD-SHELL
+        - >-
+          grep -aq 'openrag.worker.celery_app:celery_app' /proc/1/cmdline
       interval: 10s
-      timeout: 8s
+      timeout: 3s
       retries: 6
       start_period: 10s
     security_opt:

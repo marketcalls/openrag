@@ -100,12 +100,22 @@ class AgentGatherer:
                 with suppress(asyncio.CancelledError):
                     await loop_task
 
+        gathered_result = merge_authoritative_evidence(
+            query,
+            self._executor.collected_evidence,
+            top_k=top_k,
+            min_score=min_score,
+        )
+        # Legacy chunks have already passed their tenant and evidence gates but
+        # intentionally do not carry authority-generation evidence identities.
+        # A planner that adds no stronger evidence must never erase that valid
+        # initial result and turn a grounded answer into a false refusal.
+        result = (
+            initial_result
+            if not initial_result.no_answer and gathered_result.no_answer
+            else gathered_result
+        )
         yield AgentGatherCompleted(
-            result=merge_authoritative_evidence(
-                query,
-                self._executor.collected_evidence,
-                top_k=top_k,
-                min_score=min_score,
-            ),
+            result=result,
             finish_reason=loop_result.finish_reason,
         )

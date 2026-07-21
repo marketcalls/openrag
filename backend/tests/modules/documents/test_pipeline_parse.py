@@ -1,12 +1,14 @@
 import io
 
 import pytest
+from docling.exceptions import ConversionError, DocumentLoadError
 from docx import Document as DocxBuilder
 from PIL import Image, ImageDraw
 
 from openrag.modules.documents import pipeline
 from openrag.modules.documents.pipeline import (
     IngestFailure,
+    IngestTransientFailure,
     ParseProfile,
     build_pdf_pipeline_options,
     parse_bytes,
@@ -59,6 +61,46 @@ def test_empty_file_fails_with_reason() -> None:
 def test_unsupported_format_fails_with_reason() -> None:
     with pytest.raises(IngestFailure):
         parse_bytes(b"\x00\x01garbage", "weird.xyz")
+
+
+def test_docling_runtime_failure_remains_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingConverter:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def convert(self, *args: object, **kwargs: object) -> object:
+            raise RuntimeError("temporary parser initialization failure")
+
+    monkeypatch.setattr(
+        "docling.document_converter.DocumentConverter",
+        FailingConverter,
+    )
+
+    with pytest.raises(IngestTransientFailure, match="temporarily unavailable"):
+        parse_document(b"valid container bytes", "manual.docx")
+
+
+def test_docling_document_load_failure_is_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class InvalidConverter:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def convert(self, *args: object, **kwargs: object) -> object:
+            outer = ConversionError("conversion failed")
+            outer.__cause__ = DocumentLoadError("invalid input")
+            raise outer
+
+    monkeypatch.setattr(
+        "docling.document_converter.DocumentConverter",
+        InvalidConverter,
+    )
+
+    with pytest.raises(IngestFailure, match="unsupported or unparsable"):
+        parse_document(b"invalid container bytes", "manual.docx")
 
 
 def test_pdf_profile_configures_bounded_rapidocr() -> None:

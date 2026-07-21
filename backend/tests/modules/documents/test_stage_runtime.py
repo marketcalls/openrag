@@ -1,15 +1,18 @@
 from uuid import UUID, uuid4
 
+import pytest
 from qdrant_client import models
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from openrag.core.config import Settings
+from openrag.modules.documents import stage_runtime
 from openrag.modules.documents.models import (
     DocumentEvidenceSpan,
     DocumentVersion,
     IngestStageAttempt,
 )
+from openrag.modules.documents.pipeline import IngestTransientFailure
 from openrag.modules.documents.stage_runtime import run_claimed_stage_once
 from openrag.modules.events.models import OutboxEvent
 from openrag.modules.retrieval.embeddings import HashDenseEmbedder
@@ -51,6 +54,68 @@ class RecordingQdrant:
 
 async def sparse_embedder(texts: list[str]) -> list[models.SparseVector]:
     return [models.SparseVector(indices=[1], values=[1.0]) for _text in texts]
+
+
+async def test_runtime_retries_transient_parser_initialization_failure(
+    engine: AsyncEngine,
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization, workspace, user = await seed_scope(session)
+    _document, version = await seed_document_version(
+        session,
+        organization=organization,
+        workspace=workspace,
+        user=user,
+        document_hash=f"runtime-retry-{uuid4()}",
+        version_hash=f"runtime-retry-version-{uuid4()}",
+        state="processing",
+    )
+    version.source_filename = "policy.pdf"
+    version.source_mime = "application/pdf"
+    attempt = IngestStageAttempt(
+        org_id=organization.id,
+        workspace_id=workspace.id,
+        document_version_id=version.id,
+        pipeline_kind="ingestion",
+        stage="parse",
+        checkpoint=f"parse:ingestion:1:{uuid4().hex}",
+    )
+    session.add(attempt)
+    await session.commit()
+
+    async def fail_parser(*args: object, **kwargs: object) -> object:
+        raise IngestTransientFailure("temporary parser initialization failure")
+
+    async def ready(candidate: UUID) -> bool:
+        return True
+
+    monkeypatch.setattr(stage_runtime, "_execute_external_stage", fail_parser)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    result = await run_claimed_stage_once(
+        factory,
+        owner="runtime-retry-worker",
+        storage=MemoryStorage({version.source_storage_key: b"pdf"}),
+        dense_embedder=HashDenseEmbedder(dim=3),
+        sparse_embedder=sparse_embedder,
+        qdrant=RecordingQdrant(),
+        authority_ready=ready,
+        settings=Settings(
+            embedding_backend="hash",
+            embedding_dim=3,
+            document_stage_lease_seconds=30,
+        ),
+    )
+
+    assert result == "queued"
+    async with factory() as verify:
+        stored_attempt = await verify.get(IngestStageAttempt, attempt.id)
+        stored_version = await verify.get(DocumentVersion, version.id)
+    assert stored_attempt is not None
+    assert stored_attempt.state == "queued"
+    assert stored_attempt.error_code == "PARSER_TRANSIENT_FAILURE"
+    assert stored_version is not None
+    assert stored_version.state == "processing"
 
 
 async def test_runtime_executes_full_pipeline_with_fenced_postgres_completion(

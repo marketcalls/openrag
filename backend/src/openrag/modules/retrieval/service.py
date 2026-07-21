@@ -2,6 +2,7 @@
 
 import asyncio
 import math
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -13,13 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from openrag.core.config import get_settings
+from openrag.core.errors import UpstreamError
 from openrag.modules.documents.authority_storage import AuthorityCollectionSpec
-from openrag.modules.documents.lifecycle import LEGACY_VERSION_LABEL
+from openrag.modules.documents.lifecycle import (
+    LEGACY_EMBEDDING_PROFILE_VERSION,
+    LEGACY_VERSION_LABEL,
+)
 from openrag.modules.documents.models import (
     Document,
     DocumentEvidenceSpan,
     DocumentVersion,
 )
+from openrag.modules.documents.profiles import active_ingestion_profiles
 from openrag.modules.embeddings.models import EmbeddingDeployment, EmbeddingProfile
 from openrag.modules.embeddings.runtime import resolve_profile_runtime
 from openrag.modules.retrieval.authority import (
@@ -181,6 +187,7 @@ def select_final_evidence(
     top_k: int,
     max_per_document: int = 4,
     max_per_section: int = 2,
+    prefer_document_diversity: bool = False,
 ) -> tuple[RetrievedEvidence, ...]:
     if not 1 <= top_k <= 32:
         raise ValueError("top_k must be between 1 and 32")
@@ -193,21 +200,94 @@ def select_final_evidence(
     seen_hashes: set[str] = set()
     per_document: dict[UUID, int] = {}
     per_section: dict[tuple[UUID, tuple[str, ...]], int] = {}
-    for item in evidence:
+
+    def append_if_eligible(item: RetrievedEvidence) -> bool:
         section_key = (item.document_id, item.section_path)
         if (
             item.content_hash in seen_hashes
             or per_document.get(item.document_id, 0) >= max_per_document
             or per_section.get(section_key, 0) >= max_per_section
         ):
-            continue
+            return False
         selected.append(item)
         seen_hashes.add(item.content_hash)
         per_document[item.document_id] = per_document.get(item.document_id, 0) + 1
         per_section[section_key] = per_section.get(section_key, 0) + 1
+        return True
+
+    if prefer_document_diversity:
+        represented_documents: set[UUID] = set()
+        for item in evidence:
+            if item.document_id in represented_documents:
+                continue
+            if append_if_eligible(item):
+                represented_documents.add(item.document_id)
+            if len(selected) == top_k:
+                return tuple(selected)
+
+    for item in evidence:
+        append_if_eligible(item)
         if len(selected) == top_k:
             break
     return tuple(selected)
+
+
+_BROAD_COLLECTION_QUERY = re.compile(
+    r"\b(?:all|list|each|every|across|multiple|several|"
+    r"invoices|documents|files|reports|policies|contracts|records)\b",
+    re.IGNORECASE,
+)
+
+
+def query_requires_document_diversity(query: str) -> bool:
+    """Identify bounded collection questions that need cross-document coverage."""
+
+    return _BROAD_COLLECTION_QUERY.search(query) is not None
+
+
+def select_final_chunks(
+    chunks: Sequence[RetrievedChunk],
+    *,
+    top_k: int,
+    prefer_document_diversity: bool,
+    max_per_document: int = 4,
+) -> list[RetrievedChunk]:
+    """Select ranked legacy chunks without allowing one document to monopolize them."""
+
+    if not 1 <= top_k <= 32:
+        raise ValueError("top_k must be between 1 and 32")
+    if not 1 <= max_per_document <= top_k:
+        raise ValueError("max_per_document must be between 1 and top_k")
+
+    selected: list[RetrievedChunk] = []
+    selected_keys: set[tuple[UUID, int, int]] = set()
+    per_document: dict[UUID, int] = {}
+
+    def append_if_eligible(item: RetrievedChunk) -> bool:
+        key = (item.document_id, item.page, item.chunk_index)
+        document_limit = max_per_document if prefer_document_diversity else top_k
+        if key in selected_keys or per_document.get(item.document_id, 0) >= document_limit:
+            return False
+        selected.append(item)
+        selected_keys.add(key)
+        per_document[item.document_id] = per_document.get(item.document_id, 0) + 1
+        return True
+
+    if prefer_document_diversity:
+        represented_documents: set[UUID] = set()
+        for item in chunks:
+            if item.document_id in represented_documents:
+                continue
+            if append_if_eligible(item):
+                represented_documents.add(item.document_id)
+            if len(selected) == top_k:
+                return selected
+
+    for item in chunks:
+        append_if_eligible(item)
+        if len(selected) == top_k:
+            break
+    return selected
 
 
 def attach_dense_scores(
@@ -221,11 +301,11 @@ def attach_dense_scores(
 
 
 def retrieval_candidate_limit(*, top_k: int, authority_mode: bool) -> int:
-    """Keep authority retrieval broad enough to deduplicate enriched point aliases."""
+    """Overfetch so deduplication and document diversity do not erase coverage."""
 
     if not 1 <= top_k <= 32:
         raise ValueError("top_k must be between 1 and 32")
-    return min(MAX_CANDIDATES, top_k * 4) if authority_mode else top_k
+    return min(MAX_CANDIDATES, top_k * 4)
 
 
 def _tenant_filter(
@@ -505,6 +585,73 @@ async def prepare_authority_fallback(
     )
 
 
+async def prepare_configured_authority_fallback(
+    session: AsyncSession,
+    context: TenantContext,
+    workspace_id: UUID,
+    query: str,
+    top_k: int = 8,
+) -> RetrievalPlan | None:
+    """Search the configured generation for approved pre-cutover uploads.
+
+    Older installations could accept uploads into the configured authority
+    generation after a database-managed embedding generation was activated.
+    Those versions remain valid PostgreSQL authority and must stay searchable
+    until a complete reindex migrates them.
+    """
+
+    workspace = await get_workspace_checked(session, context, workspace_id)
+    if workspace.document_authority_enabled:
+        return None
+    settings = get_settings()
+    active_generation = await session.scalar(
+        select(EmbeddingDeployment.generation_id).where(
+            EmbeddingDeployment.status == "active"
+        )
+    )
+    if active_generation == settings.authority_generation_id:
+        return None
+
+    configured_profile = active_ingestion_profiles(settings).embedding_profile_version
+    eligible_version = await session.scalar(
+        select(DocumentVersion.id)
+        .where(
+            *_document_eligibility(
+                context=context,
+                workspace_id=workspace_id,
+                authority_mode=True,
+                now=datetime.now(UTC),
+            ),
+            DocumentVersion.embedding_profile_version.in_(
+                (LEGACY_EMBEDDING_PROFILE_VERSION, configured_profile)
+            ),
+        )
+        .limit(1)
+    )
+    if eligible_version is None:
+        return None
+    return RetrievalPlan(
+        org_id=context.org_id,
+        workspace_id=workspace_id,
+        query=query,
+        top_k=top_k,
+        min_score=workspace.min_score,
+        authority_mode=True,
+        embedding_model=settings.embedding_model_id,
+        collection=AuthorityCollectionSpec(
+            generation_id=settings.authority_generation_id,
+            dense_dimension=settings.embedding_dim,
+        ).physical_collection,
+        dense_embedder=get_dense_embedder(),
+        filtered_document_ids=None,
+        # A generation cutover deliberately clears this denormalized Qdrant
+        # marker on the retired collection. The fallback therefore relies on
+        # the mandatory PostgreSQL revalidation below instead of trusting the
+        # stale vector-side eligibility bit.
+        current_approved=None,
+    )
+
+
 async def has_governed_evidence(
     session: AsyncSession,
     context: TenantContext,
@@ -571,37 +718,40 @@ async def execute_retrieval(plan: RetrievalPlan) -> ExternalRetrievalResult:
         top_k=plan.top_k,
         authority_mode=plan.authority_mode,
     )
-    fused, top_dense = await asyncio.gather(
-        client.query_points(
-            collection,
-            prefetch=[
-                models.Prefetch(
-                    query=dense_vector,
-                    using="dense",
-                    filter=tenant_filter,
-                    limit=candidate_limit,
-                ),
-                models.Prefetch(
-                    query=sparse_vector,
-                    using="sparse",
-                    filter=tenant_filter,
-                    limit=candidate_limit,
-                ),
-            ],
-            query=models.FusionQuery(fusion=models.Fusion.RRF),
-            query_filter=tenant_filter,
-            limit=fused_limit,
-            with_payload=True,
-        ),
-        client.query_points(
-            collection,
-            query=dense_vector,
-            using="dense",
-            query_filter=tenant_filter,
-            limit=(1 if not plan.authority_mode else candidate_limit),
-            with_payload=plan.authority_mode,
-        ),
-    )
+    try:
+        fused, top_dense = await asyncio.gather(
+            client.query_points(
+                collection,
+                prefetch=[
+                    models.Prefetch(
+                        query=dense_vector,
+                        using="dense",
+                        filter=tenant_filter,
+                        limit=candidate_limit,
+                    ),
+                    models.Prefetch(
+                        query=sparse_vector,
+                        using="sparse",
+                        filter=tenant_filter,
+                        limit=candidate_limit,
+                    ),
+                ],
+                query=models.FusionQuery(fusion=models.Fusion.RRF),
+                query_filter=tenant_filter,
+                limit=fused_limit,
+                with_payload=True,
+            ),
+            client.query_points(
+                collection,
+                query=dense_vector,
+                using="dense",
+                query_filter=tenant_filter,
+                limit=(1 if not plan.authority_mode else candidate_limit),
+                with_payload=plan.authority_mode,
+            ),
+        )
+    except Exception as exc:
+        raise UpstreamError("retrieval service unavailable") from exc
     chunks: list[RetrievedChunk] = []
     fused_candidates: list[CandidateIdentity] = []
     dense_candidates: list[CandidateIdentity] = []
@@ -678,7 +828,15 @@ async def finalize_retrieval(
                 )
             ).scalars()
         )
-        chunks = [chunk for chunk in external.chunks if chunk.document_id in current_document_ids]
+        eligible_chunks = [
+            chunk for chunk in external.chunks if chunk.document_id in current_document_ids
+        ]
+        chunks = select_final_chunks(
+            eligible_chunks,
+            top_k=plan.top_k,
+            prefer_document_diversity=query_requires_document_diversity(plan.query),
+            max_per_document=min(4, plan.top_k),
+        )
         return RetrievalResult(
             chunks=chunks,
             no_answer=not chunks or external.best_cosine < plan.min_score,
@@ -696,6 +854,7 @@ async def finalize_retrieval(
         top_k=plan.top_k,
         max_per_document=min(4, plan.top_k),
         max_per_section=min(2, plan.top_k),
+        prefer_document_diversity=query_requires_document_diversity(plan.query),
     )
     if final_evidence:
         dense_authority = await revalidate_candidates(
@@ -937,8 +1096,16 @@ async def retrieve(
         return prepared
 
     fallback = None
+    configured_fallback = None
     if not prepared.authority_mode:
         fallback = await prepare_authority_fallback(
+            session,
+            context,
+            workspace_id,
+            query,
+            top_k,
+        )
+        configured_fallback = await prepare_configured_authority_fallback(
             session,
             context,
             workspace_id,
@@ -949,19 +1116,54 @@ async def retrieve(
 
     # Migrated workspaces can contain recent uploads exclusively in the active
     # authority generation while older documents remain in the legacy index.
-    # Consult the governed generation first so an accidentally high legacy
-    # similarity score cannot hide current evidence.
-    if fallback is not None:
-        fallback_external = await execute_retrieval(fallback)
-        fallback_result = await finalize_retrieval(
-            session,
-            context,
-            fallback,
-            fallback_external,
+    # Query both isolated generations, then choose a complete result without
+    # mixing citation identities from different provenance contracts.
+    fallback_plans = [
+        plan for plan in (fallback, configured_fallback) if plan is not None
+    ]
+    if fallback_plans:
+        plans = [*fallback_plans, prepared]
+        outcomes = await asyncio.gather(
+            *(execute_retrieval(plan) for plan in plans),
+            return_exceptions=True,
         )
-        if not fallback_result.no_answer:
-            return fallback_result
-        await session.rollback()
+        available: list[tuple[RetrievalPlan, RetrievalResult]] = []
+        failures: list[BaseException] = []
+
+        for outcome in outcomes:
+            if isinstance(outcome, asyncio.CancelledError):
+                raise outcome
+
+        for index, (plan, outcome) in enumerate(zip(plans, outcomes, strict=True)):
+            if isinstance(outcome, BaseException):
+                failures.append(outcome)
+                continue
+            result = await finalize_retrieval(
+                session,
+                context,
+                plan,
+                outcome,
+            )
+            available.append((plan, result))
+            if index < len(plans) - 1:
+                await session.rollback()
+
+        if not available:
+            failure = failures[0]
+            if isinstance(failure, UpstreamError):
+                raise failure
+            raise UpstreamError("retrieval service unavailable") from failure
+
+        sufficient = [entry for entry in available if not entry[1].no_answer]
+        candidates = sufficient or available
+        if query_requires_document_diversity(query):
+            return max(
+                candidates,
+                key=lambda entry: len(
+                    {chunk.document_id for chunk in entry[1].chunks}
+                ),
+            )[1]
+        return candidates[0][1]
 
     external = await execute_retrieval(prepared)
     return await finalize_retrieval(session, context, prepared, external)

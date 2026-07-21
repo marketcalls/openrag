@@ -30,6 +30,29 @@ class IngestFailure(Exception):
     """Terminal ingestion failure caused by invalid or unsupported input."""
 
 
+class IngestTransientFailure(RuntimeError):
+    """Retryable parser or infrastructure failure unrelated to document validity."""
+
+
+def _docling_failure_is_input_invalid(exc: BaseException) -> bool:
+    from docling.exceptions import DocumentLoadError, OperationNotAllowed, SecurityError
+
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(current, (DocumentLoadError, OperationNotAllowed, SecurityError)):
+            return True
+        current = current.__cause__ or current.__context__
+    message = str(exc).casefold()
+    return any(
+        marker in message
+        for marker in (
+            "no recognizable format",
+            "list of allowed formats",
+            "file format not allowed",
+        )
+    )
+
+
 class _PdfImageObject(Protocol):
     def get_bounds(self) -> tuple[float, float, float, float]: ...
 
@@ -390,7 +413,9 @@ def parse_document(
                 max_file_size=profile.max_file_bytes,
             )
         except Exception as exc:
-            raise IngestFailure("unsupported or unparsable document") from exc
+            if _docling_failure_is_input_invalid(exc):
+                raise IngestFailure("unsupported or unparsable document") from exc
+            raise IngestTransientFailure("document parser temporarily unavailable") from exc
     finally:
         temporary_path.unlink(missing_ok=True)
 

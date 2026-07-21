@@ -112,6 +112,16 @@ def test_backend_services_use_the_prebuilt_virtualenv_at_runtime() -> None:
     assert services["worker"]["security_opt"] == ["no-new-privileges:true"]
 
 
+def test_event_worker_healthcheck_does_not_start_an_application_runtime() -> None:
+    """Health probes must not repeatedly import OCR/embedding dependencies."""
+
+    healthcheck = render_compose()["services"]["event-worker"]["healthcheck"]
+
+    assert healthcheck["test"][0] == "CMD-SHELL"
+    assert "/proc/1/cmdline" in healthcheck["test"][1]
+    assert "python" not in healthcheck["test"][1]
+
+
 def test_database_pool_budget_is_explicit_and_below_postgres_capacity() -> None:
     config = render_compose()
     services = config["services"]
