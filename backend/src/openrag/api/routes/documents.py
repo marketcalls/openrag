@@ -7,12 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openrag.api.deps import get_session
 from openrag.core.config import get_settings
 from openrag.core.errors import ConflictError
-from openrag.modules.documents import service
+from openrag.modules.documents import activity, service
 from openrag.modules.documents.lifecycle import LEGACY_VERSION_KEY, LEGACY_VERSION_LABEL
 from openrag.modules.documents.schemas import (
     DocumentDetailOut,
     DocumentOut,
     DocumentPatch,
+    DocumentVersionActivityOut,
     DocumentVersionDecision,
     DocumentVersionOut,
 )
@@ -149,6 +150,18 @@ async def get_document_version(
 ) -> DocumentVersionOut:
     version = await service.get_version_checked(session, context, version_id)
     return DocumentVersionOut.from_version(version)
+
+
+@router.get(
+    "/document-versions/{version_id}/activity",
+    response_model=DocumentVersionActivityOut,
+)
+async def get_document_version_activity(
+    version_id: UUID,
+    session: SessionDep,
+    context: ContextDep,
+) -> DocumentVersionActivityOut:
+    return await activity.get_version_activity(session, context, version_id)
 
 
 async def _decide_version(

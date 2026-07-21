@@ -5,7 +5,13 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.modules.auth.models import User
-from openrag.modules.documents.models import Document, DocumentVersion
+from openrag.modules.documents.models import (
+    Document,
+    DocumentBlock,
+    DocumentVersion,
+    DocumentVersionDecisionRecord,
+    IngestStageAttempt,
+)
 
 
 async def auth(client: httpx.AsyncClient, email: str) -> dict[str, str]:
@@ -124,6 +130,116 @@ async def test_version_list_and_detail_are_safe_and_descending(
         assert_safe_version(row)
     assert detail.status_code == 200
     assert_safe_version(detail.json())
+
+
+async def test_version_activity_exposes_safe_governance_and_processing_history(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    session: AsyncSession,
+    stack_env: None,
+) -> None:
+    headers = await auth(client, seeded_user.email)
+    workspace_id = await make_workspace(client, headers)
+    document, version = await seed_version(session, seeded_user, workspace_id)
+    session.add_all(
+        [
+            DocumentVersionDecisionRecord(
+                org_id=seeded_user.org_id,
+                workspace_id=workspace_id,
+                document_id=document.id,
+                document_version_id=version.id,
+                lifecycle_revision=2,
+                decision="rejected",
+                actor_id=seeded_user.id,
+                reason="Signature is missing",
+            ),
+            IngestStageAttempt(
+                org_id=seeded_user.org_id,
+                workspace_id=workspace_id,
+                document_version_id=version.id,
+                pipeline_kind="ingestion",
+                stage="parse",
+                state="succeeded",
+                checkpoint=f"parse:ingestion:1:{uuid4().hex}",
+                attempts=1,
+            ),
+            IngestStageAttempt(
+                org_id=seeded_user.org_id,
+                workspace_id=workspace_id,
+                document_version_id=version.id,
+                pipeline_kind="ingestion",
+                stage="chunk",
+                state="failed",
+                checkpoint=f"chunk:ingestion:1:{uuid4().hex}",
+                attempts=3,
+                error_code="CHUNK_OUTPUT_INVALID",
+            ),
+            DocumentBlock(
+                org_id=seeded_user.org_id,
+                document_version_id=version.id,
+                ordinal=0,
+                page_number=2,
+                text="redacted from the public response",
+                locator_kind="page",
+                locator_label="Page 2",
+                block_type="paragraph",
+                section_path=["Invoice"],
+                extraction_method="ocr",
+                ocr_profile_version="rapidocr/v1",
+                ocr_confidence=0.41,
+                content_hash=hashlib.sha256(b"ocr-block").hexdigest(),
+            ),
+        ]
+    )
+    await session.commit()
+
+    response = await client.get(
+        f"/api/v1/document-versions/{version.id}/activity",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["version_id"] == str(version.id)
+    assert body["ocr"] == {"detected_pages": 1, "low_confidence_pages": 1}
+    assert body["decisions"] == [
+        {
+            "lifecycle_revision": 2,
+            "decision": "rejected",
+            "actor_id": str(seeded_user.id),
+            "reason": "Signature is missing",
+            "created_at": body["decisions"][0]["created_at"],
+        }
+    ]
+    assert [(item["stage"], item["state"]) for item in body["stages"]] == [
+        ("parse", "succeeded"),
+        ("chunk", "failed"),
+    ]
+    assert body["stages"][1]["error_code"] == "CHUNK_OUTPUT_INVALID"
+    serialized = repr(body)
+    for forbidden in (
+        "redacted from the public response",
+        "checkpoint",
+        "output_digest",
+        "lease_owner",
+        "source_storage_key",
+    ):
+        assert forbidden not in serialized
+
+
+async def test_version_activity_unknown_id_is_404_without_oracle(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    stack_env: None,
+) -> None:
+    headers = await auth(client, seeded_user.email)
+
+    response = await client.get(
+        f"/api/v1/document-versions/{uuid4()}/activity",
+        headers=headers,
+    )
+
+    assert response.status_code == 404
 
 
 async def test_version_governance_routes_return_safe_models_and_transition_409(

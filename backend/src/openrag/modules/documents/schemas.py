@@ -6,7 +6,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from openrag.modules.documents.models import Document, DocumentVersion
+from openrag.modules.documents.models import (
+    Document,
+    DocumentVersion,
+    DocumentVersionDecisionRecord,
+    IngestStageAttempt,
+)
 
 _SAFE_PROCESSING_ERROR_CODES = frozenset(
     {
@@ -161,3 +166,65 @@ class DocumentVersionOut(BaseModel):
             updated_at=version.updated_at,
             lifecycle_revision=version.lifecycle_revision,
         )
+
+
+class DocumentVersionDecisionOut(BaseModel):
+    lifecycle_revision: int
+    decision: str
+    actor_id: UUID
+    reason: str | None
+    created_at: datetime
+
+    model_config = ConfigDict(frozen=True)
+
+    @classmethod
+    def from_record(cls, record: DocumentVersionDecisionRecord) -> Self:
+        return cls(
+            lifecycle_revision=record.lifecycle_revision,
+            decision=record.decision,
+            actor_id=record.actor_id,
+            reason=record.reason,
+            created_at=record.created_at,
+        )
+
+
+class DocumentStageAttemptOut(BaseModel):
+    pipeline_kind: str
+    stage: str
+    state: str
+    attempts: int
+    error_code: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+    model_config = ConfigDict(frozen=True)
+
+    @classmethod
+    def from_attempt(cls, attempt: IngestStageAttempt) -> Self:
+        return cls(
+            pipeline_kind=attempt.pipeline_kind,
+            stage=attempt.stage,
+            state=attempt.state,
+            attempts=attempt.attempts,
+            error_code=attempt.error_code,
+            created_at=attempt.created_at,
+            started_at=attempt.started_at,
+            finished_at=attempt.finished_at,
+        )
+
+
+class DocumentOcrSummaryOut(BaseModel):
+    detected_pages: int = Field(ge=0)
+    low_confidence_pages: int = Field(ge=0)
+
+    model_config = ConfigDict(frozen=True)
+
+
+class DocumentVersionActivityOut(BaseModel):
+    version_id: UUID
+    decisions: list[DocumentVersionDecisionOut]
+    stages: list[DocumentStageAttemptOut]
+    ocr: DocumentOcrSummaryOut
+
+    model_config = ConfigDict(frozen=True)
