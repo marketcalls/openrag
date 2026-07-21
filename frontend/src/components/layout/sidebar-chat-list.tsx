@@ -19,8 +19,7 @@ export function SidebarChatList() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const remove = (chatId: string, title: string) => {
-    if (!window.confirm(`Delete “${title || 'Untitled chat'}”? This cannot be undone.`)) return;
+  const remove = (chatId: string) => {
     deleteChat.mutate(chatId, {
       onSuccess: () => {
         toast.success('Chat deleted');
@@ -71,7 +70,7 @@ export function SidebarChatList() {
               size="icon"
               aria-label={`Delete ${chat.title || 'chat'}`}
               disabled={deleteChat.isPending}
-              onClick={() => remove(chat.id, chat.title)}
+              onClick={() => remove(chat.id)}
               className="h-7 w-7 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 motion-reduce:transition-none"
             >
               <Trash2 className="h-3.5 w-3.5" aria-hidden />
