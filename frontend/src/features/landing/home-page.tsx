@@ -41,17 +41,6 @@ const capabilities = [
 
 const formats = ['PDF', 'Word', 'Excel', 'PowerPoint', 'Text', 'Scanned PDF + OCR'];
 
-function BrandMark() {
-  return (
-    <span aria-hidden className="grid h-7 w-7 grid-cols-2 gap-[3px] rounded-[7px] bg-ink p-[5px]">
-      <span className="rounded-[2px] bg-bg" />
-      <span className="rounded-[2px] bg-bg/55" />
-      <span className="rounded-[2px] bg-bg/55" />
-      <span className="rounded-[2px] bg-bg" />
-    </span>
-  );
-}
-
 function EvidencePreview() {
   return (
     <div className="relative mx-auto w-full max-w-[560px]" aria-label="OpenRAG answer preview">
@@ -109,8 +98,7 @@ export function HomePage() {
     <div className="min-h-screen bg-bg text-ink">
       <header className="sticky top-0 z-40 border-b border-line/80 bg-bg/90 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between gap-5 px-5 sm:px-8">
-          <Link to="/" className="flex items-center gap-2.5" aria-label="OpenRAG home">
-            <BrandMark />
+          <Link to="/" aria-label="OpenRAG home">
             <span className="text-[18px] font-extrabold tracking-[-0.03em]">OpenRAG</span>
           </Link>
           <nav className="hidden items-center gap-1 rounded-full border border-line bg-bg px-1.5 py-1.5 shadow-soft md:flex">
@@ -266,8 +254,7 @@ export function HomePage() {
 
       <footer className="border-t border-line px-5 py-9 sm:px-8">
         <div className="mx-auto flex max-w-[1400px] flex-col gap-4 text-[12px] text-muted sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2.5 text-ink">
-            <BrandMark />
+          <div className="text-ink">
             <span className="font-bold">OpenRAG</span>
           </div>
           <p>Open-source, self-hosted knowledge infrastructure.</p>

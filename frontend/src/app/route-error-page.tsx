@@ -16,8 +16,7 @@ export function RouteErrorPage({
         className="absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,var(--accent-soft),transparent_34%),radial-gradient(circle_at_82%_72%,var(--subtle),transparent_38%)]"
       />
       <section className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-line bg-bg/95 p-8 shadow-[0_24px_80px_rgba(16,21,20,0.12)] backdrop-blur">
-        <div className="mb-8 flex items-center gap-3 text-[13px] font-semibold tracking-tight text-ink">
-          <span className="h-3 w-3 rounded-[4px] bg-primary shadow-[0_0_0_5px_var(--accent-soft)]" />
+        <div className="mb-8 text-[13px] font-semibold tracking-tight text-ink">
           OpenRAG
         </div>
         <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.18em] text-secondary">
