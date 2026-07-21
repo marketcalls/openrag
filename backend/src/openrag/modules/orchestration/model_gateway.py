@@ -49,6 +49,8 @@ def validate_provider_base_url(value: str, *, environment: str) -> str:
 
 
 def _model_name(provider_kind: str, configured_name: str) -> str:
+    if provider_kind == "litellm":
+        return configured_name
     prefixes = {
         "openai": "openai",
         "openai_compatible": "openai",
@@ -77,6 +79,11 @@ def build_model_runtime(
     if model.provider_kind in {"openai_compatible", "ollama"}:
         if not model.base_url:
             raise ConflictError("model base URL is required")
+        api_base = validate_provider_base_url(
+            model.base_url,
+            environment=environment,
+        )
+    elif model.provider_kind == "litellm" and model.base_url:
         api_base = validate_provider_base_url(
             model.base_url,
             environment=environment,

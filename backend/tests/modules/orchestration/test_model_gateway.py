@@ -51,6 +51,36 @@ def test_existing_litellm_provider_prefix_is_not_duplicated() -> None:
     assert runtime.litellm_model == "openai/gpt-5-mini"
 
 
+def test_native_litellm_runtime_preserves_catalog_provider_prefix() -> None:
+    runtime = build_model_runtime(
+        model(
+            provider_kind="litellm",
+            litellm_model_name="anthropic/claude-sonnet-4-6",
+        ),
+        api_key="secret",
+        environment="production",
+        max_output_tokens=1_024,
+    )
+
+    assert runtime.litellm_model == "anthropic/claude-sonnet-4-6"
+    assert runtime.api_base is None
+
+
+def test_native_litellm_runtime_validates_optional_custom_base_url() -> None:
+    runtime = build_model_runtime(
+        model(
+            provider_kind="litellm",
+            litellm_model_name="openai/private-model",
+            base_url="https://models.example.test/v1/",
+        ),
+        api_key="secret",
+        environment="production",
+        max_output_tokens=1_024,
+    )
+
+    assert runtime.api_base == "https://models.example.test/v1"
+
+
 def test_openai_requires_a_stored_credential() -> None:
     with pytest.raises(ConflictError, match="credential"):
         build_model_runtime(

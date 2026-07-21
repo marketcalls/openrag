@@ -6,7 +6,17 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from openrag.modules.models.reasoning import ReasoningEffort
 
-ProviderKind = Literal["openai", "ollama", "openai_compatible"]
+ProviderKind = Literal["openai", "ollama", "openai_compatible", "litellm"]
+CatalogCapability = Literal[
+    "asr",
+    "chat",
+    "doc_parse",
+    "embedding",
+    "ocr",
+    "rerank",
+    "tts",
+    "vision",
+]
 ModelProbeStatus = Literal["pending", "passed", "failed"]
 ModelProbeRunStatus = Literal["queued", "running", "passed", "failed", "stale"]
 
@@ -34,6 +44,8 @@ class ModelCreate(BaseModel):
                 "base_url is required for ollama and "
                 "openai_compatible providers"
             )
+        if self.provider_kind == "litellm" and "/" not in self.litellm_model_name:
+            raise ValueError("litellm model names must include a provider prefix")
         return self
 
 
@@ -107,3 +119,24 @@ class ModelPublic(BaseModel):
     default_reasoning_effort: ReasoningEffort
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ModelCatalogItemOut(BaseModel):
+    provider: str
+    model_id: str
+    capabilities: list[CatalogCapability]
+    max_tokens: int | None
+    provider_kind: ProviderKind
+    litellm_model_name: str
+    suggested_base_url: str | None
+
+    model_config = ConfigDict(frozen=True)
+
+
+class ModelCatalogPageOut(BaseModel):
+    items: list[ModelCatalogItemOut]
+    total: int = Field(ge=0)
+    offset: int = Field(ge=0)
+    limit: int = Field(ge=1, le=1_000)
+
+    model_config = ConfigDict(frozen=True)

@@ -7,13 +7,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/select';
 import { toast } from '@/components/ui/toaster';
+import { CatalogPicker } from '@/features/admin/model-catalog/catalog-picker';
 
 import { useCreateModel, usePatchModel } from './queries';
 
 type ProviderKind = ModelCreate['provider_kind'];
 
 const NEEDS_BASE_URL: ProviderKind[] = ['ollama', 'openai_compatible'];
-const NEEDS_KEY: ProviderKind[] = ['openai', 'openai_compatible'];
+const NEEDS_KEY: ProviderKind[] = ['openai', 'openai_compatible', 'litellm'];
+const SHOWS_BASE_URL: ProviderKind[] = ['ollama', 'openai_compatible', 'litellm'];
 
 export function ModelFormDialog({
   open,
@@ -33,6 +35,7 @@ export function ModelFormDialog({
   const [apiKey, setApiKey] = useState('');
   const [defaultReasoningEffort, setDefaultReasoningEffort] =
     useState<ReasoningEffort>('off');
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const editing = model !== null && model !== undefined;
 
   useEffect(() => {
@@ -53,6 +56,7 @@ export function ModelFormDialog({
       setBaseUrl('');
       setApiKey('');
       setDefaultReasoningEffort('off');
+      setCatalogOpen(false);
       create.reset();
       patch.reset();
     }
@@ -65,7 +69,9 @@ export function ModelFormDialog({
     if (model) {
       const body: ModelPatch = {
         display_name: displayName.trim(),
-        ...(NEEDS_BASE_URL.includes(provider) ? { base_url: baseUrl.trim() } : {}),
+        ...(SHOWS_BASE_URL.includes(provider) && baseUrl.trim()
+          ? { base_url: baseUrl.trim() }
+          : {}),
         ...(NEEDS_KEY.includes(provider) && apiKey ? { api_key: apiKey } : {}),
         ...(model.supports_reasoning
           ? { default_reasoning_effort: defaultReasoningEffort }
@@ -87,7 +93,7 @@ export function ModelFormDialog({
       display_name: displayName.trim(),
       litellm_model_name: modelId.trim(),
       provider_kind: provider,
-      ...(NEEDS_BASE_URL.includes(provider) && baseUrl.trim()
+      ...(SHOWS_BASE_URL.includes(provider) && baseUrl.trim()
         ? { base_url: baseUrl.trim() }
         : {}),
       ...(NEEDS_KEY.includes(provider) && apiKey ? { api_key: apiKey } : {}),
@@ -130,12 +136,20 @@ export function ModelFormDialog({
               onChange={(event) => setProvider(event.target.value as ProviderKind)}
             >
               <option value="openai">OpenAI via LiteLLM</option>
+              <option value="litellm">Native LiteLLM provider</option>
               <option value="ollama">Ollama via LiteLLM</option>
               <option value="openai_compatible">OpenAI-compatible via LiteLLM</option>
             </NativeSelect>
           </div>
           <div>
-            <Label htmlFor="model-id">Model id</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="model-id">Model id</Label>
+              {!editing ? (
+                <Button size="sm" variant="ghost" onClick={() => setCatalogOpen(!catalogOpen)}>
+                  {catalogOpen ? 'Hide catalog' : 'Browse catalog'}
+                </Button>
+              ) : null}
+            </div>
             <Input
               id="model-id"
               required
@@ -146,12 +160,26 @@ export function ModelFormDialog({
               onChange={(event) => setModelId(event.target.value)}
             />
           </div>
-          {NEEDS_BASE_URL.includes(provider) ? (
+          {catalogOpen && !editing ? (
+            <CatalogPicker
+              capability="chat"
+              onSelect={(entry) => {
+                setDisplayName(`${entry.model_id} · ${entry.provider}`);
+                setProvider(entry.provider_kind);
+                setModelId(entry.litellm_model_name);
+                setBaseUrl(entry.suggested_base_url ?? '');
+                setCatalogOpen(false);
+              }}
+            />
+          ) : null}
+          {SHOWS_BASE_URL.includes(provider) ? (
             <div>
-              <Label htmlFor="model-base-url">Base URL</Label>
+              <Label htmlFor="model-base-url">
+                Base URL{provider === 'litellm' ? ' (optional)' : ''}
+              </Label>
               <Input
                 id="model-base-url"
-                required
+                required={NEEDS_BASE_URL.includes(provider)}
                 type="url"
                 autoComplete="url"
                 placeholder="http://ollama:11434"

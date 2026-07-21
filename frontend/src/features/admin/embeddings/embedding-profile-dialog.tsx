@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/select';
 import { toast } from '@/components/ui/toaster';
+import { CatalogPicker } from '@/features/admin/model-catalog/catalog-picker';
 
 import { useCreateEmbeddingProfile, usePatchEmbeddingProfile } from './queries';
 
@@ -36,6 +37,7 @@ export function EmbeddingProfileDialog({
   const [dimension, setDimension] = useState('1024');
   const [maxTokens, setMaxTokens] = useState('8192');
   const [batchSize, setBatchSize] = useState('32');
+  const [catalogOpen, setCatalogOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -51,6 +53,7 @@ export function EmbeddingProfileDialog({
 
   const close = (next: boolean): void => {
     if (!next) {
+      setCatalogOpen(false);
       create.reset();
       patch.reset();
     }
@@ -136,7 +139,14 @@ export function EmbeddingProfileDialog({
               </NativeSelect>
             </div>
             <div>
-              <Label htmlFor="embedding-model">Model identifier</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="embedding-model">Model identifier</Label>
+                {!editing && provider === 'litellm' ? (
+                  <Button size="sm" variant="ghost" onClick={() => setCatalogOpen(!catalogOpen)}>
+                    {catalogOpen ? 'Hide catalog' : 'Browse catalog'}
+                  </Button>
+                ) : null}
+              </div>
               <Input
                 id="embedding-model"
                 required
@@ -150,6 +160,33 @@ export function EmbeddingProfileDialog({
                 Use a LiteLLM model identifier such as openai/text-embedding-3-small or ollama/nomic-embed-text.
               </p>
             </div>
+            {catalogOpen && provider === 'litellm' ? (
+              <CatalogPicker
+                capability="embedding"
+                onSelect={(entry) => {
+                  setName(`${entry.model_id} · ${entry.provider}`);
+                  setModelName(
+                    entry.provider_kind === 'openai_compatible'
+                      ? `openai/${entry.model_id}`
+                      : entry.litellm_model_name,
+                  );
+                  setBaseUrl(entry.suggested_base_url ?? '');
+                  if (entry.max_tokens) setMaxTokens(String(entry.max_tokens));
+                  if (entry.litellm_model_name === 'openai/text-embedding-3-small') {
+                    setDimension('1536');
+                  } else if (
+                    entry.litellm_model_name === 'openai/text-embedding-3-large'
+                  ) {
+                    setDimension('3072');
+                  } else if (
+                    entry.litellm_model_name === 'openai/text-embedding-ada-002'
+                  ) {
+                    setDimension('1536');
+                  }
+                  setCatalogOpen(false);
+                }}
+              />
+            ) : null}
             {provider === 'litellm' ? (
               <div>
                 <Label htmlFor="embedding-base-url">Base URL (optional)</Label>

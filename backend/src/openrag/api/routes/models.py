@@ -1,13 +1,15 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.api.deps import get_session
 from openrag.core.config import Settings, get_settings
-from openrag.modules.models import service
+from openrag.modules.models import catalog, service
 from openrag.modules.models.schemas import (
+    CatalogCapability,
+    ModelCatalogPageOut,
     ModelCreate,
     ModelOut,
     ModelPatch,
@@ -28,6 +30,23 @@ SuperadminDep = Annotated[
     TenantContext,
     Depends(require_platform_superadmin()),
 ]
+
+
+@router.get("/admin/model-catalog", response_model=ModelCatalogPageOut)
+async def list_model_catalog(
+    context: SuperadminDep,
+    capability: CatalogCapability | None = None,
+    query: Annotated[str | None, Query(max_length=200)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=1_000)] = 100,
+) -> ModelCatalogPageOut:
+    del context
+    return catalog.search_catalog(
+        capability=capability,
+        query=query,
+        offset=offset,
+        limit=limit,
+    )
 
 
 @router.get("/admin/models", response_model=list[ModelOut])

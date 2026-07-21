@@ -283,6 +283,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/document-versions/{version_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Document Version Activity */
+        get: operations["get_document_version_activity_api_v1_document_versions__version_id__activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/document-versions/{version_id}/approve": {
         parameters: {
             query?: never;
@@ -643,6 +660,23 @@ export interface paths {
         put?: never;
         /** Forget Memory */
         post: operations["forget_memory_api_v1_workspaces__workspace_id__memories__memory_id__forget_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/model-catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Model Catalog */
+        get: operations["list_model_catalog_api_v1_admin_model_catalog_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1429,6 +1463,13 @@ export interface components {
              */
             updated_at: string;
         };
+        /** DocumentOcrSummaryOut */
+        DocumentOcrSummaryOut: {
+            /** Detected Pages */
+            detected_pages: number;
+            /** Low Confidence Pages */
+            low_confidence_pages: number;
+        };
         /** DocumentOut */
         DocumentOut: {
             /**
@@ -1465,10 +1506,64 @@ export interface components {
             /** External Identifier */
             external_identifier?: string | null;
         };
+        /** DocumentStageAttemptOut */
+        DocumentStageAttemptOut: {
+            /** Pipeline Kind */
+            pipeline_kind: string;
+            /** Stage */
+            stage: string;
+            /** State */
+            state: string;
+            /** Attempts */
+            attempts: number;
+            /** Error Code */
+            error_code: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+        };
+        /** DocumentVersionActivityOut */
+        DocumentVersionActivityOut: {
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /** Decisions */
+            decisions: components["schemas"]["DocumentVersionDecisionOut"][];
+            /** Stages */
+            stages: components["schemas"]["DocumentStageAttemptOut"][];
+            ocr: components["schemas"]["DocumentOcrSummaryOut"];
+        };
         /** DocumentVersionDecision */
         DocumentVersionDecision: {
             /** Reason */
             reason?: string | null;
+        };
+        /** DocumentVersionDecisionOut */
+        DocumentVersionDecisionOut: {
+            /** Lifecycle Revision */
+            lifecycle_revision: number;
+            /** Decision */
+            decision: string;
+            /**
+             * Actor Id
+             * Format: uuid
+             */
+            actor_id: string;
+            /** Reason */
+            reason: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** DocumentVersionOut */
         DocumentVersionOut: {
@@ -2669,6 +2764,37 @@ export interface components {
             /** Model Id */
             model_id?: string | null;
         };
+        /** ModelCatalogItemOut */
+        ModelCatalogItemOut: {
+            /** Provider */
+            provider: string;
+            /** Model Id */
+            model_id: string;
+            /** Capabilities */
+            capabilities: ("asr" | "chat" | "doc_parse" | "embedding" | "ocr" | "rerank" | "tts" | "vision")[];
+            /** Max Tokens */
+            max_tokens: number | null;
+            /**
+             * Provider Kind
+             * @enum {string}
+             */
+            provider_kind: "openai" | "ollama" | "openai_compatible" | "litellm";
+            /** Litellm Model Name */
+            litellm_model_name: string;
+            /** Suggested Base Url */
+            suggested_base_url: string | null;
+        };
+        /** ModelCatalogPageOut */
+        ModelCatalogPageOut: {
+            /** Items */
+            items: components["schemas"]["ModelCatalogItemOut"][];
+            /** Total */
+            total: number;
+            /** Offset */
+            offset: number;
+            /** Limit */
+            limit: number;
+        };
         /** ModelCreate */
         ModelCreate: {
             /** Litellm Model Name */
@@ -2679,7 +2805,7 @@ export interface components {
              * Provider Kind
              * @enum {string}
              */
-            provider_kind: "openai" | "ollama" | "openai_compatible";
+            provider_kind: "openai" | "ollama" | "openai_compatible" | "litellm";
             /** Base Url */
             base_url?: string | null;
             /** Api Key */
@@ -2700,7 +2826,7 @@ export interface components {
              * Provider Kind
              * @enum {string}
              */
-            provider_kind: "openai" | "ollama" | "openai_compatible";
+            provider_kind: "openai" | "ollama" | "openai_compatible" | "litellm";
             /** Base Url */
             base_url: string | null;
             /** Enabled */
@@ -4017,6 +4143,37 @@ export interface operations {
             };
         };
     };
+    get_document_version_activity_api_v1_document_versions__version_id__activity_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentVersionActivityOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     approve_document_version_api_v1_document_versions__version_id__approve_post: {
         parameters: {
             query?: never;
@@ -4946,6 +5103,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_model_catalog_api_v1_admin_model_catalog_get: {
+        parameters: {
+            query?: {
+                capability?: ("asr" | "chat" | "doc_parse" | "embedding" | "ocr" | "rerank" | "tts" | "vision") | null;
+                query?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCatalogPageOut"];
+                };
             };
             /** @description Validation Error */
             422: {

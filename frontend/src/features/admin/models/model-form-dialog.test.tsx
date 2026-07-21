@@ -52,6 +52,46 @@ test('base URL appears only for ollama and openai compatible providers', async (
   expect(screen.getByLabelText('Base URL')).toBeInTheDocument();
   await user.selectOptions(screen.getByLabelText('Provider'), 'openai_compatible');
   expect(screen.getByLabelText('Base URL')).toBeInTheDocument();
+  await user.selectOptions(screen.getByLabelText('Provider'), 'litellm');
+  expect(screen.getByLabelText('Base URL (optional)')).toBeInTheDocument();
+});
+
+test('selects a searchable catalog preset as a native LiteLLM model', async () => {
+  const fetchMock = vi.fn(async () =>
+    new Response(
+      JSON.stringify({
+        items: [
+          {
+            provider: 'Anthropic',
+            model_id: 'claude-sonnet-4-6',
+            capabilities: ['chat', 'vision'],
+            max_tokens: 200000,
+            provider_kind: 'litellm',
+            litellm_model_name: 'anthropic/claude-sonnet-4-6',
+            suggested_base_url: null,
+          },
+        ],
+        total: 1,
+        offset: 0,
+        limit: 1000,
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ),
+  );
+  const user = userEvent.setup();
+  renderDialog(fetchMock);
+
+  await user.click(screen.getByRole('button', { name: 'Browse catalog' }));
+  expect(await screen.findByText('Native LiteLLM')).toBeVisible();
+  await user.click(await screen.findByRole('button', { name: /claude-sonnet-4-6/i }));
+
+  expect(screen.getByLabelText('Provider')).toHaveValue('litellm');
+  expect(screen.getByLabelText('Model id')).toHaveValue(
+    'anthropic/claude-sonnet-4-6',
+  );
+  expect(screen.getByLabelText('Display name')).toHaveValue(
+    'claude-sonnet-4-6 · Anthropic',
+  );
 });
 
 test('shows the backend problem detail when model registration fails', async () => {

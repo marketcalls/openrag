@@ -1,0 +1,5510 @@
+[
+  {
+    "provider": "302.AI",
+    "model_id": "kimi-k2.6",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-5.5",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-5.4",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-5.4-mini",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-5.4-nano",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-5.2-pro",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-5.2",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-5.1",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-5.1-chat-latest",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-5",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-5-mini",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-5-nano",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-5-chat-latest",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-4.1",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 1047576,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-4.1-mini",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 1047576,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-4.1-nano",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 1047576,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-4.5-preview",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-4o-mini",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-4o",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-3.5-turbo",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 4096,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "gpt-3.5-turbo-16k-0613",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 16385,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "whisper-v3-turbo",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "mistral-ocr-latest",
+    "capabilities": [
+      "ocr"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "vlm",
+    "capabilities": [
+      "doc_parse"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "jina-embeddings-v3",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "302.AI",
+    "model_id": "jina-reranker-v2-base-multilingual",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 134144,
+    "base_url": "https://api.302.ai"
+  },
+  {
+    "provider": "Tongyi-Qianwen",
+    "model_id": "qwen-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 995904,
+    "base_url": "https://dashscope.aliyuncs.com"
+  },
+  {
+    "provider": "Tongyi-Qianwen",
+    "model_id": "text-embedding-v4",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://dashscope.aliyuncs.com"
+  },
+  {
+    "provider": "Tongyi-Qianwen",
+    "model_id": "qwen3-vl-plus",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": 260096,
+    "base_url": "https://dashscope.aliyuncs.com"
+  },
+  {
+    "provider": "Tongyi-Qianwen",
+    "model_id": "qwen-tts-flash",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": null,
+    "base_url": "https://dashscope.aliyuncs.com"
+  },
+  {
+    "provider": "Tongyi-Qianwen",
+    "model_id": "qwen-asr-flash",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": null,
+    "base_url": "https://dashscope.aliyuncs.com"
+  },
+  {
+    "provider": "Tongyi-Qianwen",
+    "model_id": "fun-asr",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": null,
+    "base_url": "https://dashscope.aliyuncs.com"
+  },
+  {
+    "provider": "Tongyi-Qianwen",
+    "model_id": "text-embedding-v3",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://dashscope.aliyuncs.com"
+  },
+  {
+    "provider": "Tongyi-Qianwen",
+    "model_id": "qwen3-rerank",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://dashscope.aliyuncs.com"
+  },
+  {
+    "provider": "Anthropic",
+    "model_id": "claude-opus-4-8",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.anthropic.com"
+  },
+  {
+    "provider": "Anthropic",
+    "model_id": "claude-opus-4-7",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.anthropic.com"
+  },
+  {
+    "provider": "Anthropic",
+    "model_id": "claude-opus-4-6",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.anthropic.com"
+  },
+  {
+    "provider": "Anthropic",
+    "model_id": "claude-opus-4-5-20251101",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.anthropic.com"
+  },
+  {
+    "provider": "Anthropic",
+    "model_id": "claude-opus-4-1-20250805",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.anthropic.com"
+  },
+  {
+    "provider": "Anthropic",
+    "model_id": "claude-opus-4-20250514",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.anthropic.com"
+  },
+  {
+    "provider": "Anthropic",
+    "model_id": "claude-sonnet-4-6",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 64000,
+    "base_url": "https://api.anthropic.com"
+  },
+  {
+    "provider": "Anthropic",
+    "model_id": "claude-sonnet-4-5-20250929",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 64000,
+    "base_url": "https://api.anthropic.com"
+  },
+  {
+    "provider": "Anthropic",
+    "model_id": "claude-sonnet-4-20250514",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 64000,
+    "base_url": "https://api.anthropic.com"
+  },
+  {
+    "provider": "Anthropic",
+    "model_id": "claude-haiku-4-5-20251001",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 64000,
+    "base_url": "https://api.anthropic.com"
+  },
+  {
+    "provider": "Anthropic",
+    "model_id": "claude-3-7-sonnet-20250219",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 64000,
+    "base_url": "https://api.anthropic.com"
+  },
+  {
+    "provider": "Anthropic",
+    "model_id": "claude-3-5-sonnet-20241022",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.anthropic.com"
+  },
+  {
+    "provider": "Anthropic",
+    "model_id": "claude-3-5-haiku-20241022",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.anthropic.com"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "text-embedding-3-large",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 16384,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "bge-reranker-v2-m3",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "IndexTeam/IndexTTS-2",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "claude-opus-4-7",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 200000,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "claude-opus-4-6",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 200000,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "claude-sonnet-4-5-20250929",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 200000,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "claude-haiku-4-5-20251001",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 200000,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "gpt-5.4",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "gpt-5.4-mini",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "gpt-5.4-nano",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "gpt-4o-mini",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "Qwen/Qwen3-Max",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "Qwen/Qwen3-Coder",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "Qwen/Qwen3-32B",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "Qwen/Qwen3-VL-235B-A22B-Instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "kimi-k2.6",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 200000,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "glm-5.1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "MiniMax-M2.7",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1000000,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "MiniMax-M2",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1000000,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "gemini-2.5-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1000000,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Astraflow",
+    "model_id": "gemini-2.5-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1000000,
+    "base_url": "https://api.modelverse.cn/v1"
+  },
+  {
+    "provider": "Avian",
+    "model_id": "deepseek/deepseek-v4-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 164000,
+    "base_url": "https://api.avian.io"
+  },
+  {
+    "provider": "Avian",
+    "model_id": "deepseek/deepseek-v4-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 164000,
+    "base_url": "https://api.avian.io"
+  },
+  {
+    "provider": "Avian",
+    "model_id": "deepseek/deepseek-v3.2",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 164000,
+    "base_url": "https://api.avian.io"
+  },
+  {
+    "provider": "Avian",
+    "model_id": "moonshotai/kimi-k2.5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131000,
+    "base_url": "https://api.avian.io"
+  },
+  {
+    "provider": "Avian",
+    "model_id": "z-ai/glm-5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131000,
+    "base_url": "https://api.avian.io"
+  },
+  {
+    "provider": "Avian",
+    "model_id": "minimax/minimax-m2.5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1000000,
+    "base_url": "https://api.avian.io"
+  },
+  {
+    "provider": "BaiChuan",
+    "model_id": "Baichuan4",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.baichuan-ai.com/v1"
+  },
+  {
+    "provider": "BaiChuan",
+    "model_id": "Baichuan4-Air",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.baichuan-ai.com/v1"
+  },
+  {
+    "provider": "BaiChuan",
+    "model_id": "Baichuan4-Turbo",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.baichuan-ai.com/v1"
+  },
+  {
+    "provider": "BaiChuan",
+    "model_id": "Baichuan-M3",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.baichuan-ai.com/v1"
+  },
+  {
+    "provider": "BaiChuan",
+    "model_id": "Baichuan-M3-plus",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.baichuan-ai.com/v1"
+  },
+  {
+    "provider": "BaiChuan",
+    "model_id": "Baichuan-M2-plus",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.baichuan-ai.com/v1"
+  },
+  {
+    "provider": "BaiChuan",
+    "model_id": "Baichuan-M2",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.baichuan-ai.com/v1"
+  },
+  {
+    "provider": "BaiChuan",
+    "model_id": "Baichuan3-Turbo",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.baichuan-ai.com/v1"
+  },
+  {
+    "provider": "BaiChuan",
+    "model_id": "Baichuan3-Turbo-128k",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.baichuan-ai.com/v1"
+  },
+  {
+    "provider": "BaiChuan",
+    "model_id": "Baichuan2-Turbo",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.baichuan-ai.com/v1"
+  },
+  {
+    "provider": "BaiChuan",
+    "model_id": "Baichuan-Text-Embedding",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.baichuan-ai.com/v1"
+  },
+  {
+    "provider": "BaiduYiyan",
+    "model_id": "deepseek-v3.2",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 98304,
+    "base_url": "https://qianfan.baidubce.com/v2"
+  },
+  {
+    "provider": "BaiduYiyan",
+    "model_id": "deepseek-v4-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://qianfan.baidubce.com/v2"
+  },
+  {
+    "provider": "BaiduYiyan",
+    "model_id": "deepseek-v4-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://qianfan.baidubce.com/v2"
+  },
+  {
+    "provider": "BaiduYiyan",
+    "model_id": "qwen3-32b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 30720,
+    "base_url": "https://qianfan.baidubce.com/v2"
+  },
+  {
+    "provider": "BaiduYiyan",
+    "model_id": "qwen3-4b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 30720,
+    "base_url": "https://qianfan.baidubce.com/v2"
+  },
+  {
+    "provider": "BaiduYiyan",
+    "model_id": "ernie-5.0",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": 121856,
+    "base_url": "https://qianfan.baidubce.com/v2"
+  },
+  {
+    "provider": "BaiduYiyan",
+    "model_id": "embedding-v1",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 384,
+    "base_url": "https://qianfan.baidubce.com/v2"
+  },
+  {
+    "provider": "BaiduYiyan",
+    "model_id": "qwen3-reranker-4b",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://qianfan.baidubce.com/v2"
+  },
+  {
+    "provider": "BaiduYiyan",
+    "model_id": "paddleocr-vl-0.9b",
+    "capabilities": [
+      "ocr"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://qianfan.baidubce.com/v2"
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 200000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "anthropic.claude-3-5-haiku-20241022-v1:0",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 200000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "anthropic.claude-3-opus-20240229-v1:0",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 200000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "anthropic.claude-3-sonnet-20240229-v1:0",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 200000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "anthropic.claude-3-haiku-20240307-v1:0",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 200000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "meta.llama3-1-405b-instruct-v1:0",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "meta.llama3-1-70b-instruct-v1:0",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "meta.llama3-1-8b-instruct-v1:0",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "mistral.mistral-large-2407-v1:0",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "mistral.mixtral-8x7b-instruct-v0:1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "amazon.nova-pro-v1:0",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 300000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "amazon.nova-lite-v1:0",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 300000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "amazon.nova-micro-v1:0",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "cohere.command-r-plus-v1:0",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "cohere.command-r-v1:0",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "amazon.titan-embed-text-v2:0",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "amazon.titan-embed-text-v1",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "cohere.embed-english-v3",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 512,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "cohere.embed-multilingual-v3",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 512,
+    "base_url": null
+  },
+  {
+    "provider": "Bedrock",
+    "model_id": "cohere.embed-v4:0",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 128000,
+    "base_url": null
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "command-a-plus-05-2026",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "command-a-03-2025",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "command-r7b-12-2024",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "command-a-translate-08-2025",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "command-a-reasoning-08-2025",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "command-a-vision-07-2025",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "command-r-plus-08-2024",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "command-r-08-2024",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "rerank-v4.0-pro",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "rerank-v4.0-fast",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "rerank-v3.5",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 4096,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "rerank-english-v3.0",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 4096,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "rerank-multilingual-v3.0",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 4096,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "embed-v4.0",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "embed-english-v3.0",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 512,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "embed-english-light-v3.0",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 512,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "embed-multilingual-v3.0",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 512,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "embed-multilingual-light-v3.0",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 512,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "Cohere",
+    "model_id": "cohere-transcribe-03-2026",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.cohere.com"
+  },
+  {
+    "provider": "CometAPI",
+    "model_id": "gpt-5.5",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.cometapi.com"
+  },
+  {
+    "provider": "CometAPI",
+    "model_id": "gpt-5.4-mini",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.cometapi.com"
+  },
+  {
+    "provider": "CometAPI",
+    "model_id": "gpt-5",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.cometapi.com"
+  },
+  {
+    "provider": "CometAPI",
+    "model_id": "gpt-4o",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.cometapi.com"
+  },
+  {
+    "provider": "CometAPI",
+    "model_id": "claude-sonnet-4-6",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 200000,
+    "base_url": "https://api.cometapi.com"
+  },
+  {
+    "provider": "CometAPI",
+    "model_id": "gemini-3-pro-preview",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.cometapi.com"
+  },
+  {
+    "provider": "CometAPI",
+    "model_id": "deepseek-v3.2",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.cometapi.com"
+  },
+  {
+    "provider": "CometAPI",
+    "model_id": "qwen3-235b-a22b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.cometapi.com"
+  },
+  {
+    "provider": "CometAPI",
+    "model_id": "text-embedding-3-small",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8191,
+    "base_url": "https://api.cometapi.com"
+  },
+  {
+    "provider": "CometAPI",
+    "model_id": "text-embedding-3-large",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8191,
+    "base_url": "https://api.cometapi.com"
+  },
+  {
+    "provider": "CometAPI",
+    "model_id": "text-embedding-ada-002",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8191,
+    "base_url": "https://api.cometapi.com"
+  },
+  {
+    "provider": "CometAPI",
+    "model_id": "whisper-1",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.cometapi.com"
+  },
+  {
+    "provider": "CometAPI",
+    "model_id": "tts-1",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.cometapi.com"
+  },
+  {
+    "provider": "DeepInfra",
+    "model_id": "deepseek-ai/DeepSeek-V3.2",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.deepinfra.com"
+  },
+  {
+    "provider": "DeepInfra",
+    "model_id": "Qwen/Qwen3-Embedding-4B",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.deepinfra.com"
+  },
+  {
+    "provider": "DeepInfra",
+    "model_id": "hexgrad/Kokoro-82M",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": 16384,
+    "base_url": "https://api.deepinfra.com"
+  },
+  {
+    "provider": "DeepInfra",
+    "model_id": "bosonai/HiggsAudioV2.5",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.deepinfra.com"
+  },
+  {
+    "provider": "DeepSeek",
+    "model_id": "deepseek-v4-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.deepseek.com"
+  },
+  {
+    "provider": "DeepSeek",
+    "model_id": "deepseek-v4-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.deepseek.com"
+  },
+  {
+    "provider": "Fish Audio",
+    "model_id": "s2-pro",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.fish.audio"
+  },
+  {
+    "provider": "Fish Audio",
+    "model_id": "s1",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.fish.audio"
+  },
+  {
+    "provider": "Fish Audio",
+    "model_id": "transcribe-1",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.fish.audio"
+  },
+  {
+    "provider": "FuturMix",
+    "model_id": "gpt-5.5",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://futurmix.ai"
+  },
+  {
+    "provider": "FuturMix",
+    "model_id": "gpt-5.4",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://futurmix.ai"
+  },
+  {
+    "provider": "FuturMix",
+    "model_id": "gpt-5.4-mini",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://futurmix.ai"
+  },
+  {
+    "provider": "FuturMix",
+    "model_id": "gpt-5.4-nano",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://futurmix.ai"
+  },
+  {
+    "provider": "FuturMix",
+    "model_id": "claude-opus-4-7",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 200000,
+    "base_url": "https://futurmix.ai"
+  },
+  {
+    "provider": "FuturMix",
+    "model_id": "claude-opus-4-6",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 200000,
+    "base_url": "https://futurmix.ai"
+  },
+  {
+    "provider": "FuturMix",
+    "model_id": "claude-sonnet-4-6",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 200000,
+    "base_url": "https://futurmix.ai"
+  },
+  {
+    "provider": "FuturMix",
+    "model_id": "claude-haiku-4-5-20251001",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 200000,
+    "base_url": "https://futurmix.ai"
+  },
+  {
+    "provider": "FuturMix",
+    "model_id": "gemini-3.1-pro-preview",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 2000000,
+    "base_url": "https://futurmix.ai"
+  },
+  {
+    "provider": "FuturMix",
+    "model_id": "gemini-2.5-pro",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 2000000,
+    "base_url": "https://futurmix.ai"
+  },
+  {
+    "provider": "FuturMix",
+    "model_id": "gemini-2.5-flash",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://futurmix.ai"
+  },
+  {
+    "provider": "FuturMix",
+    "model_id": "gemini-2.5-flash-lite",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://futurmix.ai"
+  },
+  {
+    "provider": "GiteeAI",
+    "model_id": "qwen3-8b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.moark.ai/v1"
+  },
+  {
+    "provider": "GiteeAI",
+    "model_id": "qwen3-0.6b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.moark.ai/v1"
+  },
+  {
+    "provider": "GiteeAI",
+    "model_id": "glm-4.7-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://api.moark.ai/v1"
+  },
+  {
+    "provider": "GiteeAI",
+    "model_id": "BAAI/bge-reranker-v2-m3",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.moark.ai/v1"
+  },
+  {
+    "provider": "GiteeAI",
+    "model_id": "BAAI/bge-m3",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.moark.ai/v1"
+  },
+  {
+    "provider": "GiteeAI",
+    "model_id": "GOT-OCR2_0",
+    "capabilities": [
+      "ocr"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.moark.ai/v1"
+  },
+  {
+    "provider": "GiteeAI",
+    "model_id": "DeepSeek-OCR-2",
+    "capabilities": [
+      "ocr"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.moark.ai/v1"
+  },
+  {
+    "provider": "GiteeAI",
+    "model_id": "PaddleOCR-VL-1.5",
+    "capabilities": [
+      "ocr"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.moark.ai/v1"
+  },
+  {
+    "provider": "GiteeAI",
+    "model_id": "jina-clip-v2",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.moark.ai/v1"
+  },
+  {
+    "provider": "GiteeAI",
+    "model_id": "HunyuanOCR",
+    "capabilities": [
+      "ocr"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.moark.ai/v1"
+  },
+  {
+    "provider": "GiteeAI",
+    "model_id": "MinerU2.5",
+    "capabilities": [
+      "doc_parse"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.moark.ai/v1"
+  },
+  {
+    "provider": "Gemini",
+    "model_id": "gemini-2.5-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://generativelanguage.googleapis.com"
+  },
+  {
+    "provider": "Gemini",
+    "model_id": "text-embedding-004",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 2048,
+    "base_url": "https://generativelanguage.googleapis.com"
+  },
+  {
+    "provider": "Groq",
+    "model_id": "llama-3.1-8b-instant",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+  {
+    "provider": "Groq",
+    "model_id": "llama-3.3-70b-versatile",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+  {
+    "provider": "Groq",
+    "model_id": "openai/gpt-oss-120b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+  {
+    "provider": "Groq",
+    "model_id": "openai/gpt-oss-20b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+  {
+    "provider": "Groq",
+    "model_id": "groq/compound",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+  {
+    "provider": "Groq",
+    "model_id": "groq/compound-mini",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+  {
+    "provider": "Groq",
+    "model_id": "openai/gpt-oss-20b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+  {
+    "provider": "Groq",
+    "model_id": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+  {
+    "provider": "Groq",
+    "model_id": "qwen/qwen3-32b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+  {
+    "provider": "Groq",
+    "model_id": "canopylabs/orpheus-v1-english",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+  {
+    "provider": "Groq",
+    "model_id": "canopylabs/orpheus-arabic-saudi",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+  {
+    "provider": "Groq",
+    "model_id": "whisper-large-v3-turbo",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+  {
+    "provider": "Groq",
+    "model_id": "whisper-large-v3",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "deepseek-v4-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "deepseek-v4-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "deepseek-v3.2",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 163840,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "deepseek-v3.1-terminus",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "DeepSeek-V3",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "deepseek-r1-250528",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "qwen3-235b-a22b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "qwen3-32b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "qwen3-30b-a3b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "kimi-k2.6",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "longcat-flash-chat",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "glm-5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 202752,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "glm-5.1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 202752,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "qwen2.5-vl-72b",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 49152,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "bge-m3",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8000,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuaweiCloud",
+    "model_id": "bge-reranker-v2-m3",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 8000,
+    "base_url": "https://api.modelarts-maas.com"
+  },
+  {
+    "provider": "HuggingFace",
+    "model_id": "openai/gpt-oss-120b:fastest",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://router.huggingface.co/v1"
+  },
+  {
+    "provider": "Tencent Hunyuan",
+    "model_id": "hunyuan-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.hunyuan.cloud.tencent.com/v1"
+  },
+  {
+    "provider": "Tencent Hunyuan",
+    "model_id": "hunyuan-standard",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.hunyuan.cloud.tencent.com/v1"
+  },
+  {
+    "provider": "Tencent Hunyuan",
+    "model_id": "hunyuan-standard-256K",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.hunyuan.cloud.tencent.com/v1"
+  },
+  {
+    "provider": "Tencent Hunyuan",
+    "model_id": "hunyuan-lite",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.hunyuan.cloud.tencent.com/v1"
+  },
+  {
+    "provider": "Tencent Hunyuan",
+    "model_id": "hunyuan-embedding",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 16384,
+    "base_url": "https://api.hunyuan.cloud.tencent.com/v1"
+  },
+  {
+    "provider": "Jiekou.AI",
+    "model_id": "deepseek-v4-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.jiekou.ai"
+  },
+  {
+    "provider": "Jiekou.AI",
+    "model_id": "deepseek-v4-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.jiekou.ai"
+  },
+  {
+    "provider": "Jiekou.AI",
+    "model_id": "zai-org/glm-4.5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.jiekou.ai"
+  },
+  {
+    "provider": "Jiekou.AI",
+    "model_id": "zai-org/glm-4.5v",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.jiekou.ai"
+  },
+  {
+    "provider": "Jiekou.AI",
+    "model_id": "zai-org/glm-4.7",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.jiekou.ai"
+  },
+  {
+    "provider": "Jiekou.AI",
+    "model_id": "zai-org/glm-4.7-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.jiekou.ai"
+  },
+  {
+    "provider": "Jiekou.AI",
+    "model_id": "zai-org/glm-5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.jiekou.ai"
+  },
+  {
+    "provider": "Jiekou.AI",
+    "model_id": "baai/bge-reranker-v2-m3",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.jiekou.ai"
+  },
+  {
+    "provider": "Jiekou.AI",
+    "model_id": "text-embedding-3-large",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.jiekou.ai"
+  },
+  {
+    "provider": "Jina",
+    "model_id": "jina-vlm",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.jina.ai/v1"
+  },
+  {
+    "provider": "Jina",
+    "model_id": "jina-reranker-v3",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 134144,
+    "base_url": "https://api.jina.ai/v1"
+  },
+  {
+    "provider": "Jina",
+    "model_id": "jina-reranker-m0",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 134144,
+    "base_url": "https://api.jina.ai/v1"
+  },
+  {
+    "provider": "Jina",
+    "model_id": "jina-colbert-v2",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 134144,
+    "base_url": "https://api.jina.ai/v1"
+  },
+  {
+    "provider": "Jina",
+    "model_id": "jina-reranker-v2-base-multilingual",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 134144,
+    "base_url": "https://api.jina.ai/v1"
+  },
+  {
+    "provider": "Jina",
+    "model_id": "jina-embeddings-v3",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.jina.ai/v1"
+  },
+  {
+    "provider": "Jina",
+    "model_id": "jina-embeddings-v4",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.jina.ai/v1"
+  },
+  {
+    "provider": "Jina",
+    "model_id": "jina-embeddings-v5-text-small",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.jina.ai/v1"
+  },
+  {
+    "provider": "Jina",
+    "model_id": "jina-embeddings-v5-text-nano",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.jina.ai/v1"
+  },
+  {
+    "provider": "Jina",
+    "model_id": "jina-embeddings-v5-omni-small",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.jina.ai/v1"
+  },
+  {
+    "provider": "Jina",
+    "model_id": "jina-embeddings-v5-omni-nano",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.jina.ai/v1"
+  },
+  {
+    "provider": "Jina",
+    "model_id": "jina-clip-v2",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.jina.ai/v1"
+  },
+  {
+    "provider": "Jina",
+    "model_id": "jina-embeddings-v2-base-en",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.jina.ai/v1"
+  },
+  {
+    "provider": "LongCat",
+    "model_id": "LongCat-Flash-Chat",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.longcat.chat"
+  },
+  {
+    "provider": "LongCat",
+    "model_id": "LongCat-Flash-Lite",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.longcat.chat"
+  },
+  {
+    "provider": "LongCat",
+    "model_id": "LongCat-Flash-Thinking-2601",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.longcat.chat"
+  },
+  {
+    "provider": "LongCat",
+    "model_id": "LongCat-Flash-Omni-2603",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.longcat.chat"
+  },
+  {
+    "provider": "LongCat",
+    "model_id": "LongCat-2.0-Preview",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.longcat.chat"
+  },
+  {
+    "provider": "MinerU.Net",
+    "model_id": "vlm",
+    "capabilities": [
+      "doc_parse"
+    ],
+    "max_tokens": null,
+    "base_url": "https://mineru.net"
+  },
+  {
+    "provider": "MinerU.Net",
+    "model_id": "MinerU-HTML",
+    "capabilities": [
+      "doc_parse"
+    ],
+    "max_tokens": null,
+    "base_url": "https://mineru.net"
+  },
+  {
+    "provider": "MiniMax",
+    "model_id": "MiniMax-M3",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1024000,
+    "base_url": "https://api.minimaxi.com"
+  },
+  {
+    "provider": "MiniMax",
+    "model_id": "minimax-m2.7",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://api.minimaxi.com"
+  },
+  {
+    "provider": "MiniMax",
+    "model_id": "minimax-m2.7-highspeed",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://api.minimaxi.com"
+  },
+  {
+    "provider": "MiniMax",
+    "model_id": "minimax-m2.5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://api.minimaxi.com"
+  },
+  {
+    "provider": "MiniMax",
+    "model_id": "minimax-m2.5-highspeed",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://api.minimaxi.com"
+  },
+  {
+    "provider": "MiniMax",
+    "model_id": "minimax-m2.1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://api.minimaxi.com"
+  },
+  {
+    "provider": "MiniMax",
+    "model_id": "minimax-m2.1-highspeed",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://api.minimaxi.com"
+  },
+  {
+    "provider": "MiniMax",
+    "model_id": "minimax-m2",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://api.minimaxi.com"
+  },
+  {
+    "provider": "MiniMax",
+    "model_id": "minimax-m2-her",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 65536,
+    "base_url": "https://api.minimaxi.com"
+  },
+  {
+    "provider": "MiniMax",
+    "model_id": "speech-2.8-hd",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.minimaxi.com"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "mistral-large-latest",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "mistral-medium-latest",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "mistral-small-latest",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "ministral-8b-latest",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "ministral-3b-latest",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "pixtral-large-latest",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "codestral-latest",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 256000,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "open-mistral-nemo",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "open-mistral-7b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32000,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "open-mixtral-8x7b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32000,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "open-mixtral-8x22b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 64000,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "magistral-medium-latest",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 40000,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "magistral-small-latest",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 40000,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "mistral-embed",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Mistral",
+    "model_id": "mistral-ocr-2512",
+    "capabilities": [
+      "ocr"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.mistral.ai"
+  },
+  {
+    "provider": "Moonshot",
+    "model_id": "kimi-k2.6",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.moonshot.cn/v1"
+  },
+  {
+    "provider": "Moonshot",
+    "model_id": "kimi-k2.5",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.moonshot.cn/v1"
+  },
+  {
+    "provider": "Moonshot",
+    "model_id": "moonshot-v1-8k",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 8000,
+    "base_url": "https://api.moonshot.cn/v1"
+  },
+  {
+    "provider": "Moonshot",
+    "model_id": "moonshot-v1-32k",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32000,
+    "base_url": "https://api.moonshot.cn/v1"
+  },
+  {
+    "provider": "Moonshot",
+    "model_id": "moonshot-v1-128k",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.moonshot.cn/v1"
+  },
+  {
+    "provider": "Moonshot",
+    "model_id": "moonshot-v1-8k-vision-preview",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 8000,
+    "base_url": "https://api.moonshot.cn/v1"
+  },
+  {
+    "provider": "Moonshot",
+    "model_id": "moonshot-v1-32k-vision-preview",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 32000,
+    "base_url": "https://api.moonshot.cn/v1"
+  },
+  {
+    "provider": "Moonshot",
+    "model_id": "moonshot-v1-128k-vision-preview",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.moonshot.cn/v1"
+  },
+  {
+    "provider": "n1n",
+    "model_id": "gpt-4o-mini",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.n1n.ai"
+  },
+  {
+    "provider": "n1n",
+    "model_id": "gpt-4o",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.n1n.ai"
+  },
+  {
+    "provider": "n1n",
+    "model_id": "gpt-5.2",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.n1n.ai"
+  },
+  {
+    "provider": "n1n",
+    "model_id": "claude-sonnet-4-6",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 200000,
+    "base_url": "https://api.n1n.ai"
+  },
+  {
+    "provider": "n1n",
+    "model_id": "deepseek-v3-0324",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.n1n.ai"
+  },
+  {
+    "provider": "n1n",
+    "model_id": "deepseek-v3-1-250821",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.n1n.ai"
+  },
+  {
+    "provider": "n1n",
+    "model_id": "deepseek-v3-1-think-250821",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.n1n.ai"
+  },
+  {
+    "provider": "n1n",
+    "model_id": "kimi-k2-250905",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.n1n.ai"
+  },
+  {
+    "provider": "n1n",
+    "model_id": "qwen3-coder-plus",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.n1n.ai"
+  },
+  {
+    "provider": "n1n",
+    "model_id": "text-embedding-3-small",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8191,
+    "base_url": "https://api.n1n.ai"
+  },
+  {
+    "provider": "n1n",
+    "model_id": "text-embedding-3-large",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8191,
+    "base_url": "https://api.n1n.ai"
+  },
+  {
+    "provider": "n1n",
+    "model_id": "text-embedding-ada-002",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8191,
+    "base_url": "https://api.n1n.ai"
+  },
+  {
+    "provider": "n1n",
+    "model_id": "BAAI/bge-reranker-v2-m3",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.n1n.ai"
+  },
+  {
+    "provider": "n1n",
+    "model_id": "Qwen/Qwen3-Reranker-0.6B",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.n1n.ai"
+  },
+  {
+    "provider": "NovitaAI",
+    "model_id": "deepseek/deepseek-v4-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 65536,
+    "base_url": "https://api.novita.ai"
+  },
+  {
+    "provider": "NovitaAI",
+    "model_id": "meta-llama/llama-3.3-70b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.novita.ai"
+  },
+  {
+    "provider": "NovitaAI",
+    "model_id": "qwen/qwen3-30b-a3b-fp8",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.novita.ai"
+  },
+  {
+    "provider": "NovitaAI",
+    "model_id": "qwen/qwen3-235b-a22b-fp8",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.novita.ai"
+  },
+  {
+    "provider": "NovitaAI",
+    "model_id": "moonshotai/kimi-k2-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.novita.ai"
+  },
+  {
+    "provider": "NovitaAI",
+    "model_id": "google/gemma-3-27b-it",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.novita.ai"
+  },
+  {
+    "provider": "NovitaAI",
+    "model_id": "mistralai/mistral-nemo",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.novita.ai"
+  },
+  {
+    "provider": "NovitaAI",
+    "model_id": "baai/bge-m3",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.novita.ai"
+  },
+  {
+    "provider": "NovitaAI",
+    "model_id": "baai/bge-reranker-v2-m3",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 1024,
+    "base_url": "https://api.novita.ai"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "abacusai/dracarys-llama-3.1-70b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "bytedance/seed-oss-36b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "deepseek-ai/deepseek-v4-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "deepseek-ai/deepseek-v4-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/nv-embed-v1",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "google/codegemma-7b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "google/gemma-2-2b-it",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "google/gemma-4-31b-it",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "meta/llama-3.2-90b-vision-instruct",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "meta/llama-4-maverick-17b-128e-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "minimaxai/minimax-m2.5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "minimaxai/minimax-m2.7",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "mistralai/mistral-7b-instruct-v0.3",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "mistralai/mistral-large-3-675b-instruct-2512",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "mistralai/mistral-medium-3.5-128b",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "mistralai/mistral-nemotron",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "moonshotai/kimi-k2.6",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "moonshotai/kimi-k2-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "moonshotai/kimi-k2-thinking",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/gliner-pii",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 4096,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/llama-3.1-nemoguard-8b-content-safety",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/llama-3.1-nemoguard-8b-topic-control",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/llama-3.1-nemotron-nano-8b-v1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/llama-3.1-nemotron-safety-guard-8b-v3",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/llama-3.2-nemoretriever-1b-vlm-embed-v1",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/llama-3.3-nemotron-super-49b-v1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/nemotron-3-nano-30b-a3b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/nemotron-3-super-120b-a12b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/nemotron-content-safety-reasoning-4b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/nemotron-mini-4b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 4096,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/nv-embed-v1",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/nv-embedqa-e5-v5",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 512,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/nv-embedqa-mistral-7b-v2",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 512,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/nv-rerankqa-mistral-4b-v3",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 4096,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/llama-3.2-nv-rerankqa-1b-v2",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 4096,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/nvidia-nemotron-nano-9b-v2",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "nvidia/riva-translate-4b-instruct-v1.1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 4096,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "openai/gpt-oss-120b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "qwen/qwen3.5-122b-a10b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "qwen/qwen3-coder-480b-a35b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "z-ai/glm5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "z-ai/glm-5.1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "NVIDIA",
+    "model_id": "z-ai/glm4.7",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://integrate.api.nvidia.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-5.5",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-5.4",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-5.4-mini",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-5.4-nano",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-5.2-pro",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-5.2",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-5.1",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-5.1-chat-latest",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-5",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-5-mini",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-5-nano",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-5-chat-latest",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 400000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-4.1",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 1047576,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-4.1-mini",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 1047576,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-4.1-nano",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 1047576,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-4.5-preview",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-4o-mini",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-4o",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-3.5-turbo",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 4096,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-3.5-turbo-16k-0613",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 16385,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "text-embedding-ada-002",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8191,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "text-embedding-3-small",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8191,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "text-embedding-3-large",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8191,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "whisper-1",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": 26214400,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-4",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8191,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-4-turbo",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8191,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "gpt-4-32k",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenAI",
+    "model_id": "tts-1",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": 2048,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "provider": "OpenRouter",
+    "model_id": "google/gemma-4-31b-it",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://openrouter.ai/api/v1"
+  },
+  {
+    "provider": "OpenRouter",
+    "model_id": "minimax/minimax-m2.5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 196608,
+    "base_url": "https://openrouter.ai/api/v1"
+  },
+  {
+    "provider": "OpenRouter",
+    "model_id": "tencent/hy3-preview",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://openrouter.ai/api/v1"
+  },
+  {
+    "provider": "OpenRouter",
+    "model_id": "openai/gpt-audio-mini",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://openrouter.ai/api/v1"
+  },
+  {
+    "provider": "OpenRouter",
+    "model_id": "openai/whisper-large-v3",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://openrouter.ai/api/v1"
+  },
+  {
+    "provider": "OrcaRouter",
+    "model_id": "orcarouter/auto",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.orcarouter.ai"
+  },
+  {
+    "provider": "OrcaRouter",
+    "model_id": "openai/tts-1",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.orcarouter.ai"
+  },
+  {
+    "provider": "PaddleOCR.Net",
+    "model_id": "PaddleOCR-VL-1.6",
+    "capabilities": [
+      "ocr"
+    ],
+    "max_tokens": 16384,
+    "base_url": "https://paddleocr.aistudio-app.com/api"
+  },
+  {
+    "provider": "PaddleOCR.Net",
+    "model_id": "PaddleOCR-VL-1.5",
+    "capabilities": [
+      "ocr"
+    ],
+    "max_tokens": 16384,
+    "base_url": "https://paddleocr.aistudio-app.com/api"
+  },
+  {
+    "provider": "PaddleOCR.Net",
+    "model_id": "PP-OCRv6",
+    "capabilities": [
+      "ocr"
+    ],
+    "max_tokens": 16384,
+    "base_url": "https://paddleocr.aistudio-app.com/api"
+  },
+  {
+    "provider": "PaddleOCR.Net",
+    "model_id": "PP-OCRv5",
+    "capabilities": [
+      "ocr"
+    ],
+    "max_tokens": 16384,
+    "base_url": "https://paddleocr.aistudio-app.com/api"
+  },
+  {
+    "provider": "PaddleOCR.Net",
+    "model_id": "PP-StructureV3",
+    "capabilities": [
+      "ocr"
+    ],
+    "max_tokens": 16384,
+    "base_url": "https://paddleocr.aistudio-app.com/api"
+  },
+  {
+    "provider": "Perplexity",
+    "model_id": "sonar",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 127072,
+    "base_url": "https://api.perplexity.ai"
+  },
+  {
+    "provider": "Perplexity",
+    "model_id": "sonar-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 200000,
+    "base_url": "https://api.perplexity.ai"
+  },
+  {
+    "provider": "Perplexity",
+    "model_id": "sonar-reasoning-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 127072,
+    "base_url": "https://api.perplexity.ai"
+  },
+  {
+    "provider": "Perplexity",
+    "model_id": "sonar-deep-research",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 127072,
+    "base_url": "https://api.perplexity.ai"
+  },
+  {
+    "provider": "Perplexity",
+    "model_id": "pplx-embed-v1-0.6b",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 32000,
+    "base_url": "https://api.perplexity.ai"
+  },
+  {
+    "provider": "Perplexity",
+    "model_id": "pplx-embed-v1-4b",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 32000,
+    "base_url": "https://api.perplexity.ai"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "deepseek/deepseek-v4-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "deepseek/deepseek-v4-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "deepseek/deepseek-r1/community",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 64000,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "deepseek/deepseek-v3/community",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 64000,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "deepseek/deepseek-r1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 64000,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "deepseek/deepseek-v3",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 64000,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "deepseek/deepseek-r1-distill-llama-70b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32000,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "deepseek/deepseek-r1-distill-qwen-32b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 64000,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "deepseek/deepseek-r1-distill-qwen-14b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 64000,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "deepseek/deepseek-r1-distill-llama-8b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32000,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "qwen/qwen-2.5-72b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "qwen/qwen-2-vl-72b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "meta-llama/llama-3.2-3b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "qwen/qwen2.5-32b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32000,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "baichuan/baichuan2-13b-chat",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 14336,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "meta-llama/llama-3.1-70b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "meta-llama/llama-3.1-8b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "01-ai/yi-1.5-34b-chat",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 16384,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "01-ai/yi-1.5-9b-chat",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 16384,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "thudm/glm-4-9b-chat",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "PPIO",
+    "model_id": "qwen/qwen-2-7b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.ppio.com/openai/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "deepseek/deepseek-v4-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "deepseek/deepseek-v4-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "moonshotai/kimi-k2.6",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "moonshotai/kimi-k2.5",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "z-ai/glm-5.1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "z-ai/glm-5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "minimax/minimax-m2.7",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "minimax/minimax-m2.5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "minimax/minimax-m2.5-highspeed",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "minimax/minimax-m2.1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "kimi-k2-thinking",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "meituan/longcat-flash-lite",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-max",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "z-ai/glm-4.6",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "z-ai/glm-4.7",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "deepseek/deepseek-v3.2-251201",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "deepseek/deepseek-v3.2-exp-thinking",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "deepseek/deepseek-v3.1-terminus",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "deepseek/deepseek-v3.1-terminus-thinking",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "deepseek-v3.1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "deepseek-v3-0324",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "deepseek-r1-0528",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "deepseek-r1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "doubao-seed-1.6-flash",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "doubao-1.5-pro-32k",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "doubao-seed-1.6",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "doubao-seed-2.0-pro",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "doubao-seed-2.0-lite",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "doubao-seed-2.0-mini",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "doubao-seed-2.0-code",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-next-80b-a3b-thinking",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-235b-a22b-thinking-2507",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-max-2026-01-23",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-next-80b-a3b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-max-preview",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen-2.5-vl-72b-instruct",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-coder-480b-a35b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen-turbo",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-235b-a22b-instruct-2507",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-32b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-30b-a3b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-235b-a22b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen-2.5-vl-7b-instruct",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen-vl-max-2025-01-25",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen2.5-max-2025-01-25",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "minimax-m1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "glm-4.5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-vl-30b-a3b-instruct",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "deepseek-v3",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-30b-a3b-thinking-2507",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "glm-4.5-air",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3.5-397b-a17b",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen/qwen3.5-plus",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen/qwen3.6-plus",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "deepseek/deepseek-v3.2-exp",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen/qwen3.7-max",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen/qwen3.6-27b",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "tencent/hy3-preview",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3.5-35b-a3b",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-vl-30b-a3b-thinking",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Qiniu",
+    "model_id": "qwen3-30b-a3b-instruct-2507",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.qnaigc.com/v1"
+  },
+  {
+    "provider": "Replicate",
+    "model_id": "meta/llama-4-maverick-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.replicate.com"
+  },
+  {
+    "provider": "Replicate",
+    "model_id": "meta/llama-4-scout-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.replicate.com"
+  },
+  {
+    "provider": "Replicate",
+    "model_id": "meta/meta-llama-3-70b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.replicate.com"
+  },
+  {
+    "provider": "Replicate",
+    "model_id": "meta/meta-llama-3-8b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.replicate.com"
+  },
+  {
+    "provider": "Replicate",
+    "model_id": "replicate/all-mpnet-base-v2:b6b7585c9640cd7a9572c6e129c9549d79c9c31f0d3fdce7baac7c67ca38f305",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 384,
+    "base_url": "https://api.replicate.com"
+  },
+  {
+    "provider": "Replicate",
+    "model_id": "ibm-granite/granite-embedding-278m-multilingual:1f76d42a05f120e12272746d5a2d86b525c13420773f795a4cbef9117d8685f1",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 512,
+    "base_url": "https://api.replicate.com"
+  },
+  {
+    "provider": "SILICONFLOW",
+    "model_id": "Pro/deepseek-ai/DeepSeek-V4-Pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.siliconflow.cn/v1"
+  },
+  {
+    "provider": "SILICONFLOW",
+    "model_id": "Pro/deepseek-ai/DeepSeek-V4-Flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.siliconflow.cn/v1"
+  },
+  {
+    "provider": "SILICONFLOW",
+    "model_id": "Pro/moonshotai/Kimi-K2.6",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.siliconflow.cn/v1"
+  },
+  {
+    "provider": "SILICONFLOW",
+    "model_id": "Pro/zai-org/GLM-5.1",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://api.siliconflow.cn/v1"
+  },
+  {
+    "provider": "SILICONFLOW",
+    "model_id": "qwen/qwen3-8b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.siliconflow.cn/v1"
+  },
+  {
+    "provider": "SILICONFLOW",
+    "model_id": "qwen/qwen3.5-4b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.siliconflow.cn/v1"
+  },
+  {
+    "provider": "SILICONFLOW",
+    "model_id": "tencent/hunyuan-mt-7b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.siliconflow.cn/v1"
+  },
+  {
+    "provider": "SILICONFLOW",
+    "model_id": "BAAI/bge-reranker-v2-m3",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.siliconflow.cn/v1"
+  },
+  {
+    "provider": "SILICONFLOW",
+    "model_id": "Qwen/Qwen3-Embedding-0.6B",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.siliconflow.cn/v1"
+  },
+  {
+    "provider": "SILICONFLOW",
+    "model_id": "BAAI/bge-m3",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.siliconflow.cn/v1"
+  },
+  {
+    "provider": "SILICONFLOW",
+    "model_id": "fnlp/MOSS-TTSD-v0.5",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.siliconflow.cn/v1"
+  },
+  {
+    "provider": "SILICONFLOW",
+    "model_id": "FunAudioLLM/CosyVoice2-0.5B",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.siliconflow.cn/v1"
+  },
+  {
+    "provider": "SILICONFLOW",
+    "model_id": "FunAudioLLM/SenseVoiceSmall",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.siliconflow.cn/v1"
+  },
+  {
+    "provider": "StepFun",
+    "model_id": "step-3.5-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.stepfun.ai/v1"
+  },
+  {
+    "provider": "StepFun",
+    "model_id": "step-3.5-flash-paid",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.stepfun.ai/v1"
+  },
+  {
+    "provider": "StepFun",
+    "model_id": "step-2-16k",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 16384,
+    "base_url": "https://api.stepfun.ai/v1"
+  },
+  {
+    "provider": "StepFun",
+    "model_id": "step-1-256k",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.stepfun.ai/v1"
+  },
+  {
+    "provider": "StepFun",
+    "model_id": "step-1-128k",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.stepfun.ai/v1"
+  },
+  {
+    "provider": "StepFun",
+    "model_id": "step-1-32k",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.stepfun.ai/v1"
+  },
+  {
+    "provider": "StepFun",
+    "model_id": "step-1-8k",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.stepfun.ai/v1"
+  },
+  {
+    "provider": "StepFun",
+    "model_id": "step-1-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.stepfun.ai/v1"
+  },
+  {
+    "provider": "StepFun",
+    "model_id": "step-1v-32k",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.stepfun.ai/v1"
+  },
+  {
+    "provider": "StepFun",
+    "model_id": "step-1v-8k",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.stepfun.ai/v1"
+  },
+  {
+    "provider": "StepFun",
+    "model_id": "step-1o-vision-32k",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.stepfun.ai/v1"
+  },
+  {
+    "provider": "StepFun",
+    "model_id": "step-tts-2",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.stepfun.ai/v1"
+  },
+  {
+    "provider": "StepFun",
+    "model_id": "stepaudio-2.5-tts",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.stepfun.ai/v1"
+  },
+  {
+    "provider": "StepFun",
+    "model_id": "step-tts-mini",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.stepfun.ai/v1"
+  },
+  {
+    "provider": "TogetherAI",
+    "model_id": "openai/gpt-oss-20b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.together.ai/v1"
+  },
+  {
+    "provider": "TogetherAI",
+    "model_id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.together.ai/v1"
+  },
+  {
+    "provider": "TogetherAI",
+    "model_id": "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://api.together.ai/v1"
+  },
+  {
+    "provider": "TogetherAI",
+    "model_id": "intfloat/multilingual-e5-large-instruct",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 514,
+    "base_url": "https://api.together.ai/v1"
+  },
+  {
+    "provider": "TogetherAI",
+    "model_id": "BAAI/bge-large-en-v1.5",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 512,
+    "base_url": "https://api.together.ai/v1"
+  },
+  {
+    "provider": "TogetherAI",
+    "model_id": "BAAI/bge-base-en-v1.5",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 512,
+    "base_url": "https://api.together.ai/v1"
+  },
+  {
+    "provider": "TogetherAI",
+    "model_id": "mixedbread-ai/mxbai-rerank-large-v2",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 16384,
+    "base_url": "https://api.together.ai/v1"
+  },
+  {
+    "provider": "TogetherAI",
+    "model_id": "openai/whisper-large-v3",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.together.ai/v1"
+  },
+  {
+    "provider": "TogetherAI",
+    "model_id": "canopylabs/orpheus-3b-0.1-ft",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.together.ai/v1"
+  },
+  {
+    "provider": "TokenHub",
+    "model_id": "gpt-4o-mini",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://aitok.cc/v1"
+  },
+  {
+    "provider": "TokenHub",
+    "model_id": "gpt-4o",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://aitok.cc/v1"
+  },
+  {
+    "provider": "TokenHub",
+    "model_id": "gpt-4",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8191,
+    "base_url": "https://aitok.cc/v1"
+  },
+  {
+    "provider": "TokenHub",
+    "model_id": "gpt-4-turbo",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8191,
+    "base_url": "https://aitok.cc/v1"
+  },
+  {
+    "provider": "TokenHub",
+    "model_id": "claude-3-5-sonnet",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://aitok.cc/v1"
+  },
+  {
+    "provider": "TokenHub",
+    "model_id": "gemini-1.5-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://aitok.cc/v1"
+  },
+  {
+    "provider": "TokenHub",
+    "model_id": "gemini-1.5-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://aitok.cc/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "qwen3-8b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "deepseek-v3-0324",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "qwen3-32b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "kimi-k2-instruct-0905",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 256000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "deepseek-r1-0528",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 164000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "qwen3-coder-480b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1024000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "hunyuan-a13b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 256000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "qwen3-next-80b-a3b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1024000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "deepseek-v3.2-exp",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "deepseek-v3.1-terminus",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 128000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "qwen3-vl-235b-a22b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "qwen3-vl-30b-a3b-instruct",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "deepseek-ocr",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "qwen3-235b-a22b-instruct-2507",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 256000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "glm-4.6",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 200000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "TokenPony",
+    "model_id": "minimax-m2",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 200000,
+    "base_url": "https://api.tokenpony.cn/v1"
+  },
+  {
+    "provider": "Upstage",
+    "model_id": "solar-pro3",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 65536,
+    "base_url": "https://api.upstage.ai/v1"
+  },
+  {
+    "provider": "Upstage",
+    "model_id": "solar-pro2",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 65536,
+    "base_url": "https://api.upstage.ai/v1"
+  },
+  {
+    "provider": "Upstage",
+    "model_id": "solar-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.upstage.ai/v1"
+  },
+  {
+    "provider": "Upstage",
+    "model_id": "solar-mini",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.upstage.ai/v1"
+  },
+  {
+    "provider": "Upstage",
+    "model_id": "solar-embedding-1-large-query",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 2000,
+    "base_url": "https://api.upstage.ai/v1"
+  },
+  {
+    "provider": "Upstage",
+    "model_id": "solar-embedding-1-large-passage",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 2000,
+    "base_url": "https://api.upstage.ai/v1"
+  },
+  {
+    "provider": "VolcEngine",
+    "model_id": "doubao-seed-2-0-pro-260215",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 262144,
+    "base_url": "https://ark.cn-beijing.volces.com/api/v3"
+  },
+  {
+    "provider": "VolcEngine",
+    "model_id": "doubao-embedding-vision-251215",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://ark.cn-beijing.volces.com/api/v3"
+  },
+  {
+    "provider": "Voyage AI",
+    "model_id": "voyage-4-large",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 32000,
+    "base_url": "https://api.voyageai.com"
+  },
+  {
+    "provider": "Voyage AI",
+    "model_id": "voyage-4",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 32000,
+    "base_url": "https://api.voyageai.com"
+  },
+  {
+    "provider": "Voyage AI",
+    "model_id": "voyage-4-lite",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 32000,
+    "base_url": "https://api.voyageai.com"
+  },
+  {
+    "provider": "Voyage AI",
+    "model_id": "voyage-3.5",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 327680,
+    "base_url": "https://api.voyageai.com"
+  },
+  {
+    "provider": "Voyage AI",
+    "model_id": "voyage-3.5-lite",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.voyageai.com"
+  },
+  {
+    "provider": "Voyage AI",
+    "model_id": "voyage-3-large",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 122880,
+    "base_url": "https://api.voyageai.com"
+  },
+  {
+    "provider": "Voyage AI",
+    "model_id": "voyage-code-3",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 122880,
+    "base_url": "https://api.voyageai.com"
+  },
+  {
+    "provider": "Voyage AI",
+    "model_id": "voyage-law-2",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 122880,
+    "base_url": "https://api.voyageai.com"
+  },
+  {
+    "provider": "Voyage AI",
+    "model_id": "voyage-finance-2",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 122880,
+    "base_url": "https://api.voyageai.com"
+  },
+  {
+    "provider": "Voyage AI",
+    "model_id": "rerank-2.5",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 32000,
+    "base_url": "https://api.voyageai.com"
+  },
+  {
+    "provider": "Voyage AI",
+    "model_id": "rerank-2.5-lite",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 32000,
+    "base_url": "https://api.voyageai.com"
+  },
+  {
+    "provider": "Voyage AI",
+    "model_id": "rerank-2",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 4000,
+    "base_url": "https://api.voyageai.com"
+  },
+  {
+    "provider": "Voyage AI",
+    "model_id": "rerank-2-lite",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": 2000,
+    "base_url": "https://api.voyageai.com"
+  },
+  {
+    "provider": "xAI",
+    "model_id": "grok-4",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 256000,
+    "base_url": "https://api.x.ai/v1"
+  },
+  {
+    "provider": "xAI",
+    "model_id": "grok-3",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.x.ai/v1"
+  },
+  {
+    "provider": "xAI",
+    "model_id": "grok-3-fast",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.x.ai/v1"
+  },
+  {
+    "provider": "xAI",
+    "model_id": "grok-3-mini",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.x.ai/v1"
+  },
+  {
+    "provider": "xAI",
+    "model_id": "grok-3-mini-mini-fast",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://api.x.ai/v1"
+  },
+  {
+    "provider": "xAI",
+    "model_id": "grok-2-vision",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": 32768,
+    "base_url": "https://api.x.ai/v1"
+  },
+  {
+    "provider": "xAI",
+    "model_id": "eve",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.x.ai/v1"
+  },
+  {
+    "provider": "Xiaomi",
+    "model_id": "mimo-v2.5-pro",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.xiaomimimo.com/v1"
+  },
+  {
+    "provider": "Xiaomi",
+    "model_id": "mimo-v2.5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1048576,
+    "base_url": "https://api.xiaomimimo.com/v1"
+  },
+  {
+    "provider": "Xiaomi",
+    "model_id": "mimo-v2.5-asr",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://api.xiaomimimo.com/v1"
+  },
+  {
+    "provider": "Xiaomi",
+    "model_id": "mimo-v2.5-tts",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.xiaomimimo.com/v1"
+  },
+  {
+    "provider": "Xiaomi",
+    "model_id": "mimo-v2-tts",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": null,
+    "base_url": "https://api.xiaomimimo.com/v1"
+  },
+  {
+    "provider": "XunFei Spark",
+    "model_id": "spark-x",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 134144,
+    "base_url": "https://spark-api-open.xf-yun.com"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-5-turbo",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-5v-turbo",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4.7",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4.7-flashx",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4.6",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 204800,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4.6v-Flash",
+    "capabilities": [
+      "chat",
+      "vision"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4.5",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4.5-x",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4.5-air",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4.5-airx",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4.5-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4.5v",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": 64000,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4-plus",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4-0520",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4-airx",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8000,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4-air",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4-flash",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4-flashx",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 131072,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4-long",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 1000000,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4v",
+    "capabilities": [
+      "vision"
+    ],
+    "max_tokens": 2000,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-4-9b",
+    "capabilities": [
+      "chat"
+    ],
+    "max_tokens": 8192,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "embedding-2",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 512,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "embedding-3",
+    "capabilities": [
+      "embedding"
+    ],
+    "max_tokens": 512,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-asr-2512",
+    "capabilities": [
+      "asr"
+    ],
+    "max_tokens": 4096,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-tts",
+    "capabilities": [
+      "tts"
+    ],
+    "max_tokens": null,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "glm-ocr",
+    "capabilities": [
+      "ocr"
+    ],
+    "max_tokens": null,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "provider": "ZHIPU-AI",
+    "model_id": "rerank",
+    "capabilities": [
+      "rerank"
+    ],
+    "max_tokens": null,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  }
+]

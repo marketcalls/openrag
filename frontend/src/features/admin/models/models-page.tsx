@@ -14,6 +14,7 @@ import { ModelFormDialog } from './model-form-dialog';
 import { useAdminModels, useDeleteModel, usePatchModel, useProbeModel } from './queries';
 
 function providerLabel(provider: ModelOut['provider_kind']): string {
+  if (provider === 'litellm') return 'Native LiteLLM';
   if (provider === 'openai_compatible') return 'OpenAI-compatible';
   if (provider === 'openai') return 'OpenAI';
   return 'Ollama';

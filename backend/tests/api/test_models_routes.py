@@ -27,6 +27,64 @@ OPENAI_BODY = {
 }
 
 
+async def test_model_catalog_is_searchable_and_superadmin_only(
+    client: httpx.AsyncClient,
+    seeded_user: User,
+    seeded_superadmin: User,
+) -> None:
+    user_headers = await auth(client, seeded_user.email)
+    denied = await client.get(
+        "/api/v1/admin/model-catalog?capability=embedding&query=bge",
+        headers=user_headers,
+    )
+    assert denied.status_code == 403
+
+    super_headers = await auth(client, seeded_superadmin.email)
+    response = await client.get(
+        "/api/v1/admin/model-catalog?capability=embedding&query=bge&limit=100",
+        headers=super_headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] >= 1
+    assert all("embedding" in item["capabilities"] for item in body["items"])
+    assert any("bge" in item["model_id"].lower() for item in body["items"])
+    assert all("api_key" not in item for item in body["items"])
+
+
+async def test_catalog_openai_preset_registers_through_native_litellm(
+    client: httpx.AsyncClient,
+    seeded_superadmin: User,
+) -> None:
+    headers = await auth(client, seeded_superadmin.email)
+    catalog = await client.get(
+        "/api/v1/admin/model-catalog?capability=chat&query=gpt-4o-mini&limit=100",
+        headers=headers,
+    )
+    preset = next(
+        item
+        for item in catalog.json()["items"]
+        if item["provider"] == "OpenAI" and item["model_id"] == "gpt-4o-mini"
+    )
+
+    created = await client.post(
+        "/api/v1/admin/models",
+        headers=headers,
+        json={
+            "display_name": "GPT-4o mini catalog",
+            "provider_kind": preset["provider_kind"],
+            "litellm_model_name": preset["litellm_model_name"],
+            "api_key": "sk-write-only",
+        },
+    )
+
+    assert created.status_code == 201
+    assert created.json()["provider_kind"] == "litellm"
+    assert created.json()["litellm_model_name"] == "openai/gpt-4o-mini"
+    assert "sk-write-only" not in created.text
+
+
 async def test_superadmin_crud_and_key_never_returned(
     client: httpx.AsyncClient,
     seeded_superadmin: User,

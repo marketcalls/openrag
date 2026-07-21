@@ -44,6 +44,43 @@ test('offers in-process LiteLLM with write-only credentials', () => {
   expect(screen.getByLabelText('Base URL (optional)')).toBeInTheDocument();
 });
 
+test('catalog preset fills the LiteLLM embedding contract and known dimension', async () => {
+  const fetchMock = vi.fn(async () =>
+    new Response(
+      JSON.stringify({
+        items: [
+          {
+            provider: 'OpenAI',
+            model_id: 'text-embedding-3-small',
+            capabilities: ['embedding'],
+            max_tokens: 8191,
+            provider_kind: 'litellm',
+            litellm_model_name: 'openai/text-embedding-3-small',
+            suggested_base_url: null,
+          },
+        ],
+        total: 1,
+        offset: 0,
+        limit: 1000,
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ),
+  );
+  const user = userEvent.setup();
+  renderDialog(fetchMock);
+
+  await user.click(screen.getByRole('button', { name: 'Browse catalog' }));
+  await user.click(
+    await screen.findByRole('button', { name: /text-embedding-3-small/i }),
+  );
+
+  expect(screen.getByLabelText('Model identifier')).toHaveValue(
+    'openai/text-embedding-3-small',
+  );
+  expect(screen.getByLabelText('Dimensions')).toHaveValue(1536);
+  expect(screen.getByLabelText('Max tokens')).toHaveValue(8191);
+});
+
 test('submits the immutable vector contract', async () => {
   const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
     new Response(JSON.stringify(existing), {
