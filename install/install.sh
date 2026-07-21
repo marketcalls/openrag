@@ -172,8 +172,23 @@ chmod 600 .env
 COMPOSE_PROFILE_ARGS=()
 [[ "$EMBEDDING_BACKEND" == "tei" ]] && COMPOSE_PROFILE_ARGS=(--profile ml)
 
-log "Building and starting the OpenRAG stack (this can take several minutes on first run)"
-docker compose -f "$COMPOSE_FILE" "${COMPOSE_PROFILE_ARGS[@]}" up -d --build
+AVAILABLE_KB="$(df -Pk . | tail -n1 | awk '{print $4}')"
+if [[ "$AVAILABLE_KB" -lt 15000000 ]]; then
+  warn "only $((AVAILABLE_KB / 1024 / 1024))G free on this filesystem; the build below needs headroom for one ~1-2GB backend image and one small frontend image. Consider pruning old images/build cache (docker system prune) first."
+fi
+
+# Every backend-based service (api, worker, migrate, bootstrap, ...) shares one
+# image via the compose file's YAML anchor (image: openrag-backend:local).
+# Building only 'api' and 'web' produces both distinct images once; `up`
+# without --build then reuses them for every other service. Passing --build
+# to `up` directly would instead build once per *service*, repeatedly
+# unpacking the same multi-hundred-MB image and can exhaust disk on small
+# hosts for no benefit.
+log "Building images (backend and frontend images are each built once and shared)"
+docker compose -f "$COMPOSE_FILE" "${COMPOSE_PROFILE_ARGS[@]}" build api web
+
+log "Starting the OpenRAG stack (this can take several minutes on first run)"
+docker compose -f "$COMPOSE_FILE" "${COMPOSE_PROFILE_ARGS[@]}" up -d
 
 log "Waiting for the API to report ready"
 ready=0
