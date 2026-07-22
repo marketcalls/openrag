@@ -35,6 +35,8 @@ SOURCES = [
 def test_system_prompt_states_data_not_instructions() -> None:
     assert "NOT instructions" in SYSTEM_PROMPT
     assert "[1]" in SYSTEM_PROMPT
+    assert "every factual row or bullet" in SYSTEM_PROMPT
+    assert "source filename exactly" in SYSTEM_PROMPT
 
 
 def test_data_blocks_numbered_and_escaped() -> None:

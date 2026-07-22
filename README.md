@@ -182,6 +182,61 @@ OpenRAG is planned to provide:
 6. The selected language model generates a streamed, grounded answer with citations.
 7. Usage, retrieval activity, administrative changes, and feedback feed operational and quality reporting.
 
+### Agentic retrieval contract
+
+OpenRAG keeps authorization and answer release deterministic, while Agno controls
+the bounded retrieval plan for weak-evidence, metadata-sensitive, analytical,
+and multi-part questions. The planner sees the user question plus prior search
+observations and can perform up to four novel read-only calls: global hybrid
+search, filename/file-type/page/section filtering, search within one document,
+surrounding-chunk retrieval, source inspection, and cross-document comparison.
+Every tool call is tenant pinned and current-version filtered. OpenRAG then
+revalidates the gathered evidence in PostgreSQL and refuses answers that cannot
+produce filename, version, section, and page citations.
+
+Embedding models are never hardcoded into ingestion. Administrators select a
+versioned LiteLLM embedding profile and generation; `text-embedding-3-large` is
+one supported hosted profile among the curated choices. Changing a populated
+workspace requires background reindexing, evaluation, atomic cutover, and a
+rollback-capable previous generation.
+
+### Batch ingestion and repeatable comparison
+
+The batch operator streams supported files through the same authenticated upload
+API used by the UI. It discovers PDF, DOCX, XLSX, PPTX, CSV, TXT, and Markdown
+recursively, requires at least 100 MB of configured batch capacity, bounds
+parallelism, retries transient failures, and emits only sanitized per-file
+receipts. Docling parsing/OCR, chunking, embedding, Qdrant indexing, deduplication,
+updates, deletion, and stage failure records remain in the durable background
+pipeline.
+
+```bash
+export OPENRAG_BATCH_TOKEN='<short-lived access token>'
+cd backend
+uv run python -m openrag.tools.batch_ingest \
+  --base-url https://ragdemo.openalgo.in \
+  --workspace-id '<workspace UUID>' \
+  --max-total-mb 500 \
+  --concurrency 4 \
+  /path/to/document-batch
+```
+
+The versioned 54-question benchmark is
+[`backend/benchmarks/agentic_rag_v1.json`](backend/benchmarks/agentic_rag_v1.json).
+It covers direct facts, multi-document and multi-search questions, ambiguity,
+correct refusal, follow-ups, scanned OCR, tables, and combined digital/OCR
+evidence. Capture Simple RAG and Agentic RAG observations with identical case
+IDs, then generate a like-for-like JSON comparison; incomplete runs fail closed.
+
+```bash
+cd backend
+uv run python -m openrag.modules.evaluations.comparison \
+  --dataset benchmarks/agentic_rag_v1.json \
+  --simple /path/to/simple-observations.json \
+  --agentic /path/to/agentic-observations.json \
+  --output /path/to/comparison.json
+```
+
 ## Grounded analytical artifacts
 
 When a request explicitly asks for analysis, comparison, metrics, a chart, or a

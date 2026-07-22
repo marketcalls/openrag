@@ -212,6 +212,14 @@ async def test_loop_stops_on_a_tool_call_with_no_novel_evidence() -> None:
         ),
         (
             EscalationContext(
+                query="List invoice totals across all uploaded documents.",
+                route=QueryRoute.RAG,
+            ),
+            True,
+            "multi_part_query",
+        ),
+        (
+            EscalationContext(
                 query="Which latest approved version applies to HSE?",
                 route=QueryRoute.RAG,
             ),

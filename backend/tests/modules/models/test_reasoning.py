@@ -6,16 +6,15 @@ from openrag.modules.models.reasoning import resolve_reasoning_effort
 from openrag.modules.models.schemas import ModelCreate, ModelPatch
 
 
-def test_model_capability_contract_requires_a_supported_default() -> None:
-    created = ModelCreate(
-        litellm_model_name="gpt-5-mini",
-        display_name="GPT-5 mini",
-        provider_kind="openai",
-        supports_reasoning=True,
-        default_reasoning_effort="medium",
-    )
-    assert created.default_reasoning_effort == "medium"
-
+def test_model_capabilities_cannot_be_declared_before_live_probe() -> None:
+    with pytest.raises(ValidationError):
+        ModelCreate(
+            litellm_model_name="gpt-5-mini",
+            display_name="GPT-5 mini",
+            provider_kind="openai",
+            supports_reasoning=True,
+            default_reasoning_effort="medium",
+        )
     with pytest.raises(ValidationError):
         ModelCreate(
             litellm_model_name="gpt-4o-mini",
@@ -23,6 +22,8 @@ def test_model_capability_contract_requires_a_supported_default() -> None:
             provider_kind="openai",
             default_reasoning_effort="high",
         )
+    patch = ModelPatch(default_reasoning_effort="medium")
+    assert patch.default_reasoning_effort == "medium"
     with pytest.raises(ValidationError):
         ModelPatch(
             supports_reasoning=False,

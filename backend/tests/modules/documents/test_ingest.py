@@ -33,6 +33,10 @@ from openrag.modules.documents.models import (
 )
 from openrag.modules.documents.pipeline import IngestFailure
 from openrag.modules.documents.service import create_from_upload
+from openrag.modules.events.envelopes import (
+    INGESTION_REQUESTED_EVENT_TYPE,
+    LIFECYCLE_EVENT_TYPE,
+)
 from openrag.modules.events.models import OutboxEvent
 from openrag.modules.retrieval.service import retrieve
 from openrag.modules.tenancy.authorization import AuthorizationSnapshot
@@ -73,6 +77,8 @@ async def test_full_runner_sequence_indexes_document(
     await session.refresh(document)
     assert document.status == "indexed"
     assert document.page_count == 1
+    document_id = document.id
+    document_storage_key = document.storage_key
     jobs = {
         job.stage: job
         for job in (
@@ -84,18 +90,19 @@ async def test_full_runner_sequence_indexes_document(
 
     result = await retrieve(session, context, workspace.id, "invoice 0231")
     assert result.chunks
-    assert result.chunks[0].document_id == document.id
+    assert result.chunks[0].document_id == document_id
 
-    artifact = await build_storage(get_settings()).get(document.storage_key + ".chunks.json")
+    artifact = await build_storage(get_settings()).get(document_storage_key + ".chunks.json")
     assert json.loads(artifact)
-    assert (
-        await session.scalar(
-            select(func.count())
-            .select_from(OutboxEvent)
-            .where(OutboxEvent.aggregate_id == document.id)
-        )
-        == 1
-    )
+    assert set(
+        (
+            await session.scalars(
+                select(OutboxEvent.event_type).where(
+                    OutboxEvent.aggregate_id == document_id
+                )
+            )
+        ).all()
+    ) == {INGESTION_REQUESTED_EVENT_TYPE, LIFECYCLE_EVENT_TYPE}
     assert (
         await session.scalar(
             select(func.count())
@@ -158,31 +165,30 @@ async def test_late_worker_failure_cannot_regress_approved_legacy_content(
     )
 
 
-async def test_dispatch_compensation_fences_a_stale_accepted_worker(
+async def test_durable_retry_fences_a_stale_accepted_worker(
     session: AsyncSession,
     stack_env: None,
 ) -> None:
     context, _workspace, document = await upload(session, "stale-accepted-dispatch")
     version = await session.get(DocumentVersion, document.id)
     assert version is not None
+    document.status = "failed"
+    document.error = "parse_failed"
+    version.state = "failed"
+    version.provenance_state = "failed"
+    version.processing_error_code = "parse_failed"
+    await session.commit()
     dispatched_revision = version.lifecycle_revision
-    await service.mark_retry_dispatch_failed(
-        session,
-        context,
-        version.id,
-        expected_revision=dispatched_revision,
-    )
+    retried = await service.retry_version(session, context, version.id)
 
     with pytest.raises(IngestFailure, match="stale ingest attempt"):
         await run_parse(document.id, dispatched_revision)
 
     await session.refresh(document)
     await session.refresh(version)
-    assert (document.status, document.error) == ("failed", "dispatch_failed")
-    assert (version.state, version.processing_error_code) == (
-        "failed",
-        "dispatch_failed",
-    )
+    assert retried.id == version.id
+    assert (document.status, document.error) == ("processing", None)
+    assert (version.state, version.processing_error_code) == ("processing", None)
     assert version.lifecycle_revision == dispatched_revision + 1
     assert (
         await session.scalar(
@@ -190,6 +196,19 @@ async def test_dispatch_compensation_fences_a_stale_accepted_worker(
         )
         == 0
     )
+    event = await session.scalar(
+        select(OutboxEvent).where(
+            OutboxEvent.aggregate_id == version.id,
+            OutboxEvent.event_type == INGESTION_REQUESTED_EVENT_TYPE,
+            OutboxEvent.dedupe_key
+            == (
+                f"document-version:{version.id}:ingestion:"
+                f"{version.lifecycle_revision}"
+            ),
+        )
+    )
+    assert event is not None
+    assert event.payload["payload"]["attempt"] == version.lifecycle_revision
 
 
 async def test_parse_failure_marks_document_failed(
@@ -225,14 +244,19 @@ async def test_mark_failed_records_reason(
     await session.refresh(document)
     assert document.status == "failed"
     assert document.error == "boom after retries"
-    assert (
-        await session.scalar(
-            select(func.count())
-            .select_from(OutboxEvent)
-            .where(OutboxEvent.aggregate_id == document.id)
-        )
-        == 1
+    events = list(
+        (
+            await session.scalars(
+                select(OutboxEvent).where(
+                    OutboxEvent.aggregate_id == document.id
+                )
+            )
+        ).all()
     )
+    assert {event.event_type for event in events} == {
+        INGESTION_REQUESTED_EVENT_TYPE,
+        LIFECYCLE_EVENT_TYPE,
+    }
     assert (
         await session.scalar(
             select(func.count())
@@ -290,14 +314,18 @@ async def test_lifecycle_audit_failure_rolls_back_failure_transition(
         1,
     )
     assert stored_job is not None and stored_job.finished_at is None
-    assert (
-        await session.scalar(
-            select(func.count())
-            .select_from(OutboxEvent)
-            .where(OutboxEvent.aggregate_id == document_id)
-        )
-        == 0
+    events = list(
+        (
+            await session.scalars(
+                select(OutboxEvent).where(
+                    OutboxEvent.aggregate_id == document_id
+                )
+            )
+        ).all()
     )
+    assert [event.event_type for event in events] == [
+        INGESTION_REQUESTED_EVENT_TYPE
+    ]
     assert (
         await session.scalar(
             select(func.count())
@@ -339,21 +367,23 @@ async def test_governed_indexed_document_cannot_be_deleted_by_worker_escape_hatc
     qdrant_collection: None,
 ) -> None:
     context, workspace, document = await upload(session, "ingest-4")
-    await run_parse(document.id, 1)
-    await run_chunk(document.id, 1)
-    await run_embed_upsert(document.id, 1)
+    document_id = document.id
+    workspace_id = workspace.id
+    await run_parse(document_id, 1)
+    await run_chunk(document_id, 1)
+    await run_embed_upsert(document_id, 1)
 
-    await run_delete(document.id, context.user_id)
+    await run_delete(document_id, context.user_id)
 
     stored = (
-        await session.execute(select(Document).where(Document.id == document.id))
+        await session.execute(select(Document).where(Document.id == document_id))
     ).scalar_one_or_none()
     assert stored is not None
-    result = await retrieve(session, context, workspace.id, "invoice 0231")
+    result = await retrieve(session, context, workspace_id, "invoice 0231")
     assert result.chunks
     actions = [event.action for event in (await session.execute(select(AuditEvent))).scalars()]
     assert "document.version.source_deleted" not in actions
-    await run_delete(document.id, context.user_id)
+    await run_delete(document_id, context.user_id)
 
 
 async def test_delete_is_restartable_and_external_cleanup_has_no_sql_transaction(

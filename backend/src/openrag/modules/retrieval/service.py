@@ -116,6 +116,7 @@ class RetrievalResult:
     no_answer: bool
     evidence: tuple[RetrievedEvidence, ...] = ()
     decision: EvidenceDecision | None = None
+    best_dense_score: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,16 +234,137 @@ def select_final_evidence(
 
 
 _BROAD_COLLECTION_QUERY = re.compile(
-    r"\b(?:all|list|each|every|across|multiple|several|"
+    r"\b(?:all|list|each|every|across|multiple|several|compare|"
     r"invoices|documents|files|reports|policies|contracts|records)\b",
     re.IGNORECASE,
 )
+_EXPLICIT_SCOPE_QUERY = re.compile(
+    r"\b(?:related\s+to|regarding|within|named|called)\s+"
+    r"([a-z0-9][a-z0-9._-]{2,100})",
+    re.IGNORECASE,
+)
+_COLLECTION_SCOPE_TERMS = {
+    "contract": "contract",
+    "contracts": "contract",
+    "invoice": "invoice",
+    "invoices": "invoice",
+    "policies": "policy",
+    "policy": "policy",
+    "report": "report",
+    "reports": "report",
+}
 
 
 def query_requires_document_diversity(query: str) -> bool:
     """Identify bounded collection questions that need cross-document coverage."""
 
     return _BROAD_COLLECTION_QUERY.search(query) is not None
+
+
+def select_generation_result(
+    query: str,
+    candidates: Sequence[tuple[RetrievalPlan, RetrievalResult]],
+) -> RetrievalResult:
+    """Choose one isolated generation by relevance, then breadth.
+
+    Generations cannot be merged because their embedding/citation provenance
+    contracts differ. Dense relevance therefore selects the generation first;
+    cross-document coverage is only a tie-breaker for genuinely broad queries.
+    """
+
+    if not candidates:
+        raise ValueError("retrieval_candidates_required")
+
+    def coverage(result: RetrievalResult) -> int:
+        return len({chunk.document_id for chunk in result.chunks})
+
+    explicit_scope = tuple(
+        match.group(1).casefold() for match in _EXPLICIT_SCOPE_QUERY.finditer(query)
+    )
+    query_terms = explicit_scope
+    if not query_terms and query_requires_document_diversity(query):
+        query_terms = tuple(
+            dict.fromkeys(
+                _COLLECTION_SCOPE_TERMS[term]
+                for term in re.findall(
+                    r"[a-z0-9][a-z0-9._-]{2,100}", query.casefold()
+                )
+                if term in _COLLECTION_SCOPE_TERMS
+            )
+        )
+
+    def lexical_relevance(result: RetrievalResult) -> float:
+        if not query_terms:
+            return 0.0
+        best = 0.0
+        lexical_values = [chunk.text for chunk in result.chunks]
+        for item in result.evidence:
+            lexical_values.extend(
+                (
+                    item.document_name,
+                    item.version_label,
+                    " ".join(item.section_path),
+                    item.locator_label,
+                )
+            )
+        for value in lexical_values:
+            text_terms = {
+                _COLLECTION_SCOPE_TERMS.get(term, term)
+                for term in re.findall(
+                    r"[a-z0-9][a-z0-9._-]{2,100}",
+                    value.casefold(),
+                )
+            }
+            best = max(
+                best,
+                sum(term in text_terms for term in query_terms) / len(query_terms),
+            )
+        return best
+
+    lexical = [(entry, lexical_relevance(entry[1])) for entry in candidates]
+    if any(score > 0 for _entry, score in lexical):
+        return max(
+            lexical,
+            key=lambda value: (
+                value[1],
+                value[0][1].best_dense_score or -1.0,
+                coverage(value[0][1])
+                if query_requires_document_diversity(query)
+                else 0,
+            ),
+        )[0][1]
+
+    scored = [
+        entry for entry in candidates if entry[1].best_dense_score is not None
+    ]
+    if scored:
+        return max(
+            scored,
+            key=lambda entry: (
+                entry[1].best_dense_score,
+                coverage(entry[1]) if query_requires_document_diversity(query) else 0,
+            ),
+        )[1]
+    if query_requires_document_diversity(query):
+        return max(candidates, key=lambda entry: coverage(entry[1]))[1]
+    return candidates[0][1]
+
+
+def scope_retrieval_plan(
+    plan: RetrievalPlan,
+    document_ids: tuple[UUID, ...] | None,
+) -> RetrievalPlan:
+    """Intersect an optional authorized document scope with every generation."""
+
+    if document_ids is None:
+        return plan
+    requested = set(document_ids)
+    if plan.filtered_document_ids is not None:
+        requested.intersection_update(plan.filtered_document_ids)
+    return replace(
+        plan,
+        filtered_document_ids=tuple(sorted(requested, key=str)),
+    )
 
 
 def select_final_chunks(
@@ -840,6 +962,7 @@ async def finalize_retrieval(
         return RetrievalResult(
             chunks=chunks,
             no_answer=not chunks or external.best_cosine < plan.min_score,
+            best_dense_score=external.best_cosine,
         )
 
     authorized = await revalidate_candidates(
@@ -892,6 +1015,7 @@ async def finalize_retrieval(
         no_answer=decision.status is not EvidenceStatus.SUFFICIENT,
         evidence=final_evidence,
         decision=decision,
+        best_dense_score=decision.best_dense_score,
     )
 
 
@@ -1081,6 +1205,8 @@ async def retrieve(
     workspace_id: UUID,
     query: str,
     top_k: int = 8,
+    *,
+    document_ids: tuple[UUID, ...] | None = None,
 ) -> RetrievalResult:
     """Compose short SQL phases around an explicitly session-free network phase."""
 
@@ -1094,6 +1220,7 @@ async def retrieve(
     if isinstance(prepared, RetrievalResult):
         await session.rollback()
         return prepared
+    prepared = scope_retrieval_plan(prepared, document_ids)
 
     fallback = None
     configured_fallback = None
@@ -1112,6 +1239,13 @@ async def retrieve(
             query,
             top_k,
         )
+        if fallback is not None:
+            fallback = scope_retrieval_plan(fallback, document_ids)
+        if configured_fallback is not None:
+            configured_fallback = scope_retrieval_plan(
+                configured_fallback,
+                document_ids,
+            )
     await session.rollback()
 
     # Migrated workspaces can contain recent uploads exclusively in the active
@@ -1156,14 +1290,7 @@ async def retrieve(
 
         sufficient = [entry for entry in available if not entry[1].no_answer]
         candidates = sufficient or available
-        if query_requires_document_diversity(query):
-            return max(
-                candidates,
-                key=lambda entry: len(
-                    {chunk.document_id for chunk in entry[1].chunks}
-                ),
-            )[1]
-        return candidates[0][1]
+        return select_generation_result(query, candidates)
 
     external = await execute_retrieval(prepared)
     return await finalize_retrieval(session, context, prepared, external)

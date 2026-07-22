@@ -140,6 +140,7 @@ def create_app(
     app.state.runtime_metrics = runtime_metrics
 
     def problem(status: int, title: str, detail: str) -> JSONResponse:
+        trace_id = current_trace_id()
         return JSONResponse(
             status_code=status,
             content={
@@ -147,8 +148,9 @@ def create_app(
                 "title": title,
                 "status": status,
                 "detail": detail,
-                "trace_id": current_trace_id(),
+                "trace_id": trace_id,
             },
+            headers={"X-Trace-ID": trace_id},
             media_type="application/problem+json",
         )
 

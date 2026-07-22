@@ -23,6 +23,8 @@ async def test_org_a_never_sees_org_b_chunks(
 ) -> None:
     context_a, workspace_a, document_a = two_orgs["a"]
     _, _, document_b = two_orgs["b"]
+    document_a_id = document_a.id
+    document_b_id = document_b.id
 
     result = await retrieve(
         session,
@@ -33,8 +35,8 @@ async def test_org_a_never_sees_org_b_chunks(
     )
 
     returned_documents = {chunk.document_id for chunk in result.chunks}
-    assert document_b.id not in returned_documents
-    assert all(item == document_a.id for item in returned_documents)
+    assert document_b_id not in returned_documents
+    assert all(item == document_a_id for item in returned_documents)
     assert all("9962" not in chunk.text for chunk in result.chunks)
 
 
@@ -71,15 +73,17 @@ async def test_unmarked_governed_document_cannot_be_deleted_by_worker(
     two_orgs: TwoOrgs,
 ) -> None:
     context_a, workspace_a, document_a = two_orgs["a"]
-    before = await retrieve(session, context_a, workspace_a.id, "vault code 7431")
+    document_a_id = document_a.id
+    workspace_a_id = workspace_a.id
+    before = await retrieve(session, context_a, workspace_a_id, "vault code 7431")
     assert any(
-        chunk.document_id == document_a.id for chunk in before.chunks
+        chunk.document_id == document_a_id for chunk in before.chunks
     )
 
-    await run_delete(document_a.id, context_a.user_id)
-    after = await retrieve(session, context_a, workspace_a.id, "vault code 7431")
+    await run_delete(document_a_id, context_a.user_id)
+    after = await retrieve(session, context_a, workspace_a_id, "vault code 7431")
 
-    assert any(chunk.document_id == document_a.id for chunk in after.chunks)
+    assert any(chunk.document_id == document_a_id for chunk in after.chunks)
     assert any("7431" in chunk.text for chunk in after.chunks)
 
 

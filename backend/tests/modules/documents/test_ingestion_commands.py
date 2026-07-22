@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from typing import cast
 from uuid import UUID
 
-import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openrag.modules.documents import service
@@ -18,9 +17,7 @@ class RecordingSession:
         self.added.append(value)
 
 
-def test_ingestion_request_is_content_free_and_revision_deduplicated(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_ingestion_request_is_content_free_and_revision_deduplicated() -> None:
     generation_id = UUID("260f51ce-8c05-4d87-9579-96da4f27497e")
     version = SimpleNamespace(
         id=UUID("10000000-0000-0000-0000-000000000001"),
@@ -32,15 +29,10 @@ def test_ingestion_request_is_content_free_and_revision_deduplicated(
         content_hash="SENTINEL/hash",
     )
     recording = RecordingSession()
-    monkeypatch.setattr(
-        service,
-        "get_settings",
-        lambda: SimpleNamespace(authority_generation_id=generation_id),
-    )
-
     service._persist_ingestion_request(
         cast(AsyncSession, recording),
         cast(DocumentVersion, version),
+        generation_id,
     )
 
     assert len(recording.added) == 1

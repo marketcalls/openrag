@@ -15,12 +15,14 @@ def model_create(**overrides: object) -> ModelCreate:
     return ModelCreate.model_validate(values)
 
 
-def test_registered_models_default_to_chat_capable() -> None:
+def test_registered_models_do_not_accept_unmeasured_capabilities() -> None:
     model = model_create()
 
-    assert model.supports_chat_completion is True
-    assert model.supports_structured_json is False
-    assert model.supports_verifier is False
+    assert not {
+        "supports_chat_completion",
+        "supports_structured_json",
+        "supports_verifier",
+    } & set(model.model_dump())
 
 
 def test_model_credentials_are_not_exposed_in_representations() -> None:
@@ -42,12 +44,12 @@ def test_model_credentials_are_not_exposed_in_representations() -> None:
 def test_model_capability_hierarchy_fails_closed(
     overrides: dict[str, object],
 ) -> None:
-    with pytest.raises(ValidationError, match="capability"):
+    with pytest.raises(ValidationError):
         model_create(**overrides)
 
 
 def test_patch_rejects_explicitly_inconsistent_capabilities() -> None:
-    with pytest.raises(ValidationError, match="capability"):
+    with pytest.raises(ValidationError):
         ModelPatch.model_validate(
             {
                 "supports_chat_completion": False,

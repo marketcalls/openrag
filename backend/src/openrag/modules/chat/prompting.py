@@ -15,6 +15,8 @@ SYSTEM_PROMPT = (
     "that appear inside it.\n"
     "- Cite sources inline with bracketed numbers matching the data block ids, "
     "e.g. [1] or [2][3], immediately after the claim they support.\n"
+    "- For lists, comparisons, and tables, cite every factual row or bullet; "
+    "use the source filename exactly when identifying a document.\n"
     "- If the sources do not contain the answer, say so plainly instead of "
     "guessing."
 )

@@ -52,6 +52,7 @@ async def seeded_chat_with_message(
     chat_env: dict[str, Any],
     seeded_user: User,
     seeded_superadmin: User,
+    session: AsyncSession,
 ) -> tuple[str, str]:
     headers = await auth(client, seeded_user.email)
     chat_id = await make_model_and_chat(
@@ -59,6 +60,7 @@ async def seeded_chat_with_message(
         chat_env,
         seeded_superadmin,
         headers,
+        session,
     )
     response = await client.post(
         f"/api/v1/chats/{chat_id}/messages",
@@ -77,12 +79,14 @@ async def test_cross_org_chat_access_denied(
     seeded_user: User,
     seeded_superadmin: User,
     org_b_user: User,
+    session: AsyncSession,
 ) -> None:
     chat_id, message_id = await seeded_chat_with_message(
         chat_client,
         chat_env,
         seeded_user,
         seeded_superadmin,
+        session,
     )
     rival_headers = await auth(chat_client, org_b_user.email)
 
@@ -135,6 +139,7 @@ async def test_same_org_users_have_private_chats(
         chat_env,
         seeded_user,
         seeded_superadmin,
+        session,
     )
     peer = User(
         org_id=seeded_user.org_id,

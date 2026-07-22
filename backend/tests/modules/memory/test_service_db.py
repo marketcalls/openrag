@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from openrag.core.errors import ConflictError, WorkspaceAccessDenied
+from openrag.core.errors import ConflictError, NotFoundError
 from openrag.modules.auth.models import User
 from openrag.modules.memory.models import MemoryPreference, MemorySuppression
 from openrag.modules.memory.schemas import MemoryCreate, MemoryPatch, MemoryPreferencePatch
@@ -168,7 +168,9 @@ async def test_memory_access_requires_workspace_membership(
         ),
     )
 
-    with pytest.raises(WorkspaceAccessDenied):
+    # User-facing workspace lookups mask authorization failures so callers
+    # cannot enumerate tenant objects.
+    with pytest.raises(NotFoundError):
         await list_memories(
             session,
             outsider,

@@ -74,7 +74,15 @@ def tool_progress_event(
     *,
     iteration: int,
     stage: Literal["started", "completed", "failed"],
-    tool: Literal["search", "search_by_metadata", "get_document"],
+    tool: Literal[
+        "search",
+        "search_by_metadata",
+        "get_document",
+        "search_document",
+        "get_surrounding_context",
+        "compare_documents",
+        "inspect_source_metadata",
+    ],
 ) -> SSEEvent:
     return SSEEvent(
         "tool_progress",

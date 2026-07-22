@@ -324,12 +324,15 @@ async def test_authority_upsert_uses_postgres_evidence_ids_and_physical_generati
     persisted = [
         PersistedEvidence(
             id=uuid4(),
+            chunk_id=uuid4(),
             ordinal=span.span_index,
             page_number=span.page_number,
             locator_kind=span.locator_kind,
             locator_label=span.locator_label,
             section_path=span.section_path,
             content_hash=hashlib.sha256(span.text.encode()).hexdigest(),
+            ocr_status="not_required",
+            content_type="text",
         )
         for span in chunked.evidence_spans
     ]
@@ -341,6 +344,7 @@ async def test_authority_upsert_uses_postgres_evidence_ids_and_physical_generati
         revision_date=datetime(2026, 7, 19),
         projection_revision=0,
         evidence=persisted,
+        document_checksum="d" * 64,
     )
     readiness: list[UUID] = []
 
@@ -369,6 +373,12 @@ async def test_authority_upsert_uses_postgres_evidence_ids_and_physical_generati
     payload = points[0].payload
     assert payload is not None
     assert payload["document_name"] == "Vendor Invoice"
+    assert payload["filename"] == plan.source_filename
+    assert payload["file_type"] == plan.source_mime
+    assert payload["document_checksum"] == "d" * 64
+    assert payload["chunk_id"] == str(persisted[0].chunk_id)
+    assert payload["ocr_status"] == "not_required"
+    assert payload["content_type"] == "text"
     assert payload["version_label"] == "Rev 3"
     assert payload["page_number"] == 1
     assert payload["section_path"] == ["Document"]
@@ -389,14 +399,18 @@ async def test_authority_upsert_fails_closed_when_immediate_probe_is_unready() -
         evidence=[
             PersistedEvidence(
                 id=uuid4(),
+                chunk_id=uuid4(),
                 ordinal=0,
                 page_number=span.page_number,
                 locator_kind=span.locator_kind,
                 locator_label=span.locator_label,
                 section_path=span.section_path,
                 content_hash=hashlib.sha256(span.text.encode()).hexdigest(),
+                ocr_status="ocr",
+                content_type="table",
             )
         ],
+        document_checksum="e" * 64,
     )
 
     async def unready(_candidate: UUID) -> bool:

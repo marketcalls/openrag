@@ -1,7 +1,7 @@
 """Tenant-bound execution seam for allowlisted read-only retrieval tools."""
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID
@@ -31,9 +31,7 @@ from openrag.modules.retrieval.service import (
     RetrievalResult,
     RetrievedChunk,
     RetrievedEvidence,
-    execute_retrieval,
-    finalize_retrieval,
-    prepare_retrieval,
+    retrieve,
     select_final_evidence,
 )
 from openrag.modules.retrieval.sufficiency import (
@@ -105,6 +103,7 @@ def merge_authoritative_evidence(
         no_answer=decision.status is not EvidenceStatus.SUFFICIENT,
         evidence=selected,
         decision=decision,
+        best_dense_score=decision.best_dense_score,
     )
 
 
@@ -125,6 +124,28 @@ class AuthorizedToolBackend(Protocol):
     ) -> Sequence[AuthorizedToolEvidence]: ...
 
     async def get_document(
+        self,
+        document_id: UUID,
+    ) -> Sequence[AuthorizedToolEvidence]: ...
+
+    async def search_document(
+        self,
+        query: str,
+        document_id: UUID,
+    ) -> Sequence[AuthorizedToolEvidence]: ...
+
+    async def get_surrounding_context(
+        self,
+        evidence_span_id: UUID,
+    ) -> Sequence[AuthorizedToolEvidence]: ...
+
+    async def compare_documents(
+        self,
+        query: str,
+        document_ids: tuple[UUID, ...],
+    ) -> Sequence[AuthorizedToolEvidence]: ...
+
+    async def inspect_source_metadata(
         self,
         document_id: UUID,
     ) -> Sequence[AuthorizedToolEvidence]: ...
@@ -179,12 +200,21 @@ def _metadata_document_query(
             DocumentVersion.superseded_by_id.is_(None),
         )
     )
+    filename = metadata.get("filename")
+    if filename:
+        if not isinstance(filename, str):
+            raise ValueError("tool_metadata_invalid")
+        statement = statement.where(DocumentVersion.source_filename == filename)
     if value := metadata.get("document_name"):
         statement = statement.where(Document.name == value)
     if value := metadata.get("department"):
         statement = statement.where(Document.department == value)
     if value := metadata.get("document_type"):
         statement = statement.where(Document.document_type == value)
+    if value := metadata.get("file_type"):
+        if not isinstance(value, str):
+            raise ValueError("tool_metadata_invalid")
+        statement = statement.where(DocumentVersion.source_mime.ilike(f"%/{value}"))
     if value := metadata.get("version_label"):
         statement = statement.where(DocumentVersion.version_label == value)
     if value := metadata.get("revision_date_from"):
@@ -195,11 +225,17 @@ def _metadata_document_query(
         statement = statement.where(
             DocumentVersion.revision_date <= _parse_date(value, "revision_date_to")
         )
-    if value := metadata.get("section"):
+    if metadata.get("section") or metadata.get("page"):
         statement = statement.join(
             DocumentEvidenceSpan,
             DocumentEvidenceSpan.document_version_id == DocumentVersion.id,
-        ).where(DocumentEvidenceSpan.section_path.contains([value]))
+        )
+    if value := metadata.get("section"):
+        statement = statement.where(DocumentEvidenceSpan.section_path.contains([value]))
+    if value := metadata.get("page"):
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError("tool_metadata_invalid")
+        statement = statement.where(DocumentEvidenceSpan.page_number == value)
     return statement.distinct().order_by(Document.id).limit(1_001)
 
 
@@ -229,20 +265,30 @@ class TenantRetrievalBackend:
             for item in evidence
         )
 
+    async def _search_scoped(
+        self,
+        query: str,
+        document_ids: tuple[UUID, ...] | None,
+    ) -> tuple[AuthorizedToolEvidence, ...]:
+        async with self._session_factory() as session:
+            result = await retrieve(
+                session,
+                self._context,
+                self._workspace_id,
+                query,
+                top_k=_MAX_RESULTS_PER_CALL,
+                document_ids=document_ids,
+            )
+        return self._wrap(result.evidence)
+
     async def search(
         self,
         query: str,
         metadata: Mapping[str, MetadataScalar] | None,
     ) -> tuple[AuthorizedToolEvidence, ...]:
-        async with self._session_factory() as session:
-            prepared = await prepare_retrieval(
-                session,
-                self._context,
-                self._workspace_id,
-                query,
-            )
-            document_ids: tuple[UUID, ...] | None = None
-            if metadata:
+        document_ids: tuple[UUID, ...] | None = None
+        if metadata:
+            async with self._session_factory() as session:
                 document_ids = tuple(
                     (
                         await session.execute(
@@ -254,29 +300,26 @@ class TenantRetrievalBackend:
                         )
                     ).scalars()
                 )
-                if len(document_ids) > 1_000:
-                    raise ValueError("tool_metadata_scope_too_broad")
-                if not document_ids:
-                    return ()
-        if isinstance(prepared, RetrievalResult):
-            return self._wrap(prepared.evidence)
-        if document_ids is not None:
-            if prepared.filtered_document_ids is not None:
-                allowed = set(prepared.filtered_document_ids)
-                document_ids = tuple(value for value in document_ids if value in allowed)
+            if len(document_ids) > 1_000:
+                raise ValueError("tool_metadata_scope_too_broad")
             if not document_ids:
                 return ()
-            prepared = replace(prepared, filtered_document_ids=document_ids)
 
-        external = await execute_retrieval(prepared)
-        async with self._session_factory() as session:
-            result = await finalize_retrieval(
-                session,
-                self._context,
-                prepared,
-                external,
-            )
-        return self._wrap(result.evidence)
+        return await self._search_scoped(query, document_ids)
+
+    async def search_document(
+        self,
+        query: str,
+        document_id: UUID,
+    ) -> tuple[AuthorizedToolEvidence, ...]:
+        return await self._search_scoped(query, (document_id,))
+
+    async def compare_documents(
+        self,
+        query: str,
+        document_ids: tuple[UUID, ...],
+    ) -> tuple[AuthorizedToolEvidence, ...]:
+        return await self._search_scoped(query, document_ids)
 
     async def get_document(
         self,
@@ -330,6 +373,75 @@ class TenantRetrievalBackend:
             )
         return self._wrap([_retrieved(item) for item in authorized])
 
+    async def get_surrounding_context(
+        self,
+        evidence_span_id: UUID,
+    ) -> tuple[AuthorizedToolEvidence, ...]:
+        async with self._session_factory() as session:
+            target = (
+                await session.execute(
+                    select(
+                        DocumentEvidenceSpan.document_version_id,
+                        DocumentEvidenceSpan.ordinal,
+                    )
+                    .join(
+                        DocumentVersion,
+                        DocumentVersion.id
+                        == DocumentEvidenceSpan.document_version_id,
+                    )
+                    .where(
+                        DocumentEvidenceSpan.id == evidence_span_id,
+                        DocumentVersion.org_id == self._context.org_id,
+                        DocumentVersion.workspace_id == self._workspace_id,
+                        DocumentVersion.state == "approved",
+                        DocumentVersion.superseded_by_id.is_(None),
+                    )
+                )
+            ).one_or_none()
+            if target is None:
+                return ()
+            version_id, ordinal = target
+            rows = (
+                await session.execute(
+                    select(
+                        DocumentEvidenceSpan.id,
+                        DocumentEvidenceSpan.content_hash,
+                    )
+                    .where(
+                        DocumentEvidenceSpan.document_version_id == version_id,
+                        DocumentEvidenceSpan.ordinal
+                        >= max(0, ordinal - 2),
+                        DocumentEvidenceSpan.ordinal <= ordinal + 2,
+                    )
+                    .order_by(DocumentEvidenceSpan.ordinal)
+                    .limit(5)
+                )
+            ).all()
+            candidates = [
+                CandidateIdentity(
+                    document_version_id=version_id,
+                    evidence_span_id=span_id,
+                    content_hash=content_hash,
+                    fused_score=1.0,
+                )
+                for span_id, content_hash in rows
+            ]
+            authorized = await revalidate_candidates(
+                session,
+                self._context,
+                self._workspace_id,
+                candidates,
+                now=datetime.now(UTC),
+            )
+        return self._wrap([_retrieved(item) for item in authorized])
+
+    async def inspect_source_metadata(
+        self,
+        document_id: UUID,
+    ) -> tuple[AuthorizedToolEvidence, ...]:
+        rows = await self.get_document(document_id)
+        return rows[:1]
+
 def _render(rows: Sequence[RetrievedEvidence]) -> str:
     if not rows:
         return "No authorized evidence found."
@@ -338,6 +450,7 @@ def _render(rows: Sequence[RetrievedEvidence]) -> str:
         parts.append(
             "[source "
             f"ref={row.evidence_span_id} "
+            f"document_id={row.document_id} "
             f"document={row.document_name} "
             f"version={row.version_label} "
             f"section={' / '.join(row.section_path)} "
@@ -393,6 +506,26 @@ class RetrievalToolExecutor:
         if call.name == "get_document":
             assert call.document_id is not None
             rows = await self._backend.get_document(UUID(call.document_id))
+        elif call.name == "search_document":
+            assert call.query is not None and call.document_id is not None
+            rows = await self._backend.search_document(
+                call.query,
+                UUID(call.document_id),
+            )
+        elif call.name == "get_surrounding_context":
+            assert call.evidence_span_id is not None
+            rows = await self._backend.get_surrounding_context(
+                UUID(call.evidence_span_id)
+            )
+        elif call.name == "compare_documents":
+            assert call.query is not None and call.document_ids is not None
+            rows = await self._backend.compare_documents(
+                call.query,
+                tuple(UUID(value) for value in call.document_ids),
+            )
+        elif call.name == "inspect_source_metadata":
+            assert call.document_id is not None
+            rows = await self._backend.inspect_source_metadata(UUID(call.document_id))
         else:
             assert call.query is not None
             rows = await self._backend.search(

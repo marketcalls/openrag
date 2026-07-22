@@ -27,6 +27,8 @@ from openrag.modules.documents.lifecycle import (
 )
 from openrag.modules.documents.models import (
     Document,
+    DocumentBlock,
+    DocumentChunkBlock,
     DocumentEvidenceSpan,
     DocumentVersion,
     DocumentVersionProjection,
@@ -73,6 +75,25 @@ from openrag.modules.events.outbox import add_registered_event
 from openrag.modules.retrieval.embeddings import DenseEmbedder
 
 _logger = logging.getLogger(__name__)
+
+
+def _chunk_ocr_status(blocks: list[tuple[str, str]]) -> str:
+    methods = {method for _block_type, method in blocks}
+    if not methods or methods == {"parser"}:
+        return "not_required"
+    if methods == {"ocr"}:
+        return "ocr"
+    return "mixed"
+
+
+def _chunk_content_type(blocks: list[tuple[str, str]]) -> str:
+    kinds = {block_type for block_type, _method in blocks}
+    has_table = "table" in kinds
+    if has_table and len(kinds) == 1:
+        return "table"
+    if has_table:
+        return "mixed"
+    return "text"
 
 
 class StageLeaseLost(RuntimeError):
@@ -244,6 +265,32 @@ async def load_stage_execution_plan(
                     )
                 ).all()
             )
+            block_metadata: dict[UUID, list[tuple[str, str]]] = {}
+            for chunk_id, block_type, extraction_method in (
+                await session.execute(
+                    select(
+                        DocumentChunkBlock.chunk_id,
+                        DocumentBlock.block_type,
+                        DocumentBlock.extraction_method,
+                    )
+                    .join(
+                        DocumentBlock,
+                        DocumentBlock.id == DocumentChunkBlock.block_id,
+                    )
+                    .where(
+                        DocumentChunkBlock.org_id == claim.org_id,
+                        DocumentChunkBlock.document_version_id
+                        == claim.document_version_id,
+                    )
+                    .order_by(
+                        DocumentChunkBlock.chunk_id,
+                        DocumentChunkBlock.position,
+                    )
+                )
+            ).all():
+                block_metadata.setdefault(chunk_id, []).append(
+                    (block_type, extraction_method)
+                )
             projection = await session.scalar(
                 select(DocumentVersionProjection).where(
                     DocumentVersionProjection.org_id == claim.org_id,
@@ -261,15 +308,23 @@ async def load_stage_execution_plan(
                     projection_revision=(
                         projection.applied_revision if projection is not None else 0
                     ),
+                    document_checksum=version.content_hash,
                     evidence=[
                         PersistedEvidence(
                             id=row.id,
+                            chunk_id=row.chunk_id,
                             ordinal=row.ordinal,
                             page_number=row.page_number,
                             locator_kind=row.locator_kind,
                             locator_label=row.locator_label,
                             section_path=tuple(row.section_path),
                             content_hash=row.content_hash,
+                            ocr_status=_chunk_ocr_status(
+                                block_metadata.get(row.chunk_id, [])
+                            ),
+                            content_type=_chunk_content_type(
+                                block_metadata.get(row.chunk_id, [])
+                            ),
                         )
                         for row in evidence
                     ],

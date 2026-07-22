@@ -11,7 +11,15 @@ from uuid import UUID
 
 from openrag.modules.orchestration.routing import QueryRoute
 
-AgentToolName = Literal["search", "search_by_metadata", "get_document"]
+AgentToolName = Literal[
+    "search",
+    "search_by_metadata",
+    "get_document",
+    "search_document",
+    "get_surrounding_context",
+    "compare_documents",
+    "inspect_source_metadata",
+]
 AgentFinishReason = Literal[
     "planner_finished",
     "evidence_sufficient",
@@ -26,20 +34,39 @@ AgentFinishReason = Literal[
 ]
 MetadataScalar = str | int | float | bool
 
-_ALLOWED_TOOLS = frozenset({"search", "search_by_metadata", "get_document"})
+_ALLOWED_TOOLS = frozenset(
+    {
+        "search",
+        "search_by_metadata",
+        "get_document",
+        "search_document",
+        "get_surrounding_context",
+        "compare_documents",
+        "inspect_source_metadata",
+    }
+)
 _ALLOWED_METADATA_KEYS = frozenset(
     {
         "document_name",
+        "filename",
         "department",
         "document_type",
+        "file_type",
         "version_label",
         "revision_date_from",
         "revision_date_to",
         "section",
+        "page",
     }
 )
 _MULTI_PART_TERMS = re.compile(
     r"\b(?:compare|explain|summarize|list|identify|calculate|show|why|how|what|which)\b",
+    re.IGNORECASE,
+)
+_MULTI_DOCUMENT_TERMS = re.compile(
+    r"\bcompare\b|"
+    r"\b(?:across|multiple|several)\b.{0,120}"
+    r"\b(?:documents?|files?|sources?|records?|invoices?|reports?|policies|contracts?)\b",
     re.IGNORECASE,
 )
 _METADATA_TERMS = re.compile(
@@ -72,7 +99,11 @@ def decide_escalation(context: EscalationContext) -> EscalationDecision:
         return EscalationDecision(False, "single_pass")
 
     interrogatives = _MULTI_PART_TERMS.findall(query)
-    if query.count("?") > 1 or len(interrogatives) >= 2:
+    if (
+        query.count("?") > 1
+        or len(interrogatives) >= 2
+        or _MULTI_DOCUMENT_TERMS.search(query) is not None
+    ):
         return EscalationDecision(True, "multi_part_query")
     if _METADATA_TERMS.search(query) is not None:
         return EscalationDecision(True, "metadata_sensitive")
@@ -86,12 +117,19 @@ class AgentToolCall:
     name: AgentToolName
     query: str | None = None
     document_id: str | None = None
+    document_ids: tuple[str, ...] | None = None
+    evidence_span_id: str | None = None
     metadata: Mapping[str, MetadataScalar] | None = None
 
     def __post_init__(self) -> None:
         if self.name not in _ALLOWED_TOOLS:
             raise ValueError("tool_not_allowed")
-        if self.name in {"search", "search_by_metadata"}:
+        if self.name in {
+            "search",
+            "search_by_metadata",
+            "search_document",
+            "compare_documents",
+        }:
             query = " ".join((self.query or "").split())
             if not 1 <= len(query) <= 2_000:
                 raise ValueError("tool_query_invalid")
@@ -99,7 +137,11 @@ class AgentToolCall:
         elif self.query is not None:
             raise ValueError("tool_query_not_allowed")
 
-        if self.name == "get_document":
+        if self.name in {
+            "get_document",
+            "search_document",
+            "inspect_source_metadata",
+        }:
             document_id = (self.document_id or "").strip()
             try:
                 canonical_document_id = str(UUID(document_id))
@@ -111,18 +153,47 @@ class AgentToolCall:
         elif self.document_id is not None:
             raise ValueError("tool_document_id_not_allowed")
 
+        if self.name == "compare_documents":
+            values = tuple(self.document_ids or ())
+            if not 2 <= len(values) <= 8:
+                raise ValueError("tool_document_ids_invalid")
+            try:
+                canonical = tuple(str(UUID(item.strip())) for item in values)
+            except (AttributeError, ValueError) as exc:
+                raise ValueError("tool_document_ids_invalid") from exc
+            if len(set(canonical)) != len(canonical):
+                raise ValueError("tool_document_ids_invalid")
+            object.__setattr__(self, "document_ids", canonical)
+        elif self.document_ids is not None:
+            raise ValueError("tool_document_ids_not_allowed")
+
+        if self.name == "get_surrounding_context":
+            value = (self.evidence_span_id or "").strip()
+            try:
+                canonical_span_id = str(UUID(value))
+            except ValueError as exc:
+                raise ValueError("tool_evidence_span_id_invalid") from exc
+            object.__setattr__(self, "evidence_span_id", canonical_span_id)
+        elif self.evidence_span_id is not None:
+            raise ValueError("tool_evidence_span_id_not_allowed")
+
         if self.name == "search_by_metadata":
             metadata = dict(self.metadata or {})
             if not 1 <= len(metadata) <= 10:
                 raise ValueError("tool_metadata_invalid")
-            for key, value in metadata.items():
+            for key, metadata_value in metadata.items():
                 if key not in _ALLOWED_METADATA_KEYS:
                     raise ValueError("tool_metadata_key_not_allowed")
-                if (
-                    not 1 <= len(key) <= 100
-                    or not isinstance(value, str)
-                    or not 1 <= len(value) <= 500
-                ):
+                if not 1 <= len(key) <= 100:
+                    raise ValueError("tool_metadata_invalid")
+                if key == "page":
+                    if (
+                        not isinstance(metadata_value, int)
+                        or isinstance(metadata_value, bool)
+                        or metadata_value <= 0
+                    ):
+                        raise ValueError("tool_metadata_invalid")
+                elif not isinstance(metadata_value, str) or not 1 <= len(metadata_value) <= 500:
                     raise ValueError("tool_metadata_invalid")
             object.__setattr__(self, "metadata", metadata)
         elif self.metadata is not None:
@@ -134,6 +205,8 @@ class AgentToolCall:
                 "name": self.name,
                 "query": self.query,
                 "document_id": self.document_id,
+                "document_ids": self.document_ids,
+                "evidence_span_id": self.evidence_span_id,
                 "metadata": self.metadata,
             },
             sort_keys=True,

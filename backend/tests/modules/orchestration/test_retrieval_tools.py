@@ -52,6 +52,10 @@ class _Backend:
             tuple[str, Mapping[str, MetadataScalar] | None]
         ] = []
         self.documents: list[UUID] = []
+        self.document_searches: list[tuple[str, UUID]] = []
+        self.context_spans: list[UUID] = []
+        self.comparisons: list[tuple[str, tuple[UUID, ...]]] = []
+        self.inspections: list[UUID] = []
 
     async def search(
         self,
@@ -63,6 +67,30 @@ class _Backend:
 
     async def get_document(self, document_id: UUID) -> tuple[AuthorizedToolEvidence, ...]:
         self.documents.append(document_id)
+        return self.rows
+
+    async def search_document(
+        self, query: str, document_id: UUID
+    ) -> tuple[AuthorizedToolEvidence, ...]:
+        self.document_searches.append((query, document_id))
+        return self.rows
+
+    async def get_surrounding_context(
+        self, evidence_span_id: UUID
+    ) -> tuple[AuthorizedToolEvidence, ...]:
+        self.context_spans.append(evidence_span_id)
+        return self.rows
+
+    async def compare_documents(
+        self, query: str, document_ids: tuple[UUID, ...]
+    ) -> tuple[AuthorizedToolEvidence, ...]:
+        self.comparisons.append((query, document_ids))
+        return self.rows
+
+    async def inspect_source_metadata(
+        self, document_id: UUID
+    ) -> tuple[AuthorizedToolEvidence, ...]:
+        self.inspections.append(document_id)
         return self.rows
 
 
@@ -108,6 +136,49 @@ async def test_executor_reads_an_exact_document_through_the_tenant_bound_backend
     await executor(AgentToolCall(name="get_document", document_id=str(document_id)))
 
     assert backend.documents == [document_id]
+
+
+async def test_executor_dispatches_complete_agentic_retrieval_toolset() -> None:
+    org_id = uuid4()
+    workspace_id = uuid4()
+    first_document_id = uuid4()
+    second_document_id = uuid4()
+    span_id = uuid4()
+    backend = _Backend((_evidence(org_id, workspace_id),))
+
+    for call in (
+        AgentToolCall(
+            name="search_document",
+            query="invoice total",
+            document_id=str(first_document_id),
+        ),
+        AgentToolCall(
+            name="get_surrounding_context",
+            evidence_span_id=str(span_id),
+        ),
+        AgentToolCall(
+            name="compare_documents",
+            query="compare payment terms",
+            document_ids=(str(first_document_id), str(second_document_id)),
+        ),
+        AgentToolCall(
+            name="inspect_source_metadata",
+            document_id=str(first_document_id),
+        ),
+    ):
+        executor = RetrievalToolExecutor(
+            backend,
+            org_id=org_id,
+            workspace_id=workspace_id,
+        )
+        await executor(call)
+
+    assert backend.document_searches == [("invoice total", first_document_id)]
+    assert backend.context_spans == [span_id]
+    assert backend.comparisons == [
+        ("compare payment terms", (first_document_id, second_document_id))
+    ]
+    assert backend.inspections == [first_document_id]
 
 
 async def test_executor_fails_closed_on_scope_mismatch_or_empty_evidence() -> None:
@@ -157,6 +228,20 @@ def test_metadata_search_accepts_only_indexed_enterprise_fields() -> None:
             query="policy",
             metadata={"acl_policy": "workspace"},
         )
+
+
+def test_metadata_search_accepts_filename_file_type_and_page_filters() -> None:
+    call = AgentToolCall(
+        name="search_by_metadata",
+        query="payment terms",
+        metadata={"filename": "invoice.pdf", "file_type": "pdf", "page": 2},
+    )
+
+    assert call.metadata == {
+        "filename": "invoice.pdf",
+        "file_type": "pdf",
+        "page": 2,
+    }
 
 
 def test_metadata_query_is_tenant_pinned_current_and_bounded() -> None:

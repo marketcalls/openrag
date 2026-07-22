@@ -297,8 +297,17 @@ async def test_broad_migrated_query_prefers_result_with_wider_document_coverage(
         current_approved=True,
     )
     authority_result = RetrievalResult(
-        chunks=[RetrievedChunk(uuid4(), 1, 0, "new upload", 0.9)],
+        chunks=[
+            RetrievedChunk(
+                uuid4(),
+                1,
+                0,
+                "Algorithmic trading operational circular",
+                0.9,
+            )
+        ],
         no_answer=False,
+        best_dense_score=0.92,
     )
     legacy_result = RetrievalResult(
         chunks=[
@@ -307,6 +316,7 @@ async def test_broad_migrated_query_prefers_result_with_wider_document_coverage(
             RetrievedChunk(uuid4(), 1, 0, "invoice three", 0.78),
         ],
         no_answer=False,
+        best_dense_score=0.41,
     )
 
     async def prepare(*args: object, **kwargs: object) -> RetrievalPlan:
@@ -365,6 +375,193 @@ async def test_broad_migrated_query_prefers_result_with_wider_document_coverage(
     assert result is legacy_result
     assert "active" in calls
     assert "legacy" in calls
+
+
+async def test_entity_scoped_collection_query_prefers_stronger_generation_match(
+    monkeypatch: Any,
+) -> None:
+    """A broad noun must not let unrelated high-coverage evidence win."""
+
+    workspace_id = uuid4()
+    org_id = uuid4()
+    legacy_plan = RetrievalPlan(
+        org_id=org_id,
+        workspace_id=workspace_id,
+        query="provide details about invoices related to IndiaCharts",
+        top_k=8,
+        min_score=0.35,
+        authority_mode=False,
+        embedding_model="legacy",
+        collection="legacy",
+        dense_embedder=object(),  # type: ignore[arg-type]
+        filtered_document_ids=(),
+        current_approved=None,
+    )
+    authority_plan = replace(
+        legacy_plan,
+        authority_mode=True,
+        embedding_model="active",
+        collection="active",
+        filtered_document_ids=None,
+        current_approved=True,
+    )
+    unrelated_high_coverage = RetrievalResult(
+        chunks=[
+            RetrievedChunk(uuid4(), 1, 0, "BellTPO invoice", 0.4),
+            RetrievedChunk(uuid4(), 1, 0, "Another invoice", 0.39),
+            RetrievedChunk(uuid4(), 1, 0, "Third invoice", 0.38),
+        ],
+        no_answer=False,
+        best_dense_score=0.91,
+    )
+    entity_match = RetrievalResult(
+        chunks=[RetrievedChunk(uuid4(), 1, 0, "IndiaCharts invoice", 0.9)],
+        no_answer=False,
+        best_dense_score=0.41,
+    )
+
+    async def prepare(*args: object, **kwargs: object) -> RetrievalPlan:
+        return legacy_plan
+
+    async def prepare_fallback(*args: object, **kwargs: object) -> RetrievalPlan:
+        return authority_plan
+
+    async def no_configured_fallback(
+        *args: object, **kwargs: object
+    ) -> RetrievalPlan | None:
+        return None
+
+    async def execute(plan: RetrievalPlan) -> object:
+        return object()
+
+    async def finalize(
+        session: object,
+        context: object,
+        plan: RetrievalPlan,
+        external: object,
+    ) -> RetrievalResult:
+        return unrelated_high_coverage if plan.authority_mode else entity_match
+
+    monkeypatch.setattr(service, "prepare_retrieval", prepare)
+    monkeypatch.setattr(service, "prepare_authority_fallback", prepare_fallback)
+    monkeypatch.setattr(
+        service,
+        "prepare_configured_authority_fallback",
+        no_configured_fallback,
+    )
+    monkeypatch.setattr(service, "execute_retrieval", execute)
+    monkeypatch.setattr(service, "finalize_retrieval", finalize)
+    user_id = uuid4()
+    context = TenantContext(
+        user_id=user_id,
+        org_id=org_id,
+        authorization=AuthorizationSnapshot(
+            user_id=user_id,
+            org_id=org_id,
+            is_platform_superadmin=False,
+            org_permissions=frozenset(),
+            workspace_permissions={},
+            workspace_ids=frozenset(),
+        ),
+    )
+
+    result = await service.retrieve(
+        _Session([]),  # type: ignore[arg-type]
+        context,
+        workspace_id,
+        legacy_plan.query,
+    )
+
+    assert result is entity_match
+
+
+async def test_document_scope_is_applied_to_every_retrieval_generation(
+    monkeypatch: Any,
+) -> None:
+    workspace_id = uuid4()
+    org_id = uuid4()
+    target_document_id = uuid4()
+    legacy_plan = RetrievalPlan(
+        org_id=org_id,
+        workspace_id=workspace_id,
+        query="invoice total",
+        top_k=8,
+        min_score=0.35,
+        authority_mode=False,
+        embedding_model="legacy",
+        collection="legacy",
+        dense_embedder=object(),  # type: ignore[arg-type]
+        filtered_document_ids=(target_document_id, uuid4()),
+        current_approved=None,
+    )
+    authority_plan = replace(
+        legacy_plan,
+        authority_mode=True,
+        embedding_model="active",
+        collection="active",
+        filtered_document_ids=None,
+        current_approved=True,
+    )
+    searched: list[RetrievalPlan] = []
+
+    async def prepare(*args: object, **kwargs: object) -> RetrievalPlan:
+        return legacy_plan
+
+    async def prepare_fallback(*args: object, **kwargs: object) -> RetrievalPlan:
+        return authority_plan
+
+    async def no_configured_fallback(
+        *args: object, **kwargs: object
+    ) -> RetrievalPlan | None:
+        return None
+
+    async def execute(plan: RetrievalPlan) -> object:
+        searched.append(plan)
+        return object()
+
+    async def finalize(
+        session: object,
+        context: object,
+        plan: RetrievalPlan,
+        external: object,
+    ) -> RetrievalResult:
+        return RetrievalResult(chunks=[], no_answer=True)
+
+    monkeypatch.setattr(service, "prepare_retrieval", prepare)
+    monkeypatch.setattr(service, "prepare_authority_fallback", prepare_fallback)
+    monkeypatch.setattr(
+        service,
+        "prepare_configured_authority_fallback",
+        no_configured_fallback,
+    )
+    monkeypatch.setattr(service, "execute_retrieval", execute)
+    monkeypatch.setattr(service, "finalize_retrieval", finalize)
+    user_id = uuid4()
+    context = TenantContext(
+        user_id=user_id,
+        org_id=org_id,
+        authorization=AuthorizationSnapshot(
+            user_id=user_id,
+            org_id=org_id,
+            is_platform_superadmin=False,
+            org_permissions=frozenset(),
+            workspace_permissions={},
+            workspace_ids=frozenset(),
+        ),
+    )
+
+    await service.retrieve(
+        _Session([]),  # type: ignore[arg-type]
+        context,
+        workspace_id,
+        legacy_plan.query,
+        document_ids=(target_document_id,),
+    )
+
+    assert {plan.collection for plan in searched} == {"active", "legacy"}
+    assert all(
+        plan.filtered_document_ids == (target_document_id,) for plan in searched
+    )
 
 
 async def test_broad_query_searches_configured_and_active_authority_generations(

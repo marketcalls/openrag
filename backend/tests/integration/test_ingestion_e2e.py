@@ -62,6 +62,8 @@ async def test_docx_through_real_pipeline_then_hybrid_retrieval(
     await session.refresh(document)
     assert document.status == "indexed"
     assert (document.page_count or 0) >= 1
+    workspace_id = workspace.id
+    document_id = document.id
     stages = {
         job.stage
         for job in (
@@ -75,7 +77,7 @@ async def test_docx_through_real_pipeline_then_hybrid_retrieval(
     keyword_result = await retrieve(
         session,
         context,
-        workspace.id,
+        workspace_id,
         "invoice 0231",
         top_k=5,
     )
@@ -87,7 +89,7 @@ async def test_docx_through_real_pipeline_then_hybrid_retrieval(
     overlap_result = await retrieve(
         session,
         context,
-        workspace.id,
+        workspace_id,
         "gigawatts flux capacitor power",
         top_k=5,
     )
@@ -96,7 +98,7 @@ async def test_docx_through_real_pipeline_then_hybrid_retrieval(
         for chunk in overlap_result.chunks[:5]
         if "1.21 gigawatts" in chunk.text
     )
-    assert hit.document_id == document.id
+    assert hit.document_id == document_id
     assert hit.page >= 1
     assert hit.chunk_index >= 0
 

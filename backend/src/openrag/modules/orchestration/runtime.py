@@ -69,7 +69,15 @@ def build_agent_gatherer_factory(
             AgnoPlanner(
                 runtime,
                 query=query,
-                enabled_tools=("search", "search_by_metadata", "get_document"),
+                enabled_tools=(
+                    "search",
+                    "search_by_metadata",
+                    "get_document",
+                    "search_document",
+                    "get_surrounding_context",
+                    "compare_documents",
+                    "inspect_source_metadata",
+                ),
             ),
             executor,
         )

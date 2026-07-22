@@ -115,7 +115,7 @@ class MemoryRecord(UUIDPk, Base):
     canonical_key: Mapped[str] = mapped_column(String(120))
     content: Mapped[str] = mapped_column(Text())
     structured_value: Mapped[dict[str, object] | None] = mapped_column(
-        JSONB,
+        JSONB(none_as_null=True),
         default=None,
     )
     memory_type: Mapped[str] = mapped_column(String(32))

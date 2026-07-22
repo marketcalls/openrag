@@ -65,27 +65,32 @@ class RuntimeMetricsSampler:
 
     async def _run(self) -> None:
         loop = asyncio.get_running_loop()
+        deadline = loop.time()
         while True:
+            observed = loop.time()
+            await self._sample(max(0.0, observed - deadline))
             deadline = loop.time() + self._interval_seconds
             await asyncio.sleep(self._interval_seconds)
-            observed = loop.time()
-            utilization = (
-                database_pool_utilization(self._engine, capacity=self._database_capacity)
-                if self._engine is not None
-                else None
+
+    async def _sample(self, event_loop_lag_seconds: float) -> None:
+        utilization = (
+            database_pool_utilization(self._engine, capacity=self._database_capacity)
+            if self._engine is not None
+            else None
+        )
+        self._runtime.record_runtime_health(
+            event_loop_lag_seconds=event_loop_lag_seconds,
+            database_pool_utilization_ratio=utilization,
+        )
+        if self._queue_age_provider is None:
+            return
+        try:
+            queue_ages = await self._queue_age_provider()
+        except Exception as exc:  # noqa: BLE001 - sampling must continue
+            self._logger.warning(
+                "queue_metric_sampling_failed",
+                exception_type=type(exc).__name__,
             )
-            self._runtime.record_runtime_health(
-                event_loop_lag_seconds=max(0.0, observed - deadline),
-                database_pool_utilization_ratio=utilization,
-            )
-            if self._queue_age_provider is not None:
-                try:
-                    queue_ages = await self._queue_age_provider()
-                except Exception as exc:  # noqa: BLE001 - sampling must continue
-                    self._logger.warning(
-                        "queue_metric_sampling_failed",
-                        exception_type=type(exc).__name__,
-                    )
-                    continue
-                for queue, age_seconds in queue_ages.items():
-                    self._runtime.record_queue_age(queue=queue, age_seconds=age_seconds)
+            return
+        for queue, age_seconds in queue_ages.items():
+            self._runtime.record_queue_age(queue=queue, age_seconds=age_seconds)

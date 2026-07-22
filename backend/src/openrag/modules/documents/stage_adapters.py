@@ -120,12 +120,15 @@ class EmbeddedStageResult:
 @dataclass(frozen=True, slots=True)
 class PersistedEvidence:
     id: UUID
+    chunk_id: UUID
     ordinal: int
     page_number: int
     locator_kind: str
     locator_label: str
     section_path: tuple[str, ...]
     content_hash: str
+    ocr_status: str
+    content_type: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +140,7 @@ class AuthorityPlan:
     revision_date: datetime | None
     projection_revision: int
     evidence: list[PersistedEvidence]
+    document_checksum: str
 
     def __post_init__(self) -> None:
         if (
@@ -145,6 +149,12 @@ class AuthorityPlan:
             or self.projection_revision < 0
             or not self.evidence
             or [row.ordinal for row in self.evidence] != list(range(len(self.evidence)))
+            or len(self.document_checksum) != 64
+            or any(
+                row.ocr_status not in {"not_required", "ocr", "mixed"}
+                or row.content_type not in {"text", "table", "mixed"}
+                for row in self.evidence
+            )
         ):
             raise ValueError("authority plan is invalid")
 
@@ -451,12 +461,16 @@ async def authority_upsert_external(
                 "document_id": str(plan.document_id),
                 "document_version_id": str(plan.source.document_version_id),
                 "evidence_span_id": str(row.id),
+                "chunk_id": str(row.chunk_id),
                 "is_current_approved": claim.pipeline_kind == "reindex",
                 "projection_revision": plan.projection_revision,
                 "page_number": row.page_number,
                 "page": row.page_number,
                 "chunk_index": row.ordinal,
                 "document_name": plan.document_name,
+                "filename": plan.source.source_filename,
+                "file_type": plan.source.source_mime,
+                "document_checksum": plan.document_checksum,
                 "version_label": plan.version_label,
                 "revision_date": (
                     plan.revision_date.isoformat()
@@ -468,6 +482,8 @@ async def authority_upsert_external(
                 "locator_kind": row.locator_kind,
                 "locator_label": row.locator_label,
                 "content_hash": row.content_hash,
+                "ocr_status": row.ocr_status,
+                "content_type": row.content_type,
                 "text": span.text,
                 "source_mime": plan.source.source_mime,
             },

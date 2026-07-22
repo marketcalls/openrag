@@ -4,6 +4,7 @@ import hashlib
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from openrag.core.config import get_settings
 from openrag.core.db import build_session_factory, naive_utc
 from openrag.core.errors import ConflictError
 from openrag.modules.documents import service
@@ -12,6 +13,7 @@ from openrag.modules.documents.models import (
     DocumentVersion,
     DocumentVersionDecisionRecord,
 )
+from openrag.modules.documents.profiles import active_ingestion_profiles
 from openrag.modules.events.models import OutboxEvent
 from tests.modules.retrieval.test_retrieve import seed_workspace
 
@@ -51,7 +53,9 @@ async def test_two_successor_approvals_from_same_snapshot_have_one_winner(
                 parser_profile_version="docling/v1",
                 ocr_profile_version="none/v1",
                 chunking_profile_version="semantic/v1",
-                embedding_profile_version="bge-m3/v1",
+                embedding_profile_version=active_ingestion_profiles(
+                    get_settings()
+                ).embedding_profile_version,
                 index_profile_version="hybrid/v1",
                 state=state,
                 provenance_state="ready",
@@ -147,7 +151,9 @@ async def _seed_race_document(
                 parser_profile_version="docling/v1",
                 ocr_profile_version="none/v1",
                 chunking_profile_version="semantic/v1",
-                embedding_profile_version="bge-m3/v1",
+                embedding_profile_version=active_ingestion_profiles(
+                    get_settings()
+                ).embedding_profile_version,
                 index_profile_version="hybrid/v1",
                 state=state,
                 provenance_state="ready" if state in {"review", "approved"} else "failed",
@@ -311,7 +317,9 @@ async def test_blocked_document_does_not_serialize_unrelated_workspace_document(
                 parser_profile_version="docling/v1",
                 ocr_profile_version="none/v1",
                 chunking_profile_version="semantic/v1",
-                embedding_profile_version="bge-m3/v1",
+                embedding_profile_version=active_ingestion_profiles(
+                    get_settings()
+                ).embedding_profile_version,
                 index_profile_version="hybrid/v1",
                 state="failed",
                 provenance_state="failed",
@@ -358,7 +366,11 @@ async def test_blocked_document_does_not_serialize_unrelated_workspace_document(
         second_task = asyncio.create_task(retry(second_version_id))
         second_completed_while_first_blocked = True
         try:
-            await asyncio.wait_for(asyncio.shield(second_task), timeout=0.5)
+            # Containerized CI can take longer than 500 ms to schedule a second
+            # transaction even when it is not waiting on the held document row.
+            # Keep the blocker in place long enough to distinguish scheduler
+            # latency from accidental cross-document serialization.
+            await asyncio.wait_for(asyncio.shield(second_task), timeout=2.0)
         except TimeoutError:
             second_completed_while_first_blocked = False
         finally:
@@ -399,7 +411,9 @@ async def test_lifecycle_snapshot_refreshes_stale_identity_map(
             parser_profile_version="docling/v1",
             ocr_profile_version="none/v1",
             chunking_profile_version="semantic/v1",
-            embedding_profile_version="bge-m3/v1",
+            embedding_profile_version=active_ingestion_profiles(
+                get_settings()
+            ).embedding_profile_version,
             index_profile_version="hybrid/v1",
             state="failed",
             provenance_state="failed",

@@ -70,9 +70,11 @@ async def seed_grounding_scope(
         display_name=f"Model {suffix}",
         provider_kind="openai",
         supports_chat_completion=True,
+        supports_streaming=True,
         supports_structured_json=True,
         supports_verifier=True,
         provider_preset_version="preset-v1",
+        probe_status="passed",
     )
     session.add_all([workspace, user, model])
     await session.flush()

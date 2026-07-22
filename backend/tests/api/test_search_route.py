@@ -39,6 +39,9 @@ async def test_search_returns_seeded_chunk(
     workspace_id = await make_workspace(client, headers)
     workspace = (await session.execute(select(Workspace))).scalar_one()
     workspace.min_score = 0.0
+    # This fixture writes directly to the legacy collection. New workspaces are
+    # authority-mode by default and correctly fail closed without a deployment.
+    workspace.document_authority_enabled = False
     await session.commit()
     context = TenantContext(
         user_id=seeded_user.id,

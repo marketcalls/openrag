@@ -4,12 +4,14 @@ from uuid import UUID
 import pytest
 
 from openrag.modules.retrieval.service import (
+    RetrievalResult,
     RetrievedChunk,
     RetrievedEvidence,
     attach_dense_scores,
     query_requires_document_diversity,
     select_final_chunks,
     select_final_evidence,
+    select_generation_result,
 )
 
 
@@ -108,6 +110,50 @@ def test_broad_query_detection_is_bounded_to_collection_requests() -> None:
     assert query_requires_document_diversity("What are the list of invoices?") is True
     assert query_requires_document_diversity("Compare all safety policies") is True
     assert query_requires_document_diversity("What is the total on invoice 104?") is False
+
+
+def test_generation_selection_uses_citation_metadata_for_collection_scope() -> None:
+    unrelated = RetrievalResult(
+        chunks=[
+            RetrievedChunk(
+                UUID("81000000-0000-0000-0000-000000000010"),
+                1,
+                0,
+                "Algorithmic trading operational circular",
+                0.9,
+            )
+        ],
+        no_answer=False,
+        best_dense_score=0.92,
+    )
+    invoice_document = UUID("81000000-0000-0000-0000-000000000011")
+    invoice_evidence = replace(
+        evidence(11, document_id=invoice_document),
+        document_name="BellTPO.pdf",
+        section_path=("Tax Invoice",),
+        text="Due date 29-06-2026; grand total INR 2,000.00",
+    )
+    invoices = RetrievalResult(
+        chunks=[
+            RetrievedChunk(
+                invoice_document,
+                1,
+                0,
+                invoice_evidence.text,
+                0.12,
+            )
+        ],
+        no_answer=False,
+        evidence=(invoice_evidence,),
+        best_dense_score=0.12,
+    )
+
+    selected = select_generation_result(
+        "List all invoices and their total amounts",
+        [(object(), unrelated), (object(), invoices)],  # type: ignore[list-item]
+    )
+
+    assert selected is invoices
 
 
 def test_authority_evidence_can_prioritize_document_coverage() -> None:
