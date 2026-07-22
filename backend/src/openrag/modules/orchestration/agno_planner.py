@@ -4,8 +4,6 @@ import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Literal, Protocol, cast
 
-from agno.agent import Agent
-from agno.models.litellm import LiteLLM
 from pydantic import BaseModel, ConfigDict
 
 from openrag.modules.orchestration.agent_loop import (
@@ -76,6 +74,9 @@ def _default_runner(
     runtime: ModelRuntime,
     enabled_tools: tuple[AgentToolName, ...],
 ) -> PlannerRunner:
+    from agno.agent import Agent
+    from agno.models.litellm import LiteLLM
+
     model = LiteLLM(
         id=runtime.litellm_model,
         api_key=runtime.api_key,

@@ -109,8 +109,10 @@ def build_celery() -> Celery:
             },
             "execute-agent-run": {
                 "task": "runs.execute_next",
-                "schedule": 0.25,
-                "options": {"queue": "runs", "expires": 2},
+                # Accepted commands dispatch a run task immediately. This slow
+                # sweep only recovers durable queued rows after a broker outage.
+                "schedule": 10.0,
+                "options": {"queue": "runs", "expires": 15},
             },
             "execute-rag-evaluation": {
                 "task": "evaluations.execute_next",

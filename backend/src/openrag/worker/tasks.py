@@ -7,32 +7,7 @@ from uuid import UUID
 from celery import Task, chain
 
 from openrag.core.config import get_settings
-from openrag.modules.documents import ingest
-from openrag.modules.documents.enrichment_runtime import (
-    run_enrichment_scheduler_once,
-    run_enrichment_worker_once,
-)
-from openrag.modules.documents.pipeline import IngestFailure
-from openrag.modules.documents.projection_runtime import (
-    run_eligibility_projection_once,
-)
-from openrag.modules.documents.stage_runtime import run_durable_stage_once
-from openrag.modules.embeddings.deployment_runtime import run_deployment_scan_once
 from openrag.worker.celery_app import celery_app
-from openrag.worker.evaluation_runtime import (
-    run_evaluation_once,
-    run_evaluation_scheduler_once,
-)
-from openrag.worker.event_runtime import (
-    consume_document_lifecycle_once,
-    consume_document_starts_once,
-    consume_run_commands_once,
-    dispatch_outbox_once,
-    execute_run_once,
-    execute_summary_once,
-)
-from openrag.worker.model_probe_runtime import run_model_probe_once
-from openrag.worker.quality_runtime import execute_quality_audit_once
 
 _MAX_RETRIES = 3
 
@@ -46,6 +21,8 @@ _MAX_RETRIES = 3
 def dispatch_outbox_task() -> dict[str, int]:
     """Run one bounded relay tick; DB leases make duplicate ticks safe."""
 
+    from openrag.worker.event_runtime import dispatch_outbox_once
+
     return asyncio.run(dispatch_outbox_once())
 
 
@@ -58,6 +35,8 @@ def dispatch_outbox_task() -> dict[str, int]:
 )
 def consume_document_starts_task(task: Task) -> dict[str, int]:
     """Run one bounded command-consumer tick on a stable worker identity."""
+
+    from openrag.worker.event_runtime import consume_document_starts_once
 
     hostname = str(getattr(task.request, "hostname", None) or "event-worker")
     consumer = f"document-start:{hostname}"[:120]
@@ -74,6 +53,8 @@ def consume_document_starts_task(task: Task) -> dict[str, int]:
 def consume_document_lifecycle_task(task: Task) -> dict[str, int]:
     """Run one bounded lifecycle-projector tick on a stable identity."""
 
+    from openrag.worker.event_runtime import consume_document_lifecycle_once
+
     hostname = str(getattr(task.request, "hostname", None) or "event-worker")
     consumer = f"document-lifecycle:{hostname}"[:120]
     return asyncio.run(consume_document_lifecycle_once(consumer=consumer))
@@ -89,9 +70,13 @@ def consume_document_lifecycle_task(task: Task) -> dict[str, int]:
 def consume_run_commands_task(task: Task) -> dict[str, int]:
     """Queue one bounded batch of attested durable run commands."""
 
+    from openrag.worker.event_runtime import consume_run_commands_once
+
     hostname = str(getattr(task.request, "hostname", None) or "event-worker")
     consumer = f"run-commands:{hostname}"[:120]
-    return asyncio.run(consume_run_commands_once(consumer=consumer))
+    result = asyncio.run(consume_run_commands_once(consumer=consumer))
+    enqueue_run_ticks(result["processed"])
+    return result
 
 
 @celery_app.task(
@@ -104,10 +89,21 @@ def consume_run_commands_task(task: Task) -> dict[str, int]:
 def execute_run_task(task: Task) -> str:
     """Execute at most one claimed run on the isolated async runs queue."""
 
+    from openrag.worker.event_runtime import execute_run_once
+
     hostname = str(getattr(task.request, "hostname", None) or "run-worker")
     task_id = str(getattr(task.request, "id", None) or "tick")
     owner = f"run:{hostname}:{task_id}"[:200]
     return asyncio.run(execute_run_once(owner=owner))
+
+
+def enqueue_run_ticks(processed: int) -> int:
+    """Dispatch accepted durable runs immediately; the beat tick is recovery only."""
+
+    dispatched = max(0, processed)
+    for _ in range(dispatched):
+        execute_run_task.apply_async(queue="runs")
+    return dispatched
 
 
 @celery_app.task(
@@ -119,6 +115,8 @@ def execute_run_task(task: Task) -> str:
 )
 def refresh_summary_task(task: Task) -> str:
     """Refresh at most one summary on the isolated background queue."""
+
+    from openrag.worker.event_runtime import execute_summary_once
 
     hostname = str(getattr(task.request, "hostname", None) or "summary-worker")
     task_id = str(getattr(task.request, "id", None) or "tick")
@@ -136,6 +134,8 @@ def refresh_summary_task(task: Task) -> str:
 def execute_evaluation_task(task: Task) -> str:
     """Execute one lease-fenced evaluation case on its isolated queue."""
 
+    from openrag.worker.evaluation_runtime import run_evaluation_once
+
     hostname = str(getattr(task.request, "hostname", None) or "evaluation-worker")
     task_id = str(getattr(task.request, "id", None) or "tick")
     owner = f"evaluation:{hostname}:{task_id}"[:200]
@@ -151,6 +151,8 @@ def execute_evaluation_task(task: Task) -> str:
 def schedule_evaluations_task() -> int:
     """Queue due policies without running provider work in the scheduler."""
 
+    from openrag.worker.evaluation_runtime import run_evaluation_scheduler_once
+
     return asyncio.run(run_evaluation_scheduler_once())
 
 
@@ -163,6 +165,8 @@ def schedule_evaluations_task() -> int:
 )
 def execute_quality_audit_task(task: Task) -> str:
     """Audit one released grounded answer without blocking interactive chat."""
+
+    from openrag.worker.quality_runtime import execute_quality_audit_once
 
     hostname = str(getattr(task.request, "hostname", None) or "quality-worker")
     task_id = str(getattr(task.request, "id", None) or "tick")
@@ -180,6 +184,8 @@ def execute_quality_audit_task(task: Task) -> str:
 def execute_model_probe_task(task: Task) -> str:
     """Execute at most one revision-fenced model probe on its own queue."""
 
+    from openrag.worker.model_probe_runtime import run_model_probe_once
+
     hostname = str(getattr(task.request, "hostname", None) or "model-worker")
     task_id = str(getattr(task.request, "id", None) or "tick")
     owner = f"model-probe:{hostname}:{task_id}"[:200]
@@ -196,6 +202,8 @@ def execute_model_probe_task(task: Task) -> str:
 def execute_enrichment_task(task: Task) -> str:
     """Execute one bounded, lease-fenced enrichment batch."""
 
+    from openrag.modules.documents.enrichment_runtime import run_enrichment_worker_once
+
     hostname = str(getattr(task.request, "hostname", None) or "enrichment-worker")
     task_id = str(getattr(task.request, "id", None) or "tick")
     owner = f"enrichment:{hostname}:{task_id}"[:200]
@@ -211,6 +219,8 @@ def execute_enrichment_task(task: Task) -> str:
 def schedule_enrichment_task() -> int:
     """Schedule a bounded page of eligible document enrichment jobs."""
 
+    from openrag.modules.documents.enrichment_runtime import run_enrichment_scheduler_once
+
     return asyncio.run(run_enrichment_scheduler_once())
 
 
@@ -221,6 +231,8 @@ def schedule_enrichment_task() -> int:
 )
 def run_durable_stage_task(task: Task) -> str:
     """Run at most one SQL-fenced stage on the isolated ingestion queue."""
+
+    from openrag.modules.documents.stage_runtime import run_durable_stage_once
 
     hostname = str(getattr(task.request, "hostname", None) or "ingestion-worker")
     task_id = str(getattr(task.request, "id", None) or "tick")
@@ -237,6 +249,8 @@ def run_durable_stage_task(task: Task) -> str:
 )
 def scan_embedding_deployment_task(task: Task) -> dict[str, object]:
     """Provision and discover one bounded page for a pending generation."""
+
+    from openrag.modules.embeddings.deployment_runtime import run_deployment_scan_once
 
     hostname = str(getattr(task.request, "hostname", None) or "ingestion-worker")
     task_id = str(getattr(task.request, "id", None) or "tick")
@@ -260,6 +274,8 @@ def scan_embedding_deployment_task(task: Task) -> dict[str, object]:
 def sync_vector_eligibility_task(task: Task) -> dict[str, object]:
     """Apply one lease-fenced lifecycle projection to active vector storage."""
 
+    from openrag.modules.documents.projection_runtime import run_eligibility_projection_once
+
     hostname = str(getattr(task.request, "hostname", None) or "ingestion-worker")
     task_id = str(getattr(task.request, "id", None) or "tick")
     owner = f"vector-eligibility:{hostname}:{task_id}"[:200]
@@ -276,11 +292,15 @@ class IngestTask(Task):  # type: ignore[misc]
         kwargs: dict[str, Any],
         einfo: Any,
     ) -> None:
+        from openrag.modules.documents import ingest
+
         expected_revision = int(args[1]) if len(args) > 1 else 1
         asyncio.run(ingest.mark_failed(UUID(str(args[0])), expected_revision, str(exc)))
 
 
 def _run(task: Task, coroutine_factory: Any) -> None:
+    from openrag.modules.documents.pipeline import IngestFailure
+
     try:
         asyncio.run(coroutine_factory())
     except IngestFailure:
@@ -299,6 +319,8 @@ def _run(task: Task, coroutine_factory: Any) -> None:
     name="documents.parse",
 )
 def parse_task(task: Task, document_id: str, expected_revision: int = 1) -> str:
+    from openrag.modules.documents import ingest
+
     _run(
         task,
         lambda: ingest.run_parse(UUID(document_id), expected_revision),
@@ -313,6 +335,8 @@ def parse_task(task: Task, document_id: str, expected_revision: int = 1) -> str:
     name="documents.chunk",
 )
 def chunk_task(task: Task, document_id: str, expected_revision: int = 1) -> str:
+    from openrag.modules.documents import ingest
+
     _run(
         task,
         lambda: ingest.run_chunk(UUID(document_id), expected_revision),
@@ -331,6 +355,8 @@ def embed_upsert_task(
     document_id: str,
     expected_revision: int = 1,
 ) -> str:
+    from openrag.modules.documents import ingest
+
     _run(
         task,
         lambda: ingest.run_embed_upsert(UUID(document_id), expected_revision),
@@ -348,6 +374,8 @@ def delete_task(
     document_id: str,
     actor_id: str | None = None,
 ) -> None:
+    from openrag.modules.documents import ingest
+
     try:
         asyncio.run(
             ingest.run_delete(

@@ -11,6 +11,7 @@ from openrag.worker.tasks import (
     build_ingest_chain,
     build_legacy_ingest_chain,
     enqueue_ingest,
+    enqueue_run_ticks,
     parse_task,
     select_queue,
 )
@@ -49,7 +50,8 @@ def test_celery_config() -> None:
     run_schedule = celery_app.conf.beat_schedule["execute-agent-run"]
     assert run_schedule["task"] == "runs.execute_next"
     assert run_schedule["options"]["queue"] == "runs"
-    assert run_schedule["options"]["expires"] <= 2
+    assert run_schedule["schedule"] >= 10
+    assert run_schedule["options"]["expires"] >= run_schedule["schedule"]
     summary_schedule = celery_app.conf.beat_schedule["refresh-conversation-summary"]
     assert summary_schedule["task"] == "summaries.refresh_next"
     assert summary_schedule["options"]["queue"] == "summaries"
@@ -124,6 +126,20 @@ def test_queue_selection_by_size() -> None:
     assert select_queue(5 * 1024 * 1024) == "interactive"
     assert select_queue(10 * 1024 * 1024) == "default"
     assert select_queue(50 * 1024 * 1024) == "default"
+
+
+def test_consumed_run_commands_dispatch_one_durable_tick_per_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queues: list[str] = []
+    monkeypatch.setattr(
+        tasks.execute_run_task,
+        "apply_async",
+        lambda *, queue: queues.append(queue),
+    )
+
+    assert enqueue_run_ticks(3) == 3
+    assert queues == ["runs", "runs", "runs"]
 
 
 def test_ingest_chain_structure() -> None:

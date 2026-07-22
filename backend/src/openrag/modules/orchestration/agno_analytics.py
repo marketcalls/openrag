@@ -4,9 +4,6 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol, cast
 
-from agno.agent import Agent
-from agno.models.litellm import LiteLLM
-from agno.models.message import Message as AgnoMessage
 from pydantic import BaseModel, ValidationError
 
 from openrag.core.errors import UpstreamError
@@ -44,6 +41,9 @@ AnalyticsRunnerFactory = Callable[[ModelRuntime], AnalyticsRunner]
 
 
 def _default_runner(runtime: ModelRuntime) -> AnalyticsRunner:
+    from agno.agent import Agent
+    from agno.models.litellm import LiteLLM
+
     model = LiteLLM(
         id=runtime.litellm_model,
         api_key=runtime.api_key,
@@ -113,6 +113,8 @@ class AgnoAnalyticsComposer:
         evidence: tuple[AnalyticsEvidence, ...],
         allowed_markers: tuple[int, ...],
     ) -> AnalyticsComposition:
+        from agno.models.message import Message as AgnoMessage
+
         try:
             messages = build_analytics_messages(
                 question=question,
@@ -120,7 +122,7 @@ class AgnoAnalyticsComposer:
                 evidence=evidence,
                 allowed_markers=allowed_markers,
             )
-            agno_messages = [
+            agno_messages: list[object] = [
                 AgnoMessage(role=message["role"], content=message["content"])
                 for message in messages
             ]

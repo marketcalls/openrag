@@ -3,9 +3,6 @@
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import Protocol, cast
 
-from agno.agent import Agent
-from agno.models.litellm import LiteLLM
-from agno.models.message import Message as AgnoMessage
 from pydantic import BaseModel, ValidationError
 
 from openrag.core.errors import UpstreamError
@@ -22,6 +19,9 @@ VerifierRunnerFactory = Callable[[ModelRuntime], VerifierRunner]
 
 
 def _default_runner(runtime: ModelRuntime) -> VerifierRunner:
+    from agno.agent import Agent
+    from agno.models.litellm import LiteLLM
+
     model = LiteLLM(
         id=runtime.litellm_model,
         api_key=runtime.api_key,
@@ -80,8 +80,10 @@ class AgnoStructuredVerifierStreamer:
         model: str,
         messages: list[dict[str, str]],
     ) -> AsyncIterator[LLMDelta | LLMUsage]:
+        from agno.models.message import Message as AgnoMessage
+
         del model
-        agno_messages = [
+        agno_messages: list[object] = [
             AgnoMessage(role=message["role"], content=message["content"])
             for message in messages
         ]

@@ -21,3 +21,6 @@ test-results/
 # Local submission notes and credentials (never commit secrets).
 rules.md
 .cred
+
+# Generated local QA workbooks and benchmark evidence are never committed.
+qa audit/

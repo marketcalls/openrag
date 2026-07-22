@@ -3,10 +3,6 @@
 from collections.abc import AsyncIterator, Callable
 from typing import Protocol, cast
 
-from agno.agent import Agent
-from agno.models.litellm import LiteLLM
-from agno.models.message import Message as AgnoMessage
-
 from openrag.core.errors import UpstreamError
 from openrag.modules.chat.llm import LLMDelta, LLMUsage
 from openrag.modules.orchestration.model_gateway import ModelRuntime
@@ -15,7 +11,7 @@ from openrag.modules.orchestration.model_gateway import ModelRuntime
 class AgentRunner(Protocol):
     def arun(
         self,
-        messages: list[AgnoMessage],
+        messages: list[object],
         **kwargs: object,
     ) -> AsyncIterator[object]: ...
 
@@ -24,6 +20,9 @@ AgentFactory = Callable[[ModelRuntime], AgentRunner]
 
 
 def _default_agent(runtime: ModelRuntime) -> AgentRunner:
+    from agno.agent import Agent
+    from agno.models.litellm import LiteLLM
+
     request_params: dict[str, object] = {"timeout": 120.0}
     if runtime.reasoning_effort != "off":
         request_params["reasoning_effort"] = runtime.reasoning_effort
@@ -71,8 +70,10 @@ class AgnoLiteLLMStreamer:
         model: str,
         messages: list[dict[str, str]],
     ) -> AsyncIterator[LLMDelta | LLMUsage]:
+        from agno.models.message import Message as AgnoMessage
+
         del model  # The request-scoped runtime is authoritative.
-        agno_messages = [
+        agno_messages: list[object] = [
             AgnoMessage(role=message["role"], content=message["content"])
             for message in messages
         ]

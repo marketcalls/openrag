@@ -8,7 +8,6 @@ from datetime import datetime
 from time import perf_counter_ns
 from typing import Protocol, cast, runtime_checkable
 
-from litellm import acompletion, get_model_info
 from sqlalchemy import Select, or_, select
 
 from openrag.core.db import naive_utc
@@ -231,10 +230,14 @@ async def _call(
 
 
 async def _default_completion(**kwargs: object) -> object:
+    from litellm import acompletion
+
     return await acompletion(**kwargs)
 
 
 def _default_model_info(**kwargs: object) -> object:
+    from litellm import get_model_info
+
     return get_model_info(**kwargs)
 
 

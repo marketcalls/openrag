@@ -9,16 +9,18 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import UUID, uuid5
 
 import pypdfium2 as pdfium
-from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
 from qdrant_client import models
 
 from openrag.modules.documents.lifecycle import validate_section_path
 from openrag.modules.retrieval.client import COLLECTION, get_qdrant
 from openrag.modules.retrieval.embeddings import DenseEmbedder, embed_sparse
+
+if TYPE_CHECKING:
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
 
 _CHUNK_NAMESPACE = UUID("6c7d9a52-3e1f-4b8a-9c0d-2f5e8b1a7d43")
 _NATIVE_PDF_MIN_PAGES = 8
@@ -185,6 +187,8 @@ class _Piece:
 
 def build_pdf_pipeline_options(profile: ParseProfile) -> PdfPipelineOptions:
     """Build one explicit, local-only Docling OCR profile."""
+
+    from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
 
     return PdfPipelineOptions(
         document_timeout=float(profile.timeout_seconds),
